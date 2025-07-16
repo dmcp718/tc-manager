@@ -48,4 +48,4 @@ coverage/
 # Claude Code files
 CLAUDE.md
 CLAUDE.local.md
-.claude/
+.claude/backend/lucidlink_3.2.6817_amd64.deb
