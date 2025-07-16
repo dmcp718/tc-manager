@@ -1,0 +1,938 @@
+const { Pool } = require('pg');
+require('dotenv').config();
+
+// Database connection pool
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'sitecache_db',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || '',
+  max: 50, // Increased for parallel operations
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+// Database connection test
+pool.on('connect', () => {
+  console.log('Connected to PostgreSQL database');
+});
+
+pool.on('error', (err) => {
+  console.error('PostgreSQL connection error:', err);
+});
+
+// Database Models
+class FileModel {
+  static async findByPath(path) {
+    const result = await pool.query(
+      'SELECT * FROM files WHERE path = $1',
+      [path]
+    );
+    return result.rows[0];
+  }
+
+  static async findChildren(parentPath) {
+    const result = await pool.query(
+      `SELECT * FROM files 
+       WHERE parent_path = $1 
+       ORDER BY is_directory DESC, name ASC`,
+      [parentPath]
+    );
+    return result.rows;
+  }
+
+  static async findRoots() {
+    const result = await pool.query(
+      `SELECT * FROM files 
+       WHERE parent_path IS NULL OR parent_path = '/' 
+       ORDER BY name ASC`
+    );
+    return result.rows;
+  }
+
+  static async upsert(fileData, sessionId = null) {
+    const {
+      path,
+      name,
+      parent_path,
+      is_directory,
+      size,
+      modified_at,
+      permissions,
+      metadata = {}
+    } = fileData;
+
+    const result = await pool.query(
+      `INSERT INTO files (path, name, parent_path, is_directory, size, modified_at, permissions, metadata, last_seen_session_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (path) 
+       DO UPDATE SET 
+         name = EXCLUDED.name,
+         parent_path = EXCLUDED.parent_path,
+         is_directory = EXCLUDED.is_directory,
+         size = EXCLUDED.size,
+         modified_at = EXCLUDED.modified_at,
+         permissions = EXCLUDED.permissions,
+         metadata = EXCLUDED.metadata,
+         last_seen_session_id = EXCLUDED.last_seen_session_id,
+         updated_at = NOW()
+       RETURNING *`,
+      [path, name, parent_path, is_directory, size, modified_at, permissions, JSON.stringify(metadata), sessionId]
+    );
+    return result.rows[0];
+  }
+
+  static async updateCacheStatus(path, cached, cacheJobId = null) {
+    const result = await pool.query(
+      `UPDATE files 
+       SET cached = $2, cached_at = $3, cache_job_id = $4, updated_at = NOW()
+       WHERE path = $1
+       RETURNING *`,
+      [path, cached, cached ? new Date() : null, cacheJobId]
+    );
+    return result.rows[0];
+  }
+
+  static async findCachedFiles(limit = 100, offset = 0) {
+    const result = await pool.query(
+      `SELECT * FROM cached_files 
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+    return result.rows;
+  }
+
+  // Validate if all children of a directory are cached
+  static async validateDirectoryCacheStatus(dirPath) {
+    try {
+      const result = await pool.query(`
+        WITH RECURSIVE dir_tree AS (
+          -- Start with the directory itself
+          SELECT path, is_directory, cached, 0 as level
+          FROM files
+          WHERE path = $1
+          
+          UNION ALL
+          
+          -- Recursively get all children
+          SELECT f.path, f.is_directory, f.cached, dt.level + 1
+          FROM files f
+          INNER JOIN dir_tree dt ON f.parent_path = dt.path
+          WHERE dt.is_directory = true AND dt.level < 20
+        ),
+        cache_stats AS (
+          SELECT 
+            COUNT(*) FILTER (WHERE is_directory = false) as total_files,
+            COUNT(*) FILTER (WHERE is_directory = false AND cached = true) as cached_files,
+            COUNT(*) FILTER (WHERE is_directory = true AND path != $1) as subdirs,
+            COUNT(*) FILTER (WHERE is_directory = true AND path != $1 AND cached = true) as cached_subdirs
+          FROM dir_tree
+          WHERE level > 0  -- Exclude the root directory from counts
+        )
+        SELECT 
+          total_files,
+          cached_files,
+          subdirs,
+          cached_subdirs,
+          (cached_files = total_files AND total_files > 0) as all_files_cached,
+          (cached_subdirs = subdirs) as all_subdirs_cached,
+          (
+            (cached_files = total_files AND cached_subdirs = subdirs AND (total_files > 0 OR subdirs > 0)) OR
+            (total_files = 0 AND subdirs = 0)
+          ) as should_be_cached
+        FROM cache_stats
+      `, [dirPath]);
+      
+      return result.rows[0];
+    } catch (error) {
+      console.error(`Error validating directory cache status for ${dirPath}:`, error);
+      throw error;
+    }
+  }
+
+  // Update directory cache status based on validation
+  static async updateDirectoryCacheIfValid(dirPath, cacheJobId = null) {
+    try {
+      const validation = await this.validateDirectoryCacheStatus(dirPath);
+      
+      console.log(`Directory validation for ${dirPath}:`, validation);
+      
+      if (validation.should_be_cached) {
+        await this.updateCacheStatus(dirPath, true, cacheJobId);
+        console.log(`Directory validated and marked as cached: ${dirPath}`);
+        return true;
+      } else {
+        await this.updateCacheStatus(dirPath, false, null);
+        console.log(`Directory validation failed, marked as not cached: ${dirPath} (${validation.cached_files}/${validation.total_files} files, ${validation.cached_subdirs}/${validation.subdirs} subdirs)`);
+        return false;
+      }
+    } catch (error) {
+      console.error(`Error updating directory cache status for ${dirPath}:`, error);
+      throw error;
+    }
+  }
+
+  static async search(query, limit = 100, offset = 0) {
+    const result = await pool.query(
+      `SELECT * FROM files 
+       WHERE to_tsvector('english', path) @@ plainto_tsquery('english', $1)
+       OR name ILIKE $2
+       ORDER BY is_directory DESC, name ASC
+       LIMIT $3 OFFSET $4`,
+      [query, `%${query}%`, limit, offset]
+    );
+    return result.rows;
+  }
+
+  // Check if file needs indexing (new or modified)
+  static async needsIndexing(filePath, modifiedAt) {
+    const result = await pool.query(
+      'SELECT modified_at FROM files WHERE path = $1',
+      [filePath]
+    );
+    
+    if (result.rows.length === 0) {
+      // File doesn't exist in database, needs indexing
+      return true;
+    }
+    
+    const dbModifiedAt = new Date(result.rows[0].modified_at);
+    const fsModifiedAt = new Date(modifiedAt);
+    
+    // File needs indexing if filesystem version is newer
+    return fsModifiedAt > dbModifiedAt;
+  }
+
+  // Batch check for files that need indexing
+  static async batchNeedsIndexing(filesData) {
+    if (filesData.length === 0) return [];
+    
+    // Build query to check all files at once - include size for enhanced change detection
+    const paths = filesData.map(f => f.path);
+    const placeholders = paths.map((_, i) => `$${i + 1}`).join(',');
+    
+    const result = await pool.query(
+      `SELECT path, modified_at, size FROM files WHERE path IN (${placeholders})`,
+      paths
+    );
+    
+    // Create a map of existing files with modification time and size
+    const existingFiles = new Map(
+      result.rows.map(row => [row.path, {
+        modified_at: new Date(row.modified_at),
+        size: parseInt(row.size) || 0
+      }])
+    );
+    
+    // Filter files that need indexing with enhanced change detection
+    return filesData.filter(fileData => {
+      const existing = existingFiles.get(fileData.path);
+      if (!existing) {
+        // File doesn't exist, needs indexing
+        return true;
+      }
+      
+      // Enhanced change detection: check both modification time AND size with tolerance
+      const fsModified = new Date(fileData.modified_at);
+      const fsSize = parseInt(fileData.size) || 0;
+      
+      // Add tolerance for timestamp precision differences (1 second)
+      // Filesystem timestamps can have different precision than database timestamps
+      const timeDiff = Math.abs(fsModified.getTime() - existing.modified_at.getTime());
+      const TIMESTAMP_TOLERANCE_MS = 1000; // 1 second tolerance
+      
+      // File needs indexing if:
+      // 1. Modified time difference exceeds tolerance (indicating real change), OR
+      // 2. Size has changed (could indicate content change even with same mtime)
+      const timeChanged = timeDiff > TIMESTAMP_TOLERANCE_MS && fsModified > existing.modified_at;
+      const sizeChanged = fsSize !== existing.size;
+      
+      // Log files that are considered changed for debugging
+      if (timeChanged || sizeChanged) {
+        console.log(`File changed: ${fileData.path} - Time: ${timeChanged ? `${timeDiff}ms diff` : 'same'}, Size: ${sizeChanged ? `${existing.size} -> ${fsSize}` : 'same'}`);
+      }
+      
+      return timeChanged || sizeChanged;
+    });
+  }
+
+  static async getStats() {
+    const result = await pool.query('SELECT * FROM get_cache_stats()');
+    return result.rows[0];
+  }
+
+  // Calculate and cache directory size
+  static async updateDirectorySize(dirPath) {
+    try {
+      const result = await pool.query(
+        'SELECT * FROM get_directory_size($1)',
+        [dirPath]
+      );
+      
+      const { total_size, file_count, directory_count } = result.rows[0];
+      
+      // Store computed size in metadata
+      const computedSize = {
+        size: parseInt(total_size) || 0,
+        file_count: parseInt(file_count) || 0,
+        directory_count: parseInt(directory_count) || 0,
+        calculated_at: new Date()
+      };
+      
+      // Update the directory's metadata
+      await pool.query(`
+        UPDATE files 
+        SET metadata = jsonb_set(
+          COALESCE(metadata, '{}'),
+          '{computed_size}',
+          $2::jsonb
+        ),
+        updated_at = NOW()
+        WHERE path = $1 AND is_directory = true
+      `, [dirPath, JSON.stringify(computedSize)]);
+      
+      return computedSize;
+    } catch (error) {
+      console.error(`Error calculating directory size for ${dirPath}:`, error);
+      throw error;
+    }
+  }
+
+  // Get directory size from cache or calculate if not cached
+  static async getDirectorySize(dirPath, maxAge = 3600000) { // Default 1 hour cache
+    try {
+      const result = await pool.query(
+        'SELECT metadata FROM files WHERE path = $1 AND is_directory = true',
+        [dirPath]
+      );
+      
+      if (result.rows.length === 0) {
+        throw new Error(`Directory not found: ${dirPath}`);
+      }
+      
+      const metadata = result.rows[0].metadata || {};
+      const computedSize = metadata.computed_size;
+      
+      // Check if we have cached data and if it's fresh enough
+      if (computedSize && computedSize.calculated_at) {
+        const calculatedAt = new Date(computedSize.calculated_at);
+        const age = Date.now() - calculatedAt.getTime();
+        
+        if (age < maxAge) {
+          return computedSize;
+        }
+      }
+      
+      // Calculate fresh size
+      return await this.updateDirectorySize(dirPath);
+    } catch (error) {
+      console.error(`Error getting directory size for ${dirPath}:`, error);
+      throw error;
+    }
+  }
+
+  // Batch update directory sizes
+  static async batchUpdateDirectorySizes(dirPaths) {
+    const results = {};
+    
+    for (const dirPath of dirPaths) {
+      try {
+        results[dirPath] = await this.updateDirectorySize(dirPath);
+      } catch (error) {
+        console.error(`Failed to update size for ${dirPath}:`, error);
+        results[dirPath] = { error: error.message };
+      }
+    }
+    
+    return results;
+  }
+
+  static async batchUpsert(filesData, sessionId = null) {
+    // Always use bulk upsert for maximum speed with large batches
+    return await this.bulkUpsert(filesData, sessionId);
+  }
+
+  // Optimized bulk upsert using VALUES clause for better performance
+  static async bulkUpsert(filesData, sessionId = null) {
+    const client = await pool.connect();
+    try {
+      // Use transaction for better performance with large batches
+      await client.query('BEGIN');
+      
+      // Larger chunk size for maximum speed
+      const chunkSize = 1000;
+      const results = [];
+      
+      for (let i = 0; i < filesData.length; i += chunkSize) {
+        const chunk = filesData.slice(i, i + chunkSize);
+        
+        // Build VALUES clause for bulk insert
+        const values = [];
+        const params = [];
+        let paramIndex = 1;
+        
+        for (const fileData of chunk) {
+          const {
+            path,
+            name,
+            parent_path,
+            is_directory,
+            size,
+            modified_at,
+            permissions,
+            metadata = {}
+          } = fileData;
+          
+          values.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
+          params.push(path, name, parent_path, is_directory, size, modified_at, permissions, JSON.stringify(metadata), sessionId);
+        }
+        
+        const query = `
+          INSERT INTO files (path, name, parent_path, is_directory, size, modified_at, permissions, metadata, last_seen_session_id)
+          VALUES ${values.join(', ')}
+          ON CONFLICT (path) 
+          DO UPDATE SET 
+            name = EXCLUDED.name,
+            parent_path = EXCLUDED.parent_path,
+            is_directory = EXCLUDED.is_directory,
+            size = EXCLUDED.size,
+            modified_at = EXCLUDED.modified_at,
+            permissions = EXCLUDED.permissions,
+            metadata = EXCLUDED.metadata,
+            last_seen_session_id = EXCLUDED.last_seen_session_id,
+            updated_at = NOW()
+          RETURNING *
+        `;
+        
+        const result = await client.query(query, params);
+        results.push(...result.rows);
+      }
+      
+      // Commit transaction for consistency
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Bulk upsert error:', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Regular batch upsert for smaller batches
+  static async regularBatchUpsert(filesData, sessionId = null) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      const results = [];
+      for (const fileData of filesData) {
+        const {
+          path,
+          name,
+          parent_path,
+          is_directory,
+          size,
+          modified_at,
+          permissions,
+          metadata = {}
+        } = fileData;
+
+        const result = await client.query(
+          `INSERT INTO files (path, name, parent_path, is_directory, size, modified_at, permissions, metadata, last_seen_session_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (path) 
+           DO UPDATE SET 
+             name = EXCLUDED.name,
+             parent_path = EXCLUDED.parent_path,
+             is_directory = EXCLUDED.is_directory,
+             size = EXCLUDED.size,
+             modified_at = EXCLUDED.modified_at,
+             permissions = EXCLUDED.permissions,
+             metadata = EXCLUDED.metadata,
+             last_seen_session_id = EXCLUDED.last_seen_session_id,
+             updated_at = NOW()
+           RETURNING *`,
+          [path, name, parent_path, is_directory, size, modified_at, permissions, JSON.stringify(metadata), sessionId]
+        );
+        results.push(result.rows[0]);
+      }
+
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
+class CacheJobModel {
+  static async create(filePaths, directories = [], profileId = null) {
+    const result = await pool.query(
+      `INSERT INTO cache_jobs (file_paths, directory_paths, total_files, profile_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [filePaths, directories, filePaths.length, profileId]
+    );
+    
+    const job = result.rows[0];
+    
+    // Create individual job items in batches to avoid query size limits
+    const batchSize = 1000; // Process 1000 items at a time
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      const items = batch.map(path => [job.id, path]);
+      const placeholders = items.map((_, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`).join(',');
+      const values = items.flat();
+      
+      await pool.query(
+        `INSERT INTO cache_job_items (job_id, file_path) VALUES ${placeholders}`,
+        values
+      );
+    }
+    
+    return job;
+  }
+
+  static async findById(jobId) {
+    const result = await pool.query(
+      'SELECT * FROM cache_jobs WHERE id = $1',
+      [jobId]
+    );
+    return result.rows[0];
+  }
+
+  static async findAll(limit = 50) {
+    const result = await pool.query(
+      `SELECT * FROM cache_jobs 
+       ORDER BY created_at DESC 
+       LIMIT $1`,
+      [limit]
+    );
+    return result.rows;
+  }
+
+  static async findPending() {
+    const result = await pool.query(
+      "SELECT * FROM pending_cache_jobs"
+    );
+    return result.rows;
+  }
+
+  static async updateStatus(jobId, status, workerId = null) {
+    console.log(`CacheJobModel.updateStatus called with jobId=${jobId}, status=${status}, workerId=${workerId}`);
+    
+    const fields = ['status = $2'];
+    const values = [jobId, status];
+    let paramCount = 2;
+
+    if (workerId) {
+      fields.push(`worker_id = $${++paramCount}`);
+      values.push(workerId);
+    }
+
+    if (status === 'running') {
+      fields.push(`started_at = NOW()`);
+    } else if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+      fields.push(`completed_at = NOW()`);
+    }
+
+    const query = `UPDATE cache_jobs SET ${fields.join(', ')} WHERE id = $1 RETURNING *`;
+    console.log(`Executing query: ${query} with values:`, values);
+
+    try {
+      const result = await pool.query(query, values);
+      console.log(`Status update successful for job ${jobId}: ${status}`);
+      return result.rows[0];
+    } catch (error) {
+      console.error(`Database error updating job ${jobId} status to ${status}:`, error);
+      throw error;
+    }
+  }
+
+  static async updateProgress(jobId) {
+    const result = await pool.query(
+      `UPDATE cache_jobs 
+       SET 
+         completed_files = (
+           SELECT COUNT(*) FROM cache_job_items 
+           WHERE job_id = $1 AND status = 'completed'
+         ),
+         failed_files = (
+           SELECT COUNT(*) FROM cache_job_items 
+           WHERE job_id = $1 AND status = 'failed'
+         )
+       WHERE id = $1
+       RETURNING *`,
+      [jobId]
+    );
+    return result.rows[0];
+  }
+}
+
+class CacheJobItemModel {
+  static async updateStatus(jobId, filePath, status, workerId = null, errorMessage = null) {
+    const fields = ['status = $3'];
+    const values = [jobId, filePath, status];
+    let paramCount = 3;
+
+    if (workerId) {
+      fields.push(`worker_id = $${++paramCount}`);
+      values.push(workerId);
+    }
+
+    if (errorMessage) {
+      fields.push(`error_message = $${++paramCount}`);
+      values.push(errorMessage);
+    }
+
+    if (status === 'running') {
+      fields.push(`started_at = NOW()`);
+    } else if (status === 'completed' || status === 'failed') {
+      fields.push(`completed_at = NOW()`);
+    }
+
+    const result = await pool.query(
+      `UPDATE cache_job_items 
+       SET ${fields.join(', ')}
+       WHERE job_id = $1 AND file_path = $2
+       RETURNING *`,
+      values
+    );
+    return result.rows[0];
+  }
+
+  static async findByJob(jobId) {
+    const result = await pool.query(
+      `SELECT * FROM cache_job_items 
+       WHERE job_id = $1 
+       ORDER BY started_at ASC`,
+      [jobId]
+    );
+    return result.rows;
+  }
+
+  static async findPendingByJob(jobId, limit = 10) {
+    const result = await pool.query(
+      `SELECT * FROM cache_job_items 
+       WHERE job_id = $1 AND status = 'pending'
+       ORDER BY id ASC
+       LIMIT $2`,
+      [jobId, limit]
+    );
+    return result.rows;
+  }
+
+  static async getCompletedCount(jobId) {
+    const result = await pool.query(
+      `SELECT COUNT(*) FROM cache_job_items 
+       WHERE job_id = $1 AND status = 'completed'`,
+      [jobId]
+    );
+    return parseInt(result.rows[0].count);
+  }
+}
+
+class IndexProgressModel {
+  static async create(rootPath) {
+    const result = await pool.query(
+      `INSERT INTO index_progress (root_path, status)
+       VALUES ($1, 'pending')
+       RETURNING *`,
+      [rootPath]
+    );
+    return result.rows[0];
+  }
+
+  static async updateProgress(id, processedFiles, currentPath = null) {
+    const result = await pool.query(
+      `UPDATE index_progress 
+       SET processed_files = $2, current_path = $3
+       WHERE id = $1
+       RETURNING *`,
+      [id, processedFiles, currentPath]
+    );
+    return result.rows[0];
+  }
+
+  static async updateStatus(id, status, totalFiles = null, errorMessage = null) {
+    const fields = ['status = $2'];
+    const values = [id, status];
+    let paramCount = 2;
+
+    if (totalFiles !== null) {
+      fields.push(`total_files = $${++paramCount}`);
+      values.push(totalFiles);
+    }
+
+    if (errorMessage) {
+      fields.push(`error_message = $${++paramCount}`);
+      values.push(errorMessage);
+    }
+
+    if (status === 'completed' || status === 'failed' || status === 'stopped') {
+      fields.push(`completed_at = NOW()`);
+    }
+
+    const result = await pool.query(
+      `UPDATE index_progress 
+       SET ${fields.join(', ')}
+       WHERE id = $1
+       RETURNING *`,
+      values
+    );
+    return result.rows[0];
+  }
+
+  static async findActive() {
+    const result = await pool.query(
+      `SELECT * FROM index_progress 
+       WHERE status IN ('pending', 'running')
+       ORDER BY started_at DESC
+       LIMIT 1`
+    );
+    return result.rows[0];
+  }
+
+  static async findAll(limit = 10) {
+    const result = await pool.query(
+      `SELECT * FROM index_progress 
+       ORDER BY started_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return result.rows;
+  }
+
+  static async isPathIndexed(rootPath) {
+    const result = await pool.query(
+      `SELECT * FROM index_progress 
+       WHERE root_path = $1 AND status = 'completed'
+       ORDER BY completed_at DESC
+       LIMIT 1`,
+      [rootPath]
+    );
+    return result.rows.length > 0 ? result.rows[0] : null;
+  }
+}
+
+// Test database connection
+async function testConnection() {
+  try {
+    const client = await pool.connect();
+    await client.query('SELECT NOW()');
+    client.release();
+    console.log('Database connection successful');
+    return true;
+  } catch (error) {
+    console.error('Database connection failed:', error.message);
+    return false;
+  }
+}
+
+class CacheJobProfileModel {
+  static async findAll() {
+    const result = await pool.query(
+      'SELECT * FROM cache_job_profiles ORDER BY priority DESC, name ASC'
+    );
+    return result.rows;
+  }
+
+  static async findByName(name) {
+    const result = await pool.query(
+      'SELECT * FROM cache_job_profiles WHERE name = $1',
+      [name]
+    );
+    return result.rows[0];
+  }
+
+  static async findById(id) {
+    const result = await pool.query(
+      'SELECT * FROM cache_job_profiles WHERE id = $1',
+      [id]
+    );
+    return result.rows[0];
+  }
+
+  static async findDefault() {
+    const result = await pool.query(
+      'SELECT * FROM cache_job_profiles WHERE is_default = true LIMIT 1'
+    );
+    return result.rows[0];
+  }
+
+  static async findBestMatch(filePaths) {
+    // Fast analysis with timeout fallback
+    const startTime = Date.now();
+    const MAX_ANALYSIS_TIME = 500; // 500ms max
+    
+    try {
+      // Quick pattern matching without heavy database queries
+      const quickAnalysis = this.quickAnalyzeFiles(filePaths);
+      
+      // Simple rule-based selection (no database query needed)
+      if (quickAnalysis.fileCount > 100 && quickAnalysis.avgPathLength < 100) {
+        // Many files with short paths = likely small files
+        return await this.findByName('small-files');
+      }
+      
+      if (quickAnalysis.hasVideoExtensions) {
+        return await this.findByName('large-videos');
+      }
+      
+      if (quickAnalysis.hasProxyExtensions) {
+        return await this.findByName('proxy-media');
+      }
+      
+      // Check if analysis is taking too long
+      if (Date.now() - startTime > MAX_ANALYSIS_TIME) {
+        console.log('Profile analysis timeout, using default');
+        return await this.findDefault();
+      }
+      
+      // Default for mixed content
+      return await this.findByName('general');
+      
+    } catch (error) {
+      console.error('Profile analysis error:', error);
+      return await this.findDefault();
+    }
+  }
+
+  static quickAnalyzeFiles(filePaths) {
+    // Ultra-fast analysis using only file paths (no database calls)
+    const extensions = filePaths.map(path => {
+      const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
+      return ext;
+    });
+    
+    const videoExts = ['.mov', '.mp4', '.mxf', '.avi', '.mkv'];
+    const proxyExts = ['.jpg', '.jpeg', '.png', '.webp'];
+    
+    return {
+      fileCount: filePaths.length,
+      avgPathLength: filePaths.reduce((sum, path) => sum + path.length, 0) / filePaths.length,
+      hasVideoExtensions: extensions.some(ext => videoExts.includes(ext)),
+      hasProxyExtensions: extensions.some(ext => proxyExts.includes(ext)),
+      uniqueExtensions: [...new Set(extensions)].length
+    };
+  }
+}
+
+// Prepared statement manager for optimized query performance
+class PreparedStatements {
+  static statements = new Map();
+  
+  // Initialize commonly used prepared statements
+  static async initialize(client) {
+    const commonStatements = {
+      'find_file_by_path': 'SELECT * FROM files WHERE path = $1',
+      'check_file_exists': 'SELECT path, modified_at, size FROM files WHERE path = $1',
+      'update_file_metadata': `
+        UPDATE files 
+        SET metadata = jsonb_set(COALESCE(metadata, '{}'), $2, $3::jsonb), updated_at = NOW()
+        WHERE path = $1
+      `,
+      'get_directory_files': 'SELECT * FROM files WHERE parent_path = $1 ORDER BY is_directory DESC, name ASC',
+      'get_cached_files': 'SELECT * FROM files WHERE cached = true ORDER BY cached_at DESC LIMIT $1'
+    };
+    
+    for (const [name, query] of Object.entries(commonStatements)) {
+      try {
+        await client.query(`PREPARE ${name} AS ${query}`);
+        this.statements.set(name, query);
+      } catch (error) {
+        console.warn(`Failed to prepare statement ${name}:`, error.message);
+      }
+    }
+  }
+  
+  static async prepare(client, name, query) {
+    if (!this.statements.has(name)) {
+      try {
+        await client.query(`PREPARE ${name} AS ${query}`);
+        this.statements.set(name, query);
+      } catch (error) {
+        console.warn(`Failed to prepare statement ${name}:`, error.message);
+        throw error;
+      }
+    }
+  }
+  
+  static async execute(client, name, params = []) {
+    try {
+      const paramPlaceholders = params.map((_, i) => `$${i + 1}`).join(',');
+      if (params.length > 0) {
+        return await client.query(`EXECUTE ${name}(${paramPlaceholders})`, params);
+      } else {
+        return await client.query(`EXECUTE ${name}`);
+      }
+    } catch (error) {
+      console.warn(`Failed to execute prepared statement ${name}:`, error.message);
+      throw error;
+    }
+  }
+  
+  static async clear(client) {
+    for (const name of this.statements.keys()) {
+      try {
+        await client.query(`DEALLOCATE ${name}`);
+      } catch (error) {
+        // Ignore errors for statements that don't exist
+      }
+    }
+    this.statements.clear();
+  }
+  
+  static isInitialized() {
+    return this.statements.size > 0;
+  }
+}
+
+class IndexingSessionModel {
+  static async create(rootPath) {
+    const result = await pool.query(
+      `INSERT INTO indexing_sessions (root_path, status)
+       VALUES ($1, 'running')
+       RETURNING *`,
+      [rootPath]
+    );
+    return result.rows[0];
+  }
+
+  static async updateStatus(sessionId, status) {
+    const result = await pool.query(
+      `UPDATE indexing_sessions 
+       SET status = $2, completed_at = $3
+       WHERE id = $1
+       RETURNING *`,
+      [sessionId, status, status === 'completed' ? new Date() : null]
+    );
+    return result.rows[0];
+  }
+
+  static async findById(sessionId) {
+    const result = await pool.query(
+      'SELECT * FROM indexing_sessions WHERE id = $1',
+      [sessionId]
+    );
+    return result.rows[0];
+  }
+}
+
+module.exports = {
+  pool,
+  testConnection,
+  FileModel,
+  CacheJobModel,
+  CacheJobItemModel,
+  IndexProgressModel,
+  CacheJobProfileModel,
+  IndexingSessionModel,
+  PreparedStatements
+};

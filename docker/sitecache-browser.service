@@ -1,0 +1,15 @@
+[Unit]
+Description=SiteCache Browser Docker Application
+Requires=docker.service
+After=docker.service lucidlink.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+WorkingDirectory=/opt/sitecache-browser
+ExecStart=/usr/bin/docker compose -f docker-compose.production.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.production.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

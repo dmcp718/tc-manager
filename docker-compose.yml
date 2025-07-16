@@ -1,0 +1,153 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: sitecache-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-sitecache_db}
+      POSTGRES_USER: ${DB_USER:-sitecache_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+      # Performance tuning
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
+      POSTGRES_MAINTENANCE_WORK_MEM: 64MB
+      POSTGRES_CHECKPOINT_COMPLETION_TARGET: 0.7
+      POSTGRES_WAL_BUFFERS: 16MB
+      POSTGRES_DEFAULT_STATISTICS_TARGET: 100
+    # Resource limits
+    mem_limit: 1g
+    cpus: 1.0
+    shm_size: 256mb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./backend/schema-profiles.sql:/docker-entrypoint-initdb.d/02-profiles.sql
+      - ./backend/schema-direct-links.sql:/docker-entrypoint-initdb.d/03-direct-links.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sitecache_user -d sitecache_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sitecache-backend
+    # Performance optimizations
+    mem_limit: 4g
+    cpus: 4.0
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3001}
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-sitecache_db}
+      DB_USER: ${DB_USER:-sitecache_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      INDEX_ROOT_PATH: ${INDEX_ROOT_PATH:-/media/lucidlink-1}
+      ALLOWED_PATHS: ${ALLOWED_PATHS:-/media/lucidlink-1}
+      NETWORK_INTERFACE: ${NETWORK_INTERFACE:-eth0}
+      LUCIDLINK_FS_1_PORT: ${LUCIDLINK_FS_1_PORT:-7778}
+      ENABLE_NETWORK_STATS: "false"
+      ENABLE_LUCIDLINK_STATS: ${ENABLE_LUCIDLINK_STATS:-true}
+      LUCIDLINK_COMMAND: ${LUCIDLINK_COMMAND:-/usr/local/bin/lucid}
+      # LucidLink daemon configuration
+      LUCIDLINK_FILESPACE: ${LUCIDLINK_FILESPACE}
+      LUCIDLINK_USER: ${LUCIDLINK_USER}
+      LUCIDLINK_PASSWORD: ${LUCIDLINK_PASSWORD}
+      LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
+      # Performance tuning
+      UV_THREADPOOL_SIZE: 16
+      NODE_OPTIONS: "--max-old-space-size=1536"
+      # Cache worker optimizations
+      CACHE_WORKER_COUNT: ${CACHE_WORKER_COUNT:-2}
+      MAX_CONCURRENT_FILES: ${MAX_CONCURRENT_FILES:-5}
+      WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-2000}
+      # Use host.docker.internal to access host machine from container
+      LUCIDLINK_API_HOST: ${LUCIDLINK_API_HOST:-host.docker.internal}
+    volumes:
+      # Application logs
+      - backend_logs:/app/logs
+      # Create mount point for LucidLink (will be mounted by daemon inside container)
+      - lucidlink_mount:/media/lucidlink-1
+      # Shared volume for varnish stats
+      - varnish_stats:/data
+    ports:
+      - "3001:3001"
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    # Add host machine access (for LucidLink API)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # LucidLink FUSE filesystem requirements
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - "/dev/fuse"
+    security_opt:
+      - "apparmor:unconfined"
+
+  # Frontend Web Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://192.168.8.28:3001/api}
+        REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://192.168.8.28:3002}
+    container_name: sitecache-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Varnish Stats Collection Service
+  varnish-stats:
+    build:
+      context: ./varnish-stats-collector
+      dockerfile: Dockerfile
+    container_name: sitecache-varnish-stats
+    environment:
+      VARNISH_STATS_INTERVAL: ${VARNISH_STATS_INTERVAL:-60000}
+      VARNISH_CONTAINER_NAME: ${VARNISH_CONTAINER_NAME:-sitecache-varnish-1}
+    volumes:
+      - varnish_stats:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_logs:
+    driver: local
+  lucidlink_mount:
+    driver: local
+  varnish_stats:
+    driver: local
+
+networks:
+  default:
+    name: sitecache-network
