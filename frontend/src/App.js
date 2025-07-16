@@ -5,6 +5,16 @@ import { Tree } from 'react-arborist';
 
 // Fonts are loaded in index.html for better performance
 
+// Add CSS keyframes for spinner animation
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+document.head.appendChild(style);
+
 // Modern file manager styles inspired by contemporary design
 const styles = {
   container: {
@@ -612,6 +622,204 @@ const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
+// Preview Modal Component
+function PreviewModal({ filePath, preview, type, onClose }) {
+  const [isLoading, setIsLoading] = useState(preview.status === 'processing');
+
+  useEffect(() => {
+    if (preview.status === 'processing') {
+      const interval = setInterval(async () => {
+        try {
+          const response = await fetch(`${FileSystemAPI.baseURL}/preview/status/${preview.cacheKey}`);
+          const result = await response.json();
+          
+          if (result.status && result.status.status !== 'processing') {
+            setIsLoading(false);
+            clearInterval(interval);
+          }
+        } catch (error) {
+          console.error('Error checking preview status:', error);
+        }
+      }, 2000);
+
+      return () => clearInterval(interval);
+    }
+  }, [preview.cacheKey, preview.status]);
+
+  const renderPreviewContent = () => {
+    if (isLoading || preview.status === 'processing') {
+      return (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '400px',
+          flexDirection: 'column',
+          gap: '16px'
+        }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            border: '3px solid #3b82f6',
+            borderTop: '3px solid transparent',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }}></div>
+          <div style={{ color: '#e4e4e7', fontSize: '16px' }}>
+            Processing {type} preview...
+          </div>
+          <div style={{ color: '#a1a1aa', fontSize: '14px' }}>
+            Progress: {preview.progress || 0}%
+          </div>
+        </div>
+      );
+    }
+
+    if (preview.status === 'failed') {
+      return (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '400px',
+          flexDirection: 'column',
+          gap: '16px',
+          color: '#ef4444'
+        }}>
+          <div style={{ fontSize: '48px' }}>⚠️</div>
+          <div style={{ fontSize: '18px' }}>Preview generation failed</div>
+          <div style={{ fontSize: '14px', color: '#a1a1aa' }}>
+            {preview.error || 'Unknown error occurred'}
+          </div>
+        </div>
+      );
+    }
+
+    // Render completed preview
+    if (type === 'video') {
+      return (
+        <video
+          controls
+          autoPlay
+          style={{
+            width: '100%',
+            height: 'auto',
+            maxHeight: '80vh',
+            backgroundColor: '#000'
+          }}
+          src={preview.playlistUrl ? undefined : ''}
+        >
+          {preview.playlistUrl && (
+            <source src={preview.playlistUrl} type="application/vnd.apple.mpegurl" />
+          )}
+          Your browser does not support the video tag.
+        </video>
+      );
+    }
+
+    if (type === 'image') {
+      return (
+        <img
+          src={preview.previewUrl || preview.directUrl}
+          alt="Preview"
+          style={{
+            width: '100%',
+            height: 'auto',
+            maxHeight: '80vh',
+            objectFit: 'contain'
+          }}
+        />
+      );
+    }
+
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '400px',
+        color: '#a1a1aa'
+      }}>
+        Preview not available for this file type
+      </div>
+    );
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '20px'
+    }} onClick={onClose}>
+      <div style={{
+        backgroundColor: '#1a1a1a',
+        borderRadius: '12px',
+        padding: '24px',
+        maxWidth: '90vw',
+        maxHeight: '90vh',
+        overflow: 'auto',
+        border: '1px solid #2a2a2a'
+      }} onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '20px',
+          paddingBottom: '12px',
+          borderBottom: '1px solid #2a2a2a'
+        }}>
+          <div>
+            <h3 style={{
+              margin: 0,
+              color: '#e4e4e7',
+              fontSize: '18px',
+              fontWeight: '600'
+            }}>
+              {filePath.split('/').pop()}
+            </h3>
+            <p style={{
+              margin: '4px 0 0 0',
+              color: '#a1a1aa',
+              fontSize: '14px'
+            }}>
+              {type.charAt(0).toUpperCase() + type.slice(1)} Preview
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              backgroundColor: 'transparent',
+              border: 'none',
+              color: '#a1a1aa',
+              fontSize: '24px',
+              cursor: 'pointer',
+              padding: '8px',
+              borderRadius: '6px',
+              transition: 'background-color 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.backgroundColor = '#2a2a2a'}
+            onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Preview Content */}
+        {renderPreviewContent()}
+      </div>
+    </div>
+  );
+}
+
 // Main File Explorer Component
 function App() {
   const [treeData, setTreeData] = useState([]);
@@ -642,6 +850,8 @@ function App() {
     loading: true 
   }); // Real Varnish cache stats
   const [directLinkLoading, setDirectLinkLoading] = useState(new Set());
+  const [previewLoading, setPreviewLoading] = useState(new Set());
+  const [previewModal, setPreviewModal] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const treeRef = useRef();
   const searchTimeoutRef = useRef(null);
@@ -1277,6 +1487,78 @@ function App() {
     } finally {
       // Remove loading state
       setDirectLinkLoading(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(filePath);
+        return newSet;
+      });
+    }
+  };
+
+  // Preview functionality
+  const getSupportedPreviewTypes = () => {
+    return {
+      video: ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.r3d', '.braw', '.mxf', '.mpg', '.mpeg', '.m4v', '.wmv', '.flv'],
+      image: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.tif', '.tiff', '.bmp', '.heic', '.heif', '.raw', '.exr', '.dpx', '.dng', '.cr2', '.nef', '.orf', '.arw', '.pef'],
+      audio: ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.wma']
+    };
+  };
+
+  const getPreviewType = (filename) => {
+    const ext = filename.toLowerCase().substring(filename.lastIndexOf('.'));
+    const types = getSupportedPreviewTypes();
+    
+    for (const [type, extensions] of Object.entries(types)) {
+      if (extensions.includes(ext)) {
+        return type;
+      }
+    }
+    
+    return 'unsupported';
+  };
+
+  const isSupportedForPreview = (filename) => {
+    return getPreviewType(filename) !== 'unsupported';
+  };
+
+  const openPreview = async (filePath) => {
+    if (previewLoading.has(filePath)) {
+      return; // Already processing this file
+    }
+
+    try {
+      // Mark as loading
+      setPreviewLoading(prev => new Set(prev).add(filePath));
+
+      const response = await fetch(`${FileSystemAPI.baseURL}/preview`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ filePath })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate preview');
+      }
+
+      const result = await response.json();
+      
+      // Open preview modal
+      setPreviewModal({
+        filePath,
+        preview: result.preview,
+        type: getPreviewType(filePath)
+      });
+
+      console.log('Preview generated:', result.preview);
+
+    } catch (error) {
+      console.error('Error generating preview:', error);
+      showToast('Failed to generate preview', 'error');
+    } finally {
+      // Remove loading state
+      setPreviewLoading(prev => {
         const newSet = new Set(prev);
         newSet.delete(filePath);
         return newSet;
@@ -1960,6 +2242,7 @@ function App() {
                   <th style={styles.tableHeaderCell}>Type</th>
                   <th style={styles.tableHeaderCell}>Size</th>
                   <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Cached</th>
+                  <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Preview</th>
                   <th style={{...styles.tableHeaderCell, width: '120px', textAlign: 'center'}}>Direct Link</th>
                 </tr>
               </thead>
@@ -2025,6 +2308,47 @@ function App() {
                         }}>
                           ✓
                         </span>
+                      ) : (
+                        <span style={{ 
+                          color: '#6b7280', 
+                          fontSize: '12px' 
+                        }}>
+                          -
+                        </span>
+                      )}
+                    </td>
+                    <td style={{...styles.tableCell, textAlign: 'center', width: '100px'}}>
+                      {!file.isDirectory && isSupportedForPreview(file.name) ? (
+                        <button
+                          style={{
+                            backgroundColor: 'transparent',
+                            color: '#10b981',
+                            border: '1px solid #10b981',
+                            borderRadius: '12px',
+                            padding: '6px 12px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            minHeight: '24px',
+                            minWidth: '70px',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.backgroundColor = '#10b981';
+                            e.target.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.backgroundColor = 'transparent';
+                            e.target.style.color = '#10b981';
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openPreview(file.path);
+                          }}
+                          disabled={previewLoading.has(file.path)}
+                        >
+                          {previewLoading.has(file.path) ? '...' : 'preview'}
+                        </button>
                       ) : (
                         <span style={{ 
                           color: '#6b7280', 
@@ -2137,6 +2461,16 @@ function App() {
         onClearJobs={clearJobs}
         onCancelJob={cancelJob}
       />
+      
+      {/* Preview Modal */}
+      {previewModal && (
+        <PreviewModal
+          filePath={previewModal.filePath}
+          preview={previewModal.preview}
+          type={previewModal.type}
+          onClose={() => setPreviewModal(null)}
+        />
+      )}
     </div>
   );
 }

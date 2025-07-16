@@ -1198,6 +1198,114 @@ app.post('/api/validate-directory-cache', async (req, res) => {
   }
 });
 
+// Media Preview Endpoints (proxy to media-preview service)
+app.post('/api/preview', async (req, res) => {
+  try {
+    const { filePath, type = 'auto' } = req.body;
+    
+    if (!filePath) {
+      return res.status(400).json({ error: 'File path is required' });
+    }
+    
+    // Security check - only allow LucidLink mount
+    const allowedPaths = (process.env.ALLOWED_PATHS || '/media/lucidlink-1').split(',');
+    const isAllowed = allowedPaths.some(allowed => filePath.startsWith(allowed.trim()));
+    
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Access denied to this path' });
+    }
+    
+    // Check if file exists
+    if (!require('fs').existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    // Determine preview type based on file extension
+    const MediaPreviewService = require('./services/media-preview-service');
+    const previewType = type === 'auto' ? 
+      MediaPreviewService.getPreviewType(filePath) : type;
+    
+    // Check if file format is supported
+    if (!MediaPreviewService.isSupportedFormat(filePath)) {
+      return res.status(400).json({ 
+        error: 'Unsupported file format',
+        supportedTypes: MediaPreviewService.getSupportedTypes()
+      });
+    }
+    
+    // Forward request to media preview service
+    const previewServiceUrl = process.env.MEDIA_PREVIEW_SERVICE_URL || 'http://media-preview:3003';
+    const endpoint = previewType === 'video' ? 'video' : 'image';
+    
+    const response = await fetch(`${previewServiceUrl}/api/preview/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath, options: req.body.options || {} })
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      return res.status(response.status).json(result);
+    }
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('Error processing preview request:', error);
+    res.status(500).json({ error: 'Failed to process preview request' });
+  }
+});
+
+// Get preview status
+app.get('/api/preview/status/:cacheKey', async (req, res) => {
+  try {
+    const { cacheKey } = req.params;
+    const previewServiceUrl = process.env.MEDIA_PREVIEW_SERVICE_URL || 'http://media-preview:3003';
+    
+    const response = await fetch(`${previewServiceUrl}/api/preview/status/${cacheKey}`);
+    const result = await response.json();
+    
+    if (!response.ok) {
+      return res.status(response.status).json(result);
+    }
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('Error getting preview status:', error);
+    res.status(500).json({ error: 'Failed to get preview status' });
+  }
+});
+
+// Proxy preview file serving to media preview service
+app.get('/api/preview/:type/:cacheKey/*', async (req, res) => {
+  try {
+    const { type, cacheKey } = req.params;
+    const filename = req.params[0];
+    const previewServiceUrl = process.env.MEDIA_PREVIEW_SERVICE_URL || 'http://media-preview:3003';
+    
+    const response = await fetch(`${previewServiceUrl}/api/preview/${type}/${cacheKey}/${filename}`);
+    
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Preview file not found' });
+    }
+    
+    // Forward headers
+    const contentType = response.headers.get('content-type');
+    if (contentType) {
+      res.setHeader('Content-Type', contentType);
+    }
+    
+    // Stream the response
+    response.body.pipe(res);
+    
+  } catch (error) {
+    console.error('Error serving preview file:', error);
+    res.status(500).json({ error: 'Failed to serve preview file' });
+  }
+});
+
 // WebSocket connection handling
 wss.on('connection', (ws) => {
   console.log('Client connected to WebSocket');
