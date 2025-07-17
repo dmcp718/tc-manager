@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const { FileModel, IndexProgressModel, IndexingSessionModel } = require('./database');
+const ElasticsearchClient = require('./elasticsearch-client');
 const EventEmitter = require('events');
 
 class FileIndexer extends EventEmitter {
@@ -40,6 +41,12 @@ class FileIndexer extends EventEmitter {
     this.maxParallelBatches = options.maxParallelBatches || 3;
     this.pendingBatches = [];
     this.activeBatchPromises = [];
+    
+    // Elasticsearch integration - Phase 1 optimization: larger batch sizes
+    this.elasticsearchClient = null;
+    this.elasticsearchEnabled = false;
+    this.elasticsearchBatch = [];
+    this.elasticsearchBatchSize = options.elasticsearchBatchSize || 10000; // Increased from 1K to 10K for better performance
   }
 
   async start(rootPath) {
@@ -48,6 +55,9 @@ class FileIndexer extends EventEmitter {
     }
 
     this.isRunning = true;
+    
+    // Initialize Elasticsearch client
+    await this.initializeElasticsearch();
     this.shouldStop = false;
     this.processedCount = 0;
     this.indexedCount = 0;
@@ -90,6 +100,17 @@ class FileIndexer extends EventEmitter {
       if (this.activeBatchPromises.length > 0) {
         console.log(`Waiting for ${this.activeBatchPromises.length} parallel database operations to complete...`);
         await Promise.all(this.activeBatchPromises);
+      }
+      
+      // Process any remaining Elasticsearch batch
+      if (this.elasticsearchEnabled && this.elasticsearchBatch.length > 0) {
+        console.log(`Processing final Elasticsearch batch: ${this.elasticsearchBatch.length} files`);
+        try {
+          await this.processElasticsearchBatch([...this.elasticsearchBatch]);
+          this.elasticsearchBatch = [];
+        } catch (error) {
+          console.warn('Final Elasticsearch batch failed:', error.message);
+        }
       }
 
       // Process directory sizes if not stopped
@@ -207,6 +228,65 @@ class FileIndexer extends EventEmitter {
     
     this.shouldStop = true;
     this.emit('stopping');
+  }
+
+  /**
+   * Initialize Elasticsearch client with retry logic
+   */
+  async initializeElasticsearch() {
+    try {
+      this.elasticsearchClient = new ElasticsearchClient();
+      const isConnected = await this.elasticsearchClient.testConnection();
+      
+      if (isConnected) {
+        await this.elasticsearchClient.ensureIndexExists();
+        this.elasticsearchEnabled = true;
+        console.log('✅ Elasticsearch initialized for indexing');
+      } else {
+        console.log('⚠️  Elasticsearch not available - indexing to PostgreSQL only');
+        this.elasticsearchEnabled = false;
+      }
+    } catch (error) {
+      console.error('Elasticsearch initialization failed:', error.message);
+      this.elasticsearchEnabled = false;
+    }
+  }
+
+  /**
+   * Process Elasticsearch batch with retry logic and better error handling
+   */
+  async processElasticsearchBatch(files) {
+    if (!this.elasticsearchEnabled || !files.length) return;
+
+    const maxRetries = 3;
+    let retryCount = 0;
+
+    while (retryCount < maxRetries) {
+      try {
+        const result = await this.elasticsearchClient.bulkIndexFiles(files);
+        
+        if (result.errors.length > 0) {
+          console.warn(`Elasticsearch batch partial success: ${result.indexed}/${files.length} files indexed, ${result.errors.length} errors`);
+          // Don't retry on partial success
+          return result;
+        }
+        
+        return result;
+      } catch (error) {
+        retryCount++;
+        console.error(`Elasticsearch batch failed (attempt ${retryCount}/${maxRetries}):`, error.message);
+        
+        if (retryCount < maxRetries) {
+          // Exponential backoff: 1s, 2s, 4s
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+        } else {
+          // After max retries, disable ES for this session
+          console.error('Elasticsearch indexing disabled for this session due to repeated failures');
+          this.elasticsearchEnabled = false;
+          throw error;
+        }
+      }
+    }
   }
 
   async indexDirectory(dirPath, depth) {
@@ -367,15 +447,55 @@ class FileIndexer extends EventEmitter {
       // Check which files need indexing
       const filesToIndex = await FileModel.batchNeedsIndexing(batchData);
       
+      let esIndexed = 0;
+      let esErrors = 0;
+      
       if (filesToIndex.length > 0) {
-        await FileModel.batchUpsert(filesToIndex, this.currentSession?.id);
-        this.indexedCount += filesToIndex.length;
+        // Run PostgreSQL and Elasticsearch indexing in parallel
+        const indexingPromises = [
+          // PostgreSQL indexing
+          FileModel.batchUpsert(filesToIndex, this.currentSession?.id)
+        ];
+        
+        // Add Elasticsearch indexing if enabled
+        let esPromise = null;
+        if (this.elasticsearchEnabled) {
+          esPromise = this.processElasticsearchBatch(filesToIndex);
+          indexingPromises.push(esPromise);
+        }
+        
+        // Wait for both indexing operations to complete
+        const results = await Promise.allSettled(indexingPromises);
+        
+        // Handle PostgreSQL result
+        if (results[0].status === 'fulfilled') {
+          this.indexedCount += filesToIndex.length;
+        } else {
+          console.error('PostgreSQL batch indexing failed:', results[0].reason);
+          this.errorCount += filesToIndex.length;
+          throw results[0].reason;
+        }
+        
+        // Handle Elasticsearch result (non-critical, don't fail the batch)
+        if (esPromise && results[1]) {
+          if (results[1].status === 'fulfilled' && results[1].value) {
+            esIndexed = results[1].value.indexed || 0;
+            esErrors = results[1].value.errors?.length || 0;
+          } else if (results[1].status === 'rejected') {
+            console.warn('Elasticsearch batch indexing failed:', results[1].reason.message);
+            esErrors = filesToIndex.length;
+          }
+        }
       }
       
       this.skippedCount += (batchData.length - filesToIndex.length);
       
       const duration = Date.now() - startTime;
-      console.log(`Parallel batch completed: ${batchData.length} files (${filesToIndex.length} indexed, ${batchData.length - filesToIndex.length} skipped) in ${duration}ms - Total: ${this.processedCount}`);
+      const esStatus = this.elasticsearchEnabled ? 
+        ` | ES: ${esIndexed} indexed, ${esErrors} errors` : 
+        ' | ES: disabled';
+      
+      console.log(`Parallel batch completed: ${batchData.length} files (PG: ${filesToIndex.length} indexed, ${batchData.length - filesToIndex.length} skipped${esStatus}) in ${duration}ms - Total: ${this.processedCount}`);
       
       // Track batch performance for dynamic optimization
       this.trackBatchPerformance(batchData.length, duration);

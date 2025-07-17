@@ -283,21 +283,78 @@ class ElasticsearchClient {
     if (query && query.trim() && query !== '*') {
       // Parse boolean operators
       if (this.containsBooleanOperators(query)) {
-        must.push({
-          query_string: {
-            query: query,
-            fields: ["path^2", "name^3", "path.hierarchy"],
-            default_operator: "AND"
+        // For boolean queries, split terms and use wildcard matching
+        const terms = query.split(/\s+(AND|OR|NOT)\s+/i).filter(term => 
+          !['AND', 'OR', 'NOT'].includes(term.toUpperCase())
+        );
+        
+        if (terms.length > 1) {
+          // Multiple terms - use wildcard matching for each
+          const termQueries = terms.map(term => ({
+            bool: {
+              should: [
+                { wildcard: { "name": `*${term.toLowerCase()}*` } },
+                { wildcard: { "path": `*${term.toLowerCase()}*` } }
+              ],
+              minimum_should_match: 1
+            }
+          }));
+          
+          // For AND queries, all terms must match
+          if (query.toUpperCase().includes(' AND ')) {
+            must.push({
+              bool: {
+                must: termQueries
+              }
+            });
+          } else {
+            // For OR queries, any term can match
+            must.push({
+              bool: {
+                should: termQueries,
+                minimum_should_match: 1
+              }
+            });
           }
-        });
+        } else {
+          // Single term with boolean operators - fall back to query_string
+          must.push({
+            query_string: {
+              query: query,
+              fields: ["path^2", "name^3", "path.hierarchy"],
+              default_operator: "AND"
+            }
+          });
+        }
       } else {
-        // Simple multi-match for regular queries
+        // Use wildcard queries for better filename matching (handles underscores, etc.)
+        const wildcardQuery = `*${query.toLowerCase()}*`;
+        
         must.push({
-          multi_match: {
-            query: query,
-            fields: ["path^2", "name^3", "path.hierarchy"],
-            type: "best_fields",
-            fuzziness: "AUTO"
+          bool: {
+            should: [
+              // Exact term matching
+              {
+                multi_match: {
+                  query: query,
+                  fields: ["path^2", "name^3", "path.hierarchy"],
+                  type: "best_fields",
+                  fuzziness: "AUTO"
+                }
+              },
+              // Wildcard matching for filenames with special characters
+              {
+                wildcard: {
+                  "name": wildcardQuery
+                }
+              },
+              {
+                wildcard: {
+                  "path": wildcardQuery
+                }
+              }
+            ],
+            minimum_should_match: 1
           }
         });
       }
