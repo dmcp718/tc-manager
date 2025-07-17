@@ -64,8 +64,8 @@ const styles = {
     alignItems: 'center',
   },
   searchContainer: {
-    width: '360px',
-    maxWidth: '360px',
+    width: '480px',
+    maxWidth: '480px',
     position: 'relative',
   },
   statusArea: {
@@ -106,6 +106,28 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  searchModeIndicator: {
+    position: 'absolute',
+    top: '-18px',
+    right: '0px',
+    fontSize: '11px',
+    color: '#71717a',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+  },
+  searchErrorMessage: {
+    position: 'absolute',
+    top: '100%',
+    left: '0',
+    right: '0',
+    backgroundColor: '#dc2626',
+    color: '#fef2f2',
+    padding: '4px 8px',
+    fontSize: '12px',
+    borderRadius: '0 0 4px 4px',
+    zIndex: 1000,
   },
   mainContent: {
     display: 'flex',
@@ -836,6 +858,10 @@ function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchOffset, setSearchOffset] = useState(0);
   const [hasMoreResults, setHasMoreResults] = useState(false);
+  const [searchMode, setSearchMode] = useState('browse'); // 'browse' or 'search'
+  const [searchEngine, setSearchEngine] = useState('auto'); // 'auto', 'postgres', 'elasticsearch'
+  const [searchError, setSearchError] = useState(null);
+  const [elasticsearchAvailable, setElasticsearchAvailable] = useState(false);
   const [indexStatus, setIndexStatus] = useState(null);
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexStartTime, setIndexStartTime] = useState(null);
@@ -888,10 +914,25 @@ function App() {
     return () => document.head.removeChild(style);
   }, []);
 
+  // Check Elasticsearch availability
+  const checkElasticsearchAvailability = async () => {
+    try {
+      const response = await fetch(`${FileSystemAPI.baseURL}/search/stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setElasticsearchAvailable(data.available);
+      }
+    } catch (error) {
+      console.log('Elasticsearch not available:', error);
+      setElasticsearchAvailable(false);
+    }
+  };
+
   // Load root directories on mount
   useEffect(() => {
     loadRoots();
     loadJobs();
+    checkElasticsearchAvailability();
     loadCacheStats();
     checkIndexStatus();
     
@@ -1618,21 +1659,54 @@ function App() {
     }
   };
 
-  // Search functionality
+  // Enhanced search functionality with dual-mode support
   const handleSearch = async (query, offset = 0, append = false) => {
     if (!query.trim()) {
       setSearchResults(null);
       setSearchOffset(0);
       setHasMoreResults(false);
+      setSearchMode('browse');
+      setSearchError(null);
       return;
     }
 
     setIsSearching(true);
+    setSearchError(null);
+    setSearchMode('search');
+    
     try {
-      const limit = 50; // Fixed page size
-      const response = await fetch(`${FileSystemAPI.baseURL}/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`);
+      const limit = 50;
+      let searchUrl;
+      let useElasticsearch = false;
+
+      // Determine which search engine to use
+      if (searchEngine === 'elasticsearch' && elasticsearchAvailable) {
+        useElasticsearch = true;
+      } else if (searchEngine === 'auto' && elasticsearchAvailable) {
+        // Use Elasticsearch for boolean operators and complex queries
+        useElasticsearch = /\b(AND|OR|NOT)\b/.test(query) || query.includes('*');
+      }
+
+      if (useElasticsearch) {
+        searchUrl = `${FileSystemAPI.baseURL}/search/es?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`;
+      } else {
+        searchUrl = `${FileSystemAPI.baseURL}/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`;
+      }
+
+      const response = await fetch(searchUrl);
+      
       if (response.ok) {
-        const results = await response.json();
+        const data = await response.json();
+        
+        // Handle different response formats
+        let results;
+        if (useElasticsearch) {
+          results = data.results || [];
+          setHasMoreResults(data.total > (offset + results.length));
+        } else {
+          results = Array.isArray(data) ? data : [];
+          setHasMoreResults(results.length === limit);
+        }
         
         if (append && searchResults) {
           setSearchResults([...searchResults, ...results]);
@@ -1641,11 +1715,33 @@ function App() {
         }
         
         setSearchOffset(offset);
-        setHasMoreResults(results.length === limit); // Has more if we got a full page
+        
+        // Show search engine used for debugging
+        console.log(`Search completed using ${useElasticsearch ? 'Elasticsearch' : 'PostgreSQL'}`);
+        
       } else {
-        console.error('Search failed');
+        const errorData = await response.json().catch(() => ({}));
+        
+        // If Elasticsearch search fails, try PostgreSQL fallback
+        if (useElasticsearch && searchEngine === 'auto') {
+          console.log('Elasticsearch search failed, falling back to PostgreSQL');
+          const fallbackUrl = `${FileSystemAPI.baseURL}/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`;
+          const fallbackResponse = await fetch(fallbackUrl);
+          
+          if (fallbackResponse.ok) {
+            const results = await fallbackResponse.json();
+            setSearchResults(Array.isArray(results) ? results : []);
+            setSearchOffset(offset);
+            setHasMoreResults(results.length === limit);
+            return;
+          }
+        }
+        
+        setSearchError(errorData.error || 'Search failed');
+        console.error('Search failed:', errorData);
       }
     } catch (error) {
+      setSearchError('Search error: ' + error.message);
       console.error('Search error:', error);
     } finally {
       setIsSearching(false);
@@ -1678,9 +1774,19 @@ function App() {
   const clearSearch = () => {
     setSearchQuery('');
     setSearchResults(null);
+    setSearchMode('browse');
+    setSearchError(null);
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
+  };
+
+  // Show in folder function for search results
+  const showInFolder = (filePath) => {
+    const parentPath = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
+    clearSearch();
+    setCurrentPath(parentPath);
+    loadFiles(parentPath);
   };
 
   // Indexing functions
@@ -1905,9 +2011,23 @@ function App() {
         
         <div style={styles.headerCenter}>
           <div style={styles.searchContainer}>
+            {/* Search mode indicator */}
+            {searchMode === 'search' && (
+              <div style={styles.searchModeIndicator}>
+                <span>🔍</span>
+                <span>
+                  {elasticsearchAvailable ? 'ES' : 'PG'}
+                  {isSearching && ' searching...'}
+                </span>
+              </div>
+            )}
+            
             <input
               type="text"
-              placeholder="Search files..."
+              placeholder={elasticsearchAvailable ? 
+                "Search files... (supports AND, OR, NOT)" : 
+                "Search files..."
+              }
               value={searchQuery}
               onChange={handleSearchInputChange}
               style={styles.searchInput}
@@ -1926,6 +2046,13 @@ function App() {
               <svg style={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path d="M21 21L16.5 16.5M19 11C19 15.4183 15.4183 19 11 19C6.58172 19 3 15.4183 3 11C3 6.58172 6.58172 3 11 3C15.4183 3 19 6.58172 19 11Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
+            )}
+            
+            {/* Search error message */}
+            {searchError && (
+              <div style={styles.searchErrorMessage}>
+                {searchError}
+              </div>
             )}
           </div>
           
@@ -2159,7 +2286,31 @@ function App() {
         
         <main style={styles.contentArea}>
           <div style={styles.breadcrumb}>
-            <span>{searchResults !== null ? `Search results for "${searchQuery}"` : currentPath}</span>
+            <span>
+              {searchMode === 'search' ? 
+                `Search results for "${searchQuery}"` + 
+                (searchResults ? ` (${searchResults.length} found)` : '') :
+                currentPath
+              }
+            </span>
+            {searchMode === 'search' && (
+              <button
+                onClick={clearSearch}
+                style={{
+                  marginLeft: '12px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid #3a3a3a',
+                  color: '#e4e4e7',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+                title="Return to folder view"
+              >
+                Back to Browse
+              </button>
+            )}
           </div>
           
           <div style={{
@@ -2358,37 +2509,73 @@ function App() {
                         </span>
                       )}
                     </td>
-                    <td style={{...styles.tableCell, textAlign: 'center', width: '120px'}}>
-                      <button
-                        style={{
-                          backgroundColor: 'transparent',
-                          color: '#3b82f6',
-                          border: '1px solid #3b82f6',
-                          borderRadius: '12px',
-                          padding: '6px 12px',
-                          fontSize: '12px',
-                          fontWeight: '500',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          minHeight: '24px',
-                          minWidth: '80px',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.target.style.backgroundColor = '#3b82f6';
-                          e.target.style.color = '#ffffff';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.target.style.backgroundColor = 'transparent';
-                          e.target.style.color = '#3b82f6';
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          generateDirectLink(file.path);
-                        }}
-                        disabled={directLinkLoading.has(file.path)}
-                      >
-                        {directLinkLoading.has(file.path) ? '...' : 'direct link'}
-                      </button>
+                    <td style={{...styles.tableCell, textAlign: 'center', width: searchMode === 'search' ? '160px' : '120px'}}>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', justifyContent: 'center' }}>
+                        <button
+                          style={{
+                            backgroundColor: 'transparent',
+                            color: '#3b82f6',
+                            border: '1px solid #3b82f6',
+                            borderRadius: '12px',
+                            padding: '6px 12px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            minHeight: '24px',
+                            minWidth: '80px',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.backgroundColor = '#3b82f6';
+                            e.target.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.backgroundColor = 'transparent';
+                            e.target.style.color = '#3b82f6';
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            generateDirectLink(file.path);
+                          }}
+                          disabled={directLinkLoading.has(file.path)}
+                        >
+                          {directLinkLoading.has(file.path) ? '...' : 'direct link'}
+                        </button>
+                        
+                        {/* Show in folder button for search results */}
+                        {searchMode === 'search' && (
+                          <button
+                            style={{
+                              backgroundColor: 'transparent',
+                              color: '#8b5cf6',
+                              border: '1px solid #8b5cf6',
+                              borderRadius: '12px',
+                              padding: '6px 8px',
+                              fontSize: '12px',
+                              fontWeight: '500',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              minHeight: '24px',
+                              minWidth: '32px',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.target.style.backgroundColor = '#8b5cf6';
+                              e.target.style.color = '#ffffff';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.backgroundColor = 'transparent';
+                              e.target.style.color = '#8b5cf6';
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              showInFolder(file.path);
+                            }}
+                            title="Show in folder"
+                          >
+                            📁
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

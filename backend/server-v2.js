@@ -31,6 +31,9 @@ const NetworkStatsWorker = require('./network-stats-worker');
 const LucidLinkStatsWorker = require('./lucidlink-stats-worker');
 const VarnishStatsWorker = require('./varnish-stats-worker');
 
+// Import Elasticsearch client
+const ElasticsearchClient = require('./elasticsearch-client');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 const WEBSOCKET_PORT = process.env.WEBSOCKET_PORT || 3002;
@@ -478,6 +481,146 @@ app.get('/api/search', async (req, res) => {
   } catch (error) {
     console.error('Error searching files:', error);
     res.status(500).json({ error: 'Failed to search files' });
+  }
+});
+
+// Elasticsearch enhanced search endpoint
+app.get('/api/search/es', async (req, res) => {
+  try {
+    const elasticsearchClient = req.app.locals.elasticsearchClient;
+    
+    if (!elasticsearchClient) {
+      return res.status(503).json({ 
+        error: 'Elasticsearch not available',
+        fallback: '/api/search'
+      });
+    }
+
+    const query = req.query.q;
+    if (!query) {
+      return res.status(400).json({ error: 'Query parameter required' });
+    }
+    
+    const options = {
+      size: parseInt(req.query.limit) || 50,
+      from: parseInt(req.query.offset) || 0,
+      sortBy: req.query.sortBy || 'name.keyword',
+      sortOrder: req.query.sortOrder || 'asc',
+      filters: {}
+    };
+
+    // Parse filters from query parameters
+    if (req.query.is_directory !== undefined) {
+      options.filters.is_directory = req.query.is_directory === 'true';
+    }
+    if (req.query.cached !== undefined) {
+      options.filters.cached = req.query.cached === 'true';
+    }
+    if (req.query.extension) {
+      options.filters.extension = req.query.extension;
+    }
+    if (req.query.size_min) {
+      options.filters.size_min = parseInt(req.query.size_min);
+    }
+    if (req.query.size_max) {
+      options.filters.size_max = parseInt(req.query.size_max);
+    }
+    if (req.query.modified_after) {
+      options.filters.modified_after = req.query.modified_after;
+    }
+    if (req.query.modified_before) {
+      options.filters.modified_before = req.query.modified_before;
+    }
+
+    const searchResults = await elasticsearchClient.searchFiles(query, options);
+    
+    // Format results to match existing API
+    const formattedResults = searchResults.hits.map(file => ({
+      name: file.name,
+      path: file.path,
+      isDirectory: file.is_directory,
+      size: file.size,
+      sizeFormatted: file.size_formatted,
+      modified: file.modified_at,
+      created: file.modified_at,
+      extension: file.extension,
+      cached: file.cached,
+      score: file._score
+    }));
+    
+    res.json({
+      results: formattedResults,
+      total: searchResults.total,
+      took: searchResults.took,
+      query: query,
+      filters: options.filters
+    });
+
+  } catch (error) {
+    console.error('Error in Elasticsearch search:', error);
+    res.status(500).json({ 
+      error: 'Elasticsearch search failed',
+      message: error.message,
+      fallback: '/api/search'
+    });
+  }
+});
+
+// Search suggestions/autocomplete endpoint
+app.get('/api/search/suggestions', async (req, res) => {
+  try {
+    const elasticsearchClient = req.app.locals.elasticsearchClient;
+    
+    if (!elasticsearchClient) {
+      return res.status(503).json({ 
+        error: 'Elasticsearch not available' 
+      });
+    }
+
+    const query = req.query.q;
+    if (!query || query.trim().length < 2) {
+      return res.json({ suggestions: [] });
+    }
+    
+    const size = parseInt(req.query.size) || 10;
+    const suggestions = await elasticsearchClient.getSuggestions(query, size);
+    
+    res.json({ suggestions });
+
+  } catch (error) {
+    console.error('Error getting search suggestions:', error);
+    res.status(500).json({ 
+      error: 'Failed to get suggestions',
+      message: error.message
+    });
+  }
+});
+
+// Elasticsearch index statistics endpoint
+app.get('/api/search/stats', async (req, res) => {
+  try {
+    const elasticsearchClient = req.app.locals.elasticsearchClient;
+    
+    if (!elasticsearchClient) {
+      return res.status(503).json({ 
+        error: 'Elasticsearch not available' 
+      });
+    }
+
+    const stats = await elasticsearchClient.getIndexStats();
+    
+    res.json({
+      elasticsearch: stats,
+      available: true
+    });
+
+  } catch (error) {
+    console.error('Error getting Elasticsearch stats:', error);
+    res.status(500).json({ 
+      error: 'Failed to get Elasticsearch stats',
+      message: error.message,
+      available: false
+    });
   }
 });
 
@@ -1465,6 +1608,22 @@ async function startServer() {
     console.log('Varnish stats disabled');
   }
   
+  // Initialize Elasticsearch client
+  let elasticsearchClient = null;
+  try {
+    elasticsearchClient = new ElasticsearchClient();
+    const esConnected = await elasticsearchClient.testConnection();
+    if (esConnected) {
+      await elasticsearchClient.ensureIndexExists();
+      console.log('Elasticsearch client initialized successfully');
+    } else {
+      console.log('Elasticsearch not available - search will use PostgreSQL fallback');
+    }
+  } catch (error) {
+    console.error('Failed to initialize Elasticsearch:', error.message);
+    console.log('Search will use PostgreSQL fallback');
+  }
+  
   // Start HTTP server
   const server = app.listen(PORT, () => {
     logger.info('File Explorer Backend v2 started', {
@@ -1481,6 +1640,7 @@ async function startServer() {
   app.locals.wss = wss;
   app.locals.cacheManager = getCacheWorkerManager();
   app.locals.indexer = getIndexer();
+  app.locals.elasticsearchClient = elasticsearchClient;
 }
 
 // Graceful shutdown handler
