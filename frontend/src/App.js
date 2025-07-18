@@ -2016,7 +2016,13 @@ function App() {
                 <div style={{ fontWeight: '600', marginBottom: '8px', color: '#ffffff' }}>
                   Search Examples:
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '11px' }}>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(2, 1fr)', 
+                  gap: '4px 12px', 
+                  fontSize: '11px',
+                  alignItems: 'start'
+                }}>
                   <div>• <span style={{ color: '#9ca3af' }}>Farm</span></div>
                   <div>• <span style={{ color: '#9ca3af' }}>proxy</span></div>
                   <div>• <span style={{ color: '#9ca3af' }}>Farm AND Proxy</span></div>
@@ -2024,7 +2030,7 @@ function App() {
                   <div>• <span style={{ color: '#9ca3af' }}>NOT temp</span></div>
                   <div>• <span style={{ color: '#9ca3af' }}>Farm*</span></div>
                   <div>• <span style={{ color: '#9ca3af' }}>*.jpg</span></div>
-                  <div>• <span style={{ color: '#9ca3af' }}>/path/to/file</span></div>
+                  <div>• <span style={{ color: '#9ca3af' }}>/media/videos</span></div>
                 </div>
               </div>
             )}
