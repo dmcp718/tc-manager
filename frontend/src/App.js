@@ -2026,6 +2026,21 @@ function App() {
     });
   };
 
+  // Function to get relative path from mount point
+  const getRelativePath = (absolutePath) => {
+    const mountPoint = process.env.REACT_APP_LUCIDLINK_MOUNT_POINT || '/media/lucidlink-1';
+    
+    if (absolutePath === mountPoint) {
+      return '/'; // Root of the mount
+    }
+    
+    if (absolutePath.startsWith(mountPoint + '/')) {
+      return absolutePath.substring(mountPoint.length); // Remove mount point prefix
+    }
+    
+    return absolutePath; // Return as-is if not under mount point
+  };
+
   const getFilteredFiles = () => {
     // Determine the source file list (search results or current directory)
     let fileList;
@@ -2378,7 +2393,46 @@ function App() {
         
         <main style={styles.contentArea}>
           <div style={styles.breadcrumb}>
-            <span>{searchResults !== null ? `Search results for "${searchQuery}"` : currentPath}</span>
+            {/* Up arrow navigation button */}
+            {searchResults === null && currentPath !== '/' && currentPath !== '/media/lucidlink-1' && (
+              <button
+                onClick={() => {
+                  const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/';
+                  loadDirectory(parentPath);
+                }}
+                style={{
+                  backgroundColor: 'transparent',
+                  border: '1px solid #3a3a3a',
+                  borderRadius: '6px',
+                  padding: '6px 8px',
+                  marginRight: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#a1a1aa',
+                  transition: 'all 0.2s ease',
+                  minWidth: '24px',
+                  height: '24px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.backgroundColor = '#2a2a2a';
+                  e.target.style.borderColor = '#3b82f6';
+                  e.target.style.color = '#e4e4e7';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.backgroundColor = 'transparent';
+                  e.target.style.borderColor = '#3a3a3a';
+                  e.target.style.color = '#a1a1aa';
+                }}
+                title="Go up one directory level"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                  <path d="M18 15l-6-6-6 6"/>
+                </svg>
+              </button>
+            )}
+            <span>{searchResults !== null ? `Search results for "${searchQuery}"` : getRelativePath(currentPath)}</span>
           </div>
           
           <div style={{
