@@ -35,6 +35,9 @@ const VarnishStatsWorker = require('./varnish-stats-worker');
 // Import media preview service
 const { MediaPreviewService } = require('./services/media-preview-service');
 
+// Import Elasticsearch client
+const ElasticsearchClient = require('./elasticsearch-client');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 const WEBSOCKET_PORT = process.env.WEBSOCKET_PORT || 3002;
@@ -75,6 +78,9 @@ let varnishStatsWorkerInstance = null;
 
 // Global media preview service instance
 let mediaPreviewService = null;
+
+// Global Elasticsearch client instance
+let elasticsearchClient = null;
 
 // WebSocket server
 const wss = new WebSocket.Server({ port: WEBSOCKET_PORT });
@@ -153,6 +159,8 @@ app.get('/', (req, res) => {
       jobs: '/api/jobs',
       job: '/api/jobs/{id}',
       search: '/api/search?q={query}',
+      searchElasticsearch: '/api/search/elasticsearch?q={query}',
+      elasticsearchAvailability: '/api/search/elasticsearch/availability',
       stats: '/api/stats',
       indexStart: 'POST /api/index/start',
       indexStatus: '/api/index/status',
@@ -485,6 +493,61 @@ app.get('/api/search', async (req, res) => {
   } catch (error) {
     console.error('Error searching files:', error);
     res.status(500).json({ error: 'Failed to search files' });
+  }
+});
+
+// Elasticsearch search endpoint
+app.get('/api/search/elasticsearch', async (req, res) => {
+  try {
+    const query = req.query.q;
+    if (!query) {
+      return res.status(400).json({ error: 'Query parameter required' });
+    }
+    
+    // Check if Elasticsearch is available
+    if (!elasticsearchClient) {
+      return res.status(503).json({ error: 'Elasticsearch not available' });
+    }
+    
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+    
+    const results = await elasticsearchClient.searchFiles(query, { size: limit, from: offset });
+    const formattedResults = results.hits.map(hit => ({
+      name: hit.name,
+      path: hit.path,
+      isDirectory: hit.is_directory,
+      size: hit.size,
+      modified: hit.modified_at,
+      created: hit.modified_at,
+      extension: hit.extension,
+      cached: hit.cached,
+      score: hit._score
+    }));
+    
+    res.json({
+      results: formattedResults,
+      total: results.total,
+      took: results.took
+    });
+  } catch (error) {
+    console.error('Error searching files with Elasticsearch:', error);
+    res.status(500).json({ error: 'Failed to search files with Elasticsearch' });
+  }
+});
+
+// Check Elasticsearch availability
+app.get('/api/search/elasticsearch/availability', async (req, res) => {
+  try {
+    if (!elasticsearchClient) {
+      return res.json({ available: false, reason: 'Elasticsearch client not initialized' });
+    }
+    
+    const isConnected = await elasticsearchClient.testConnection();
+    res.json({ available: isConnected });
+  } catch (error) {
+    console.error('Error checking Elasticsearch availability:', error);
+    res.json({ available: false, reason: 'Connection test failed' });
   }
 });
 
@@ -1584,6 +1647,20 @@ async function startServer() {
     console.log('Media preview service initialized');
   } catch (error) {
     console.error('Failed to initialize media preview service:', error);
+  }
+  
+  // Initialize Elasticsearch client
+  try {
+    elasticsearchClient = new ElasticsearchClient();
+    const isConnected = await elasticsearchClient.testConnection();
+    if (isConnected) {
+      await elasticsearchClient.ensureIndexExists();
+      console.log('Elasticsearch client initialized and connected');
+    } else {
+      console.log('Elasticsearch client initialized but not connected');
+    }
+  } catch (error) {
+    console.error('Failed to initialize Elasticsearch client:', error);
   }
   
   // Start HTTP server

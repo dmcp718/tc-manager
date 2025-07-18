@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Tree } from 'react-arborist';
 import Hls from 'hls.js';
 
-// Cache buster: 2025-07-18-fix-preview-null-safety
+// Cache buster: 2025-07-18-v1.4.0-es-search-no-show-in-folder
 
 // Fonts are loaded in index.html for better performance
 
@@ -888,6 +888,8 @@ function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchOffset, setSearchOffset] = useState(0);
   const [hasMoreResults, setHasMoreResults] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const [elasticsearchAvailable, setElasticsearchAvailable] = useState(false);
   const [indexStatus, setIndexStatus] = useState(null);
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexStartTime, setIndexStartTime] = useState(null);
@@ -946,6 +948,7 @@ function App() {
     loadJobs();
     loadCacheStats();
     checkIndexStatus();
+    checkElasticsearchStatus();
     
     // Enhanced WebSocket connection with auto-reconnect and fallback polling
     const wsUrl = process.env.REACT_APP_WS_URL || 'ws://192.168.8.28:3002';
@@ -1623,27 +1626,6 @@ function App() {
     setTimeout(() => setToastMessage(null), duration);
   };
 
-  const showAllCachedFiles = async () => {
-    try {
-      const response = await fetch(`${FileSystemAPI.baseURL}/files/cached`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch cached files');
-      }
-      
-      const result = await response.json();
-      
-      // Set search results to show all cached files
-      setSearchResults(result.files);
-      setSearchQuery(`All Cached Files (${result.count})`);
-      
-      console.log(`Showing ${result.count} cached files`);
-      
-    } catch (error) {
-      console.error('Error fetching cached files:', error);
-      showToast('Failed to load cached files', 'error');
-    }
-  };
 
   const cancelJob = async (jobId) => {
     try {
@@ -1670,21 +1652,45 @@ function App() {
     }
   };
 
+  // Check Elasticsearch availability
+  const checkElasticsearchStatus = async () => {
+    try {
+      const response = await fetch(`${FileSystemAPI.baseURL}/search/elasticsearch/availability`);
+      if (response.ok) {
+        const status = await response.json();
+        setElasticsearchAvailable(status.available);
+      } else {
+        setElasticsearchAvailable(false);
+      }
+    } catch (error) {
+      console.error('Error checking Elasticsearch status:', error);
+      setElasticsearchAvailable(false);
+    }
+  };
+
   // Search functionality
   const handleSearch = async (query, offset = 0, append = false) => {
     if (!query.trim()) {
       setSearchResults(null);
       setSearchOffset(0);
       setHasMoreResults(false);
+      setSearchError(null);
       return;
     }
 
     setIsSearching(true);
+    setSearchError(null);
+    
     try {
       const limit = 50; // Fixed page size
-      const response = await fetch(`${FileSystemAPI.baseURL}/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`);
+      const endpoint = elasticsearchAvailable ? '/search/elasticsearch' : '/search';
+      const response = await fetch(`${FileSystemAPI.baseURL}${endpoint}?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`);
+      
       if (response.ok) {
-        const results = await response.json();
+        const data = await response.json();
+        
+        // Handle different response formats
+        const results = elasticsearchAvailable ? data.results : data;
         
         if (append && searchResults) {
           setSearchResults([...searchResults, ...results]);
@@ -1695,10 +1701,13 @@ function App() {
         setSearchOffset(offset);
         setHasMoreResults(results.length === limit); // Has more if we got a full page
       } else {
-        console.error('Search failed');
+        const errorData = await response.json();
+        setSearchError(errorData.error || 'Search failed');
+        console.error('Search failed:', errorData);
       }
     } catch (error) {
       console.error('Search error:', error);
+      setSearchError('Search service unavailable');
     } finally {
       setIsSearching(false);
     }
@@ -1730,6 +1739,7 @@ function App() {
   const clearSearch = () => {
     setSearchQuery('');
     setSearchResults(null);
+    setSearchError(null);
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
@@ -1950,7 +1960,15 @@ function App() {
               <path d="m3 12c0 1.7 4 3 9 3s9-1.3 9-3"/>
             </svg>
             <span style={{ marginLeft: '8px' }}>
-              SiteCache Browser
+              SiteCache Manager
+            </span>
+            <span style={{ 
+              marginLeft: '8px', 
+              fontSize: '12px', 
+              color: '#a1a1aa',
+              fontWeight: 'normal'
+            }}>
+              v1.4.0
             </span>
           </h1>
         </div>
@@ -1959,7 +1977,14 @@ function App() {
           <div style={styles.searchContainer}>
             <input
               type="text"
-              placeholder="Search files..."
+              placeholder={elasticsearchAvailable ? 
+                "Search files... (supports AND, OR, NOT)" : 
+                "Search files..."
+              }
+              title={elasticsearchAvailable ? 
+                "Search examples:\n• Farm\n• proxy\n• Farm AND Proxy\n• mp4 OR mov\n• NOT temp\n• Farm*\n• *.jpg" : 
+                "Search files by name or path"
+              }
               value={searchQuery}
               onChange={handleSearchInputChange}
               style={styles.searchInput}
@@ -1979,27 +2004,30 @@ function App() {
                 <path d="M21 21L16.5 16.5M19 11C19 15.4183 15.4183 19 11 19C6.58172 19 3 15.4183 3 11C3 6.58172 6.58172 3 11 3C15.4183 3 19 6.58172 19 11Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             )}
+            
+            {/* Search error message */}
+            {searchError && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: '0',
+                right: '0',
+                backgroundColor: '#dc2626',
+                color: '#ffffff',
+                padding: '8px 12px',
+                borderRadius: '0 0 6px 6px',
+                fontSize: '12px',
+                zIndex: 1000,
+                border: '1px solid #dc2626',
+                borderTop: 'none'
+              }}>
+                {searchError}
+              </div>
+            )}
           </div>
           
-          <button
-            style={{
-              ...styles.button,
-              marginLeft: '12px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-            onClick={showAllCachedFiles}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <ellipse cx="12" cy="5" rx="9" ry="3"/>
-              <path d="m3 5 0 14c0 1.7 4 3 9 3s9-1.3 9-3V5"/>
-              <path d="m3 12c0 1.7 4 3 9 3s9-1.3 9-3"/>
-            </svg>
-            All Cached Files
-          </button>
           
-          {/* Indexing Status - positioned to the right of All Cached Files button */}
+          {/* Indexing Status */}
           {isIndexing && (
             <div style={{
               marginLeft: '20px',
@@ -2289,9 +2317,9 @@ function App() {
                     />
                   </th>
                   <th style={styles.tableHeaderCell}>File Name</th>
-                  <th style={styles.tableHeaderCell}>Date Created</th>
-                  <th style={styles.tableHeaderCell}>Last Modified</th>
-                  <th style={styles.tableHeaderCell}>Type</th>
+                  <th style={{...styles.tableHeaderCell, width: '136px'}}>Date Created</th>
+                  <th style={{...styles.tableHeaderCell, width: '136px'}}>Last Modified</th>
+                  <th style={{...styles.tableHeaderCell, width: '60px'}}>Type</th>
                   <th style={styles.tableHeaderCell}>Size</th>
                   <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Cached</th>
                   <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Preview</th>
@@ -2339,13 +2367,13 @@ function App() {
                         <span>{file.name}</span>
                       </div>
                     </td>
-                    <td style={styles.tableCell}>
+                    <td style={{...styles.tableCell, width: '136px'}}>
                       {file.created ? formatDate(file.created) : '-'}
                     </td>
-                    <td style={styles.tableCell}>
+                    <td style={{...styles.tableCell, width: '136px'}}>
                       {file.modified ? formatDate(file.modified) : '-'}
                     </td>
-                    <td style={styles.tableCell}>
+                    <td style={{...styles.tableCell, width: '60px'}}>
                       {file.isDirectory ? 'Folder' : file.extension || '-'}
                     </td>
                     <td style={styles.tableCell}>
@@ -2411,36 +2439,38 @@ function App() {
                       )}
                     </td>
                     <td style={{...styles.tableCell, textAlign: 'center', width: '120px'}}>
-                      <button
-                        style={{
-                          backgroundColor: 'transparent',
-                          color: '#3b82f6',
-                          border: '1px solid #3b82f6',
-                          borderRadius: '12px',
-                          padding: '6px 12px',
-                          fontSize: '12px',
-                          fontWeight: '500',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          minHeight: '24px',
-                          minWidth: '80px',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.target.style.backgroundColor = '#3b82f6';
-                          e.target.style.color = '#ffffff';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.target.style.backgroundColor = 'transparent';
-                          e.target.style.color = '#3b82f6';
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          generateDirectLink(file.path);
-                        }}
-                        disabled={directLinkLoading.has(file.path)}
-                      >
-                        {directLinkLoading.has(file.path) ? '...' : 'direct link'}
-                      </button>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', justifyContent: 'center' }}>
+                        <button
+                          style={{
+                            backgroundColor: 'transparent',
+                            color: '#3b82f6',
+                            border: '1px solid #3b82f6',
+                            borderRadius: '12px',
+                            padding: '6px 12px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            minHeight: '24px',
+                            minWidth: '80px',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.backgroundColor = '#3b82f6';
+                            e.target.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.backgroundColor = 'transparent';
+                            e.target.style.color = '#3b82f6';
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            generateDirectLink(file.path);
+                          }}
+                          disabled={directLinkLoading.has(file.path)}
+                        >
+                          {directLinkLoading.has(file.path) ? '...' : 'direct link'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

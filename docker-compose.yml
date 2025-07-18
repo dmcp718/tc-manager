@@ -123,7 +123,7 @@ services:
     depends_on:
       - backend
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -178,39 +178,6 @@ services:
       start_period: 60s
     restart: unless-stopped
 
-  # Media Preview Service
-  media-preview:
-    build:
-      context: ./media-preview-service
-      dockerfile: Dockerfile
-    container_name: sitecache-media-preview
-    # High-performance resources for video transcoding
-    mem_limit: 8g
-    cpus: 8.0
-    environment:
-      NODE_ENV: ${NODE_ENV:-production}
-      PORT: 3003
-      REDIS_URL: redis://redis:6379
-      PREVIEW_CACHE_DIR: /tmp/previews
-      TEMP_DIR: /tmp/temp
-    volumes:
-      # Mount LucidLink filesystem for file access
-      - lucidlink_mount:/media/lucidlink-1:ro
-      # Dedicated cache volume for previews
-      - preview_cache:/tmp/previews
-      # Temp directory for processing
-      - preview_temp:/tmp/temp
-    ports:
-      - "3003:3003"
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
 
   # Varnish Stats Collection Service
   varnish-stats:
@@ -237,10 +204,6 @@ volumes:
   redis_data:
     driver: local
   elasticsearch_data:
-    driver: local
-  preview_cache:
-    driver: local
-  preview_temp:
     driver: local
 
 networks:

@@ -49,3 +49,7 @@ coverage/
 CLAUDE.md
 CLAUDE.local.md
 .claude/backend/lucidlink_3.2.6817_amd64.deb
+
+# LucidLink installer (large binary file)
+backend/lucidlink_3.2.6817_amd64.deb
+lucidlink_3.2.6817_amd64.deb
