@@ -547,6 +547,13 @@ class FileIndexer extends EventEmitter {
     ];
     
     const pathSegments = dirPath.split(path.sep);
+    
+    // Skip any directory that starts with a dot (hidden directories)
+    const lastSegment = pathSegments[pathSegments.length - 1];
+    if (lastSegment && lastSegment.startsWith('.')) {
+      return true;
+    }
+    
     return skipDirs.some(skip => 
       pathSegments.includes(skip) ||
       dirPath.includes(`${path.sep}${skip}${path.sep}`) ||
