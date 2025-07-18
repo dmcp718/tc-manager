@@ -23,6 +23,7 @@ A production-ready file system browser and cache management system for LucidLink
 - **Structured Logging**: JSON logging with rotation and level controls
 
 ### 🔒 Production Security
+- **Authentication**: JWT-based admin authentication system
 - **Container Security**: Non-root users, read-only filesystems, AppArmor profiles
 - **FUSE Integration**: Secure filesystem mounting with proper permissions
 - **Environment Configuration**: Secure credential management
@@ -87,6 +88,12 @@ LUCIDLINK_USER=your-email@domain.com
 LUCIDLINK_PASSWORD=your-secure-password
 LUCIDLINK_MOUNT_POINT=/media/lucidlink-1
 
+# Authentication Configuration
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_EXPIRY=8h
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin123
+
 # Database Security
 POSTGRES_PASSWORD=your-strong-database-password
 
@@ -112,6 +119,10 @@ docker compose logs backend | head -20
 - **Backend API**: http://localhost:3001
 - **Health Check**: http://localhost:3001/health
 - **WebSocket**: ws://localhost:3002
+
+**Default Login Credentials:**
+- Username: `admin`
+- Password: `admin123`
 
 ## 🏭 Production Deployment
 
@@ -144,6 +155,12 @@ nano .env.production
 **Critical Production Settings:**
 
 ```bash
+# Authentication Security
+JWT_SECRET=GENERATE_SECURE_JWT_SECRET_HERE
+JWT_EXPIRY=8h
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=GENERATE_STRONG_ADMIN_PASSWORD_HERE
+
 # Database Security
 POSTGRES_PASSWORD=GENERATE_STRONG_PASSWORD_HERE
 DB_HOST=postgres
@@ -209,6 +226,14 @@ curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" http://localhost:300
 ## 🔧 Detailed Configuration
 
 ### Environment Variables Reference
+
+#### Authentication Configuration
+```bash
+JWT_SECRET=your_secure_jwt_secret         # JWT token signing secret
+JWT_EXPIRY=8h                            # Token expiration time
+ADMIN_USERNAME=admin                     # Admin username
+ADMIN_PASSWORD=your_secure_password      # Admin password
+```
 
 #### Database Configuration
 ```bash
@@ -637,29 +662,67 @@ tar -czf sitecache_backup_$(date +%Y%m%d).tar.gz \
 ## 🚀 API Reference
 
 ### Authentication
-Currently no authentication required (add as needed for production).
+
+All API endpoints (except health checks) require JWT authentication.
+
+#### Login
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+Response:
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "username": "admin",
+    "role": "admin"
+  }
+}
+```
+
+#### Using Authentication
+Include the JWT token in the Authorization header:
+```http
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Logout
+```http
+POST /api/auth/logout
+Authorization: Bearer your_token_here
+```
 
 ### File Operations
 
 #### List Root Directories
 ```http
 GET /api/roots
+Authorization: Bearer your_token_here
 ```
 
 #### Browse Directory
 ```http
 GET /api/files?path=/media/lucidlink-1/some/directory
+Authorization: Bearer your_token_here
 ```
 
 #### Search Files
 ```http
 GET /api/search?q=searchterm&path=/media/lucidlink-1
+Authorization: Bearer your_token_here
 ```
 
 #### Generate Direct Link
 ```http
 POST /api/direct-link
 Content-Type: application/json
+Authorization: Bearer your_token_here
 
 {
   "filePath": "/media/lucidlink-1/file.pdf",

@@ -75,6 +75,78 @@ const styles = {
     whiteSpace: 'nowrap',
     marginRight: '12px',
   },
+  // Login screen styles
+  loginContainer: {
+    height: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1a1a1a',
+    color: '#e4e4e7',
+    fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  },
+  loginForm: {
+    backgroundColor: '#2a2a2a',
+    padding: '40px',
+    borderRadius: '12px',
+    border: '1px solid #3a3a3a',
+    width: '360px',
+    maxWidth: '90vw',
+  },
+  loginTitle: {
+    fontSize: '24px',
+    fontWeight: 'bold',
+    color: '#ffffff',
+    textAlign: 'center',
+    marginBottom: '32px',
+  },
+  loginField: {
+    marginBottom: '20px',
+  },
+  loginLabel: {
+    display: 'block',
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#e4e4e7',
+    marginBottom: '6px',
+  },
+  loginInput: {
+    width: '100%',
+    padding: '12px',
+    borderRadius: '6px',
+    border: '1px solid #3a3a3a',
+    backgroundColor: '#1a1a1a',
+    color: '#e4e4e7',
+    fontSize: '14px',
+    outline: 'none',
+    transition: 'border-color 0.2s ease',
+    boxSizing: 'border-box',
+  },
+  loginButton: {
+    width: '100%',
+    padding: '12px',
+    borderRadius: '6px',
+    border: 'none',
+    backgroundColor: '#3b82f6',
+    color: '#ffffff',
+    fontSize: '14px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s ease',
+    marginTop: '8px',
+  },
+  loginError: {
+    color: '#ef4444',
+    fontSize: '14px',
+    textAlign: 'center',
+    marginTop: '16px',
+  },
+  loginLoading: {
+    textAlign: 'center',
+    color: '#71717a',
+    fontSize: '14px',
+    marginTop: '16px',
+  },
   searchInput: {
     width: '100%',
     padding: '6px 32px 6px 12px',
@@ -323,32 +395,48 @@ const styles = {
 class FileSystemAPI {
   static baseURL = process.env.REACT_APP_API_URL || 'http://192.168.8.28:3001/api';
 
+  static getAuthHeaders() {
+    const token = localStorage.getItem('authToken');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
   static async getRoots() {
-    const response = await fetch(`${this.baseURL}/roots`);
+    const response = await fetch(`${this.baseURL}/roots`, {
+      headers: this.getAuthHeaders()
+    });
     return response.json();
   }
 
   static async getFiles(path) {
-    const response = await fetch(`${this.baseURL}/files?path=${encodeURIComponent(path)}`);
+    const response = await fetch(`${this.baseURL}/files?path=${encodeURIComponent(path)}`, {
+      headers: this.getAuthHeaders()
+    });
     return response.json();
   }
 
   static async executeScript(scriptPath, args = []) {
     const response = await fetch(`${this.baseURL}/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders()
+      },
       body: JSON.stringify({ scriptPath, args }),
     });
     return response.json();
   }
 
   static async getJobs() {
-    const response = await fetch(`${this.baseURL}/jobs`);
+    const response = await fetch(`${this.baseURL}/jobs`, {
+      headers: this.getAuthHeaders()
+    });
     return response.json();
   }
 
   static async getCacheStats() {
-    const response = await fetch(`${this.baseURL}/cache-stats`);
+    const response = await fetch(`${this.baseURL}/cache-stats`, {
+      headers: this.getAuthHeaders()
+    });
     return response.json();
   }
 }
@@ -688,7 +776,9 @@ function PreviewModal({ filePath, preview, type, onClose }) {
     if (preview?.status === 'processing') {
       const interval = setInterval(async () => {
         try {
-          const response = await fetch(`${FileSystemAPI.baseURL}/preview/status/${preview?.cacheKey}`);
+          const response = await fetch(`${FileSystemAPI.baseURL}/preview/status/${preview?.cacheKey}`, {
+            headers: FileSystemAPI.getAuthHeaders()
+          });
           const result = await response.json();
           
           // Update current preview data with latest status and progress
@@ -966,8 +1056,110 @@ function PreviewModal({ filePath, preview, type, onClose }) {
   );
 }
 
+// LoginScreen Component
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!username || !password) {
+      setError('Please enter both username and password');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        localStorage.setItem('authToken', data.token);
+        onLogin(data.user, data.token);
+      } else {
+        setError(data.error || 'Login failed');
+      }
+    } catch (error) {
+      setError('Network error. Please try again.');
+      console.error('Login error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={styles.loginContainer}>
+      <form style={styles.loginForm} onSubmit={handleSubmit}>
+        <h1 style={styles.loginTitle}>Site Cache Browser</h1>
+        
+        <div style={styles.loginField}>
+          <label style={styles.loginLabel} htmlFor="username">
+            Username
+          </label>
+          <input
+            id="username"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            style={styles.loginInput}
+            placeholder="Enter username"
+            disabled={loading}
+          />
+        </div>
+
+        <div style={styles.loginField}>
+          <label style={styles.loginLabel} htmlFor="password">
+            Password
+          </label>
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={styles.loginInput}
+            placeholder="Enter password"
+            disabled={loading}
+          />
+        </div>
+
+        <button
+          type="submit"
+          style={{
+            ...styles.loginButton,
+            backgroundColor: loading ? '#64748b' : '#3b82f6',
+            cursor: loading ? 'not-allowed' : 'pointer',
+          }}
+          disabled={loading}
+        >
+          {loading ? 'Signing in...' : 'Sign In'}
+        </button>
+
+        {error && <div style={styles.loginError}>{error}</div>}
+        {loading && <div style={styles.loginLoading}>Authenticating...</div>}
+      </form>
+    </div>
+  );
+}
+
 // Main File Explorer Component
 function App() {
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  
   const [treeData, setTreeData] = useState([]);
   const [currentPath, setCurrentPath] = useState('/');
   const [files, setFiles] = useState([]);
@@ -1024,6 +1216,73 @@ function App() {
     return `${seconds}s`;
   };
 
+  // Authentication functions
+  const checkAuth = async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      setAuthLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/auth/verify', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+        setIsAuthenticated(true);
+      } else {
+        localStorage.removeItem('authToken');
+      }
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      localStorage.removeItem('authToken');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogin = (userData, token) => {
+    setUser(userData);
+    setIsAuthenticated(true);
+    setAuthLoading(false);
+  };
+
+  const handleLogout = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (token) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      localStorage.removeItem('authToken');
+      setUser(null);
+      setIsAuthenticated(false);
+    }
+  };
+
+  // Check authentication on mount
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  // Utility function to get authorization headers
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('authToken');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   // Add CSS keyframes for spinner animation
   useEffect(() => {
     const style = document.createElement('style');
@@ -1037,13 +1296,15 @@ function App() {
     return () => document.head.removeChild(style);
   }, []);
 
-  // Load root directories on mount
+  // Load root directories on mount - only when authenticated
   useEffect(() => {
-    loadRoots();
-    loadJobs();
-    loadCacheStats();
-    checkIndexStatus();
-    checkElasticsearchStatus();
+    if (isAuthenticated) {
+      loadRoots();
+      loadJobs();
+      loadCacheStats();
+      checkIndexStatus();
+      checkElasticsearchStatus();
+    }
     
     // Enhanced WebSocket connection with auto-reconnect and fallback polling
     const wsUrl = process.env.REACT_APP_WS_URL || 'ws://192.168.8.28:3002';
@@ -1337,7 +1598,7 @@ function App() {
         clearInterval(fallbackPollingTimer);
       }
     };
-  }, []);
+  }, [isAuthenticated]);
 
   // Load jobs on mount and periodically
   useEffect(() => {
@@ -1550,6 +1811,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...FileSystemAPI.getAuthHeaders()
         },
         body: JSON.stringify({
           filePaths: allFilePaths,
@@ -1584,6 +1846,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...FileSystemAPI.getAuthHeaders()
         }
       });
 
@@ -1614,6 +1877,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...FileSystemAPI.getAuthHeaders()
         },
         body: JSON.stringify({ filePath })
       });
@@ -1683,6 +1947,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...FileSystemAPI.getAuthHeaders()
         },
         body: JSON.stringify({ filePath })
       });
@@ -1730,6 +1995,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...FileSystemAPI.getAuthHeaders()
         }
       });
 
@@ -1752,7 +2018,9 @@ function App() {
   // Check Elasticsearch availability
   const checkElasticsearchStatus = async () => {
     try {
-      const response = await fetch(`${FileSystemAPI.baseURL}/search/elasticsearch/availability`);
+      const response = await fetch(`${FileSystemAPI.baseURL}/search/elasticsearch/availability`, {
+        headers: FileSystemAPI.getAuthHeaders()
+      });
       if (response.ok) {
         const status = await response.json();
         setElasticsearchAvailable(status.available);
@@ -1781,7 +2049,9 @@ function App() {
     try {
       const limit = 50; // Fixed page size
       const endpoint = elasticsearchAvailable ? '/search/elasticsearch' : '/search';
-      const response = await fetch(`${FileSystemAPI.baseURL}${endpoint}?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`);
+      const response = await fetch(`${FileSystemAPI.baseURL}${endpoint}?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`, {
+        headers: FileSystemAPI.getAuthHeaders()
+      });
       
       if (response.ok) {
         const data = await response.json();
@@ -2060,6 +2330,23 @@ function App() {
     if (activeFilter === 'other') return fileList.filter(f => !f.isDirectory && f.extension && !['.jpg', '.png', '.gif', '.jpeg', '.webp', '.tif', '.tiff', '.psd', '.dpx', '.exr', '.mp4', '.mov', '.avi', '.mkv', '.m4v', '.mxf', '.braw', '.r3d', '.mp3', '.wav', '.flac', '.aac', '.pdf', '.doc', '.docx', '.txt', '.md'].includes(f.extension.toLowerCase()));
     return fileList;
   };
+
+  // Show loading screen while checking authentication
+  if (authLoading) {
+    return (
+      <div style={styles.loginContainer}>
+        <div style={{...styles.loginForm, textAlign: 'center'}}>
+          <h1 style={styles.loginTitle}>SiteCache Manager</h1>
+          <div style={styles.loginLoading}>Checking authentication...</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
 
   return (
     <div style={styles.container}>
@@ -2346,6 +2633,45 @@ function App() {
           >
             ⟲ Jobs ({jobs.filter(j => j.status === 'running').length})
           </button>
+          
+          {/* User status and logout */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            marginLeft: '16px',
+            gap: '12px'
+          }}>
+            <div style={{
+              fontSize: '12px',
+              color: '#a1a1aa',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+              {user?.username || 'admin'}
+            </div>
+            <button
+              style={{
+                padding: '6px 12px',
+                borderRadius: '4px',
+                border: '1px solid #3a3a3a',
+                backgroundColor: '#2a2a2a',
+                color: '#e4e4e7',
+                fontSize: '12px',
+                cursor: 'pointer',
+                transition: 'background-color 0.2s ease',
+              }}
+              onClick={handleLogout}
+              onMouseEnter={(e) => e.target.style.backgroundColor = '#3a3a3a'}
+              onMouseLeave={(e) => e.target.style.backgroundColor = '#2a2a2a'}
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </header>
       

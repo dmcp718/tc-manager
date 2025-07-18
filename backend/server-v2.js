@@ -1,3 +1,6 @@
+// Load environment variables first
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
@@ -37,6 +40,9 @@ const { MediaPreviewService } = require('./services/media-preview-service');
 
 // Import Elasticsearch client
 const ElasticsearchClient = require('./elasticsearch-client');
+
+// Import authentication service
+const authService = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -233,8 +239,51 @@ app.get('/health', async (req, res) => {
   res.status(statusCode).json(health);
 });
 
+// Authentication endpoints
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+    
+    const isValid = await authService.validateCredentials(username, password);
+    
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const token = authService.generateToken(username);
+    
+    res.json({
+      success: true,
+      token,
+      user: { username, role: 'admin' }
+    });
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  // For JWT tokens, logout is handled client-side by removing the token
+  // In a more sophisticated setup, we could maintain a blacklist of revoked tokens
+  res.json({ success: true, message: 'Logged out successfully' });
+});
+
+app.get('/api/auth/verify', authService.requireAuth, (req, res) => {
+  // If we reach this point, the token is valid (middleware passed)
+  res.json({
+    success: true,
+    user: req.user
+  });
+});
+
 // Get root directories - check database first, fallback to filesystem
-app.get('/api/roots', async (req, res) => {
+app.get('/api/roots', authService.requireAuth, async (req, res) => {
   try {
     // Try to get roots from database first
     let roots = await FileModel.findRoots();
@@ -346,7 +395,7 @@ app.get('/api/roots', async (req, res) => {
 });
 
 // Get files in a directory - hybrid approach (database + filesystem)
-app.get('/api/files', async (req, res) => {
+app.get('/api/files', authService.requireAuth, async (req, res) => {
   try {
     const dirPath = req.query.path;
     if (!dirPath) {
@@ -468,7 +517,7 @@ app.get('/api/files', async (req, res) => {
 });
 
 // Search files
-app.get('/api/search', async (req, res) => {
+app.get('/api/search', authService.requireAuth, async (req, res) => {
   try {
     const query = req.query.q;
     if (!query) {
@@ -497,7 +546,7 @@ app.get('/api/search', async (req, res) => {
 });
 
 // Elasticsearch search endpoint
-app.get('/api/search/elasticsearch', async (req, res) => {
+app.get('/api/search/elasticsearch', authService.requireAuth, async (req, res) => {
   try {
     const query = req.query.q;
     if (!query) {
@@ -582,7 +631,7 @@ app.get('/api/cache-stats', async (req, res) => {
 });
 
 // Indexing endpoints
-app.post('/api/index/start', async (req, res) => {
+app.post('/api/index/start', authService.requireAuth, async (req, res) => {
   try {
     const { path: indexPath } = req.body;
     const rootPath = indexPath || process.env.INDEX_ROOT_PATH || '/media/lucidlink-1';
@@ -631,7 +680,7 @@ app.post('/api/index/start', async (req, res) => {
   }
 });
 
-app.get('/api/index/status', async (req, res) => {
+app.get('/api/index/status', authService.requireAuth, async (req, res) => {
   try {
     const indexer = getIndexer();
     const status = await indexer.getStatus();
@@ -653,7 +702,7 @@ app.get('/api/index/status', async (req, res) => {
   }
 });
 
-app.post('/api/index/stop', async (req, res) => {
+app.post('/api/index/stop', authService.requireAuth, async (req, res) => {
   try {
     const indexer = getIndexer();
     await indexer.stop();
@@ -676,7 +725,7 @@ app.get('/api/index/history', async (req, res) => {
 });
 
 // Get available actions for a file
-app.get('/api/actions', async (req, res) => {
+app.get('/api/actions', authService.requireAuth, async (req, res) => {
   try {
     const filePath = req.query.path;
     if (!filePath) {
@@ -914,7 +963,7 @@ app.get('/api/files/cached', async (req, res) => {
 });
 
 // Execute a script (legacy support)
-app.post('/api/execute', async (req, res) => {
+app.post('/api/execute', authService.requireAuth, async (req, res) => {
   try {
     const { scriptPath, args = [] } = req.body;
     
