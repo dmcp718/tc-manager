@@ -73,11 +73,25 @@ A production-ready file system browser and cache management system for LucidLink
 
 ```bash
 git clone <repository-url>
-cd sc-browser
+cd sc-browser-v2
 cp .env.example .env
 ```
 
-### 2. Configure Environment
+### 2. Install LucidLink Binary (Required)
+
+The LucidLink client binary is required but not included in the repository due to file size limits. Download and place it manually:
+
+```bash
+# Download LucidLink client from official source
+wget https://www.lucidlink.com/download/lucidlink_3.2.6817_amd64.deb -O backend/lucidlink_3.2.6817_amd64.deb
+
+# Or if you have the file locally, copy it to the backend directory:
+cp /path/to/lucidlink_3.2.6817_amd64.deb backend/
+```
+
+**Important**: The Docker container expects this specific file at `backend/lucidlink_3.2.6817_amd64.deb`. The Dockerfile will install it during the build process.
+
+### 3. Configure Environment
 
 Edit `.env` with your LucidLink credentials:
 
