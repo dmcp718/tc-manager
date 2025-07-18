@@ -890,6 +890,7 @@ function App() {
   const [hasMoreResults, setHasMoreResults] = useState(false);
   const [searchError, setSearchError] = useState(null);
   const [elasticsearchAvailable, setElasticsearchAvailable] = useState(false);
+  const [showSearchTooltip, setShowSearchTooltip] = useState(false);
   const [indexStatus, setIndexStatus] = useState(null);
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexStartTime, setIndexStartTime] = useState(null);
@@ -1974,23 +1975,59 @@ function App() {
         </div>
         
         <div style={styles.headerCenter}>
-          <div style={styles.searchContainer}>
+          <div style={{...styles.searchContainer, position: 'relative'}}>
             <input
               type="text"
               placeholder={elasticsearchAvailable ? 
                 "Search files... (supports AND, OR, NOT)" : 
                 "Search files..."
               }
-              title={elasticsearchAvailable ? 
-                "Search examples:\n• Farm\n• proxy\n• Farm AND Proxy\n• mp4 OR mov\n• NOT temp\n• Farm*\n• *.jpg" : 
-                "Search files by name or path"
-              }
               value={searchQuery}
               onChange={handleSearchInputChange}
               style={styles.searchInput}
-              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-              onBlur={(e) => e.target.style.borderColor = '#3a3a3a'}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#3b82f6';
+                if (elasticsearchAvailable) setShowSearchTooltip(true);
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#3a3a3a';
+                setTimeout(() => setShowSearchTooltip(false), 200);
+              }}
             />
+            
+            {/* Custom tooltip for search examples */}
+            {elasticsearchAvailable && showSearchTooltip && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: '0',
+                right: '0',
+                backgroundColor: '#2a2a2a',
+                color: '#e4e4e7',
+                padding: '12px',
+                borderRadius: '0 0 8px 8px',
+                fontSize: '12px',
+                zIndex: 1000,
+                border: '1px solid #3a3a3a',
+                borderTop: 'none',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                lineHeight: '1.4'
+              }}>
+                <div style={{ fontWeight: '600', marginBottom: '8px', color: '#ffffff' }}>
+                  Search Examples:
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '11px' }}>
+                  <div>• <span style={{ color: '#9ca3af' }}>Farm</span></div>
+                  <div>• <span style={{ color: '#9ca3af' }}>proxy</span></div>
+                  <div>• <span style={{ color: '#9ca3af' }}>Farm AND Proxy</span></div>
+                  <div>• <span style={{ color: '#9ca3af' }}>mp4 OR mov</span></div>
+                  <div>• <span style={{ color: '#9ca3af' }}>NOT temp</span></div>
+                  <div>• <span style={{ color: '#9ca3af' }}>Farm*</span></div>
+                  <div>• <span style={{ color: '#9ca3af' }}>*.jpg</span></div>
+                  <div>• <span style={{ color: '#9ca3af' }}>/path/to/file</span></div>
+                </div>
+              </div>
+            )}
             {searchQuery ? (
               <button
                 onClick={clearSearch}
