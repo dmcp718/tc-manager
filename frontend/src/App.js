@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Tree } from 'react-arborist';
+import Hls from 'hls.js';
 
-// Cache buster: 2025-01-14-15:30:00
+// Cache buster: 2025-07-18-fix-preview-null-safety
 
 // Fonts are loaded in index.html for better performance
 
@@ -64,8 +65,8 @@ const styles = {
     alignItems: 'center',
   },
   searchContainer: {
-    width: '480px',
-    maxWidth: '480px',
+    width: '360px',
+    maxWidth: '360px',
     position: 'relative',
   },
   statusArea: {
@@ -106,28 +107,6 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  searchModeIndicator: {
-    position: 'absolute',
-    top: '-18px',
-    right: '0px',
-    fontSize: '11px',
-    color: '#71717a',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '4px',
-  },
-  searchErrorMessage: {
-    position: 'absolute',
-    top: '100%',
-    left: '0',
-    right: '0',
-    backgroundColor: '#dc2626',
-    color: '#fef2f2',
-    padding: '4px 8px',
-    fontSize: '12px',
-    borderRadius: '0 0 4px 4px',
-    zIndex: 1000,
   },
   mainContent: {
     display: 'flex',
@@ -645,19 +624,73 @@ const formatBytes = (bytes) => {
 };
 
 // Preview Modal Component
-function PreviewModal({ filePath, preview, type, onClose }) {
-  const [isLoading, setIsLoading] = useState(preview.status === 'processing');
+function VideoPlayer({ preview }) {
+  const videoRef = useRef(null);
 
   useEffect(() => {
-    if (preview.status === 'processing') {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // If it's a direct stream URL (MP4), use native video player
+    if (preview?.directStreamUrl) {
+      video.src = preview.directStreamUrl;
+      return;
+    }
+
+    // If it's an HLS stream, use hls.js for Chromium support
+    if (preview?.playlistUrl) {
+      if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(preview.playlistUrl);
+        hls.attachMedia(video);
+        
+        return () => {
+          hls.destroy();
+        };
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS support
+        video.src = preview.playlistUrl;
+      }
+    }
+  }, [preview]);
+
+  return (
+    <video
+      ref={videoRef}
+      controls
+      autoPlay
+      style={{
+        width: '100%',
+        height: 'auto',
+        maxHeight: '80vh',
+        backgroundColor: '#000'
+      }}
+    >
+      Your browser does not support the video tag.
+    </video>
+  );
+}
+
+function PreviewModal({ filePath, preview, type, onClose }) {
+  const [isLoading, setIsLoading] = useState(preview?.status === 'processing');
+  const [currentPreview, setCurrentPreview] = useState(preview);
+
+  useEffect(() => {
+    if (preview?.status === 'processing') {
       const interval = setInterval(async () => {
         try {
-          const response = await fetch(`${FileSystemAPI.baseURL}/preview/status/${preview.cacheKey}`);
+          const response = await fetch(`${FileSystemAPI.baseURL}/preview/status/${preview?.cacheKey}`);
           const result = await response.json();
           
-          if (result.status && result.status.status !== 'processing') {
+          // Update current preview data with latest status and progress
+          setCurrentPreview(result);
+          
+          if (result.status && result.status !== 'processing' && result.status !== 'progressive_ready') {
             setIsLoading(false);
             clearInterval(interval);
+          } else if (result.status === 'progressive_ready') {
+            // Keep polling for progress updates while progressive_ready
+            setIsLoading(false);
           }
         } catch (error) {
           console.error('Error checking preview status:', error);
@@ -666,10 +699,24 @@ function PreviewModal({ filePath, preview, type, onClose }) {
 
       return () => clearInterval(interval);
     }
-  }, [preview.cacheKey, preview.status]);
+  }, [preview?.cacheKey, preview?.status]);
 
   const renderPreviewContent = () => {
-    if (isLoading || preview.status === 'processing') {
+    if (!preview) {
+      return (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '400px',
+          color: '#ef4444'
+        }}>
+          <div style={{ fontSize: '18px' }}>Preview data not available</div>
+        </div>
+      );
+    }
+
+    if (isLoading || currentPreview.status === 'processing') {
       return (
         <div style={{
           display: 'flex',
@@ -691,13 +738,13 @@ function PreviewModal({ filePath, preview, type, onClose }) {
             Processing {type} preview...
           </div>
           <div style={{ color: '#a1a1aa', fontSize: '14px' }}>
-            Progress: {preview.progress || 0}%
+            Progress: {currentPreview?.progress || 0}%
           </div>
         </div>
       );
     }
 
-    if (preview.status === 'failed') {
+    if (currentPreview?.status === 'failed') {
       return (
         <div style={{
           display: 'flex',
@@ -711,38 +758,21 @@ function PreviewModal({ filePath, preview, type, onClose }) {
           <div style={{ fontSize: '48px' }}>⚠️</div>
           <div style={{ fontSize: '18px' }}>Preview generation failed</div>
           <div style={{ fontSize: '14px', color: '#a1a1aa' }}>
-            {preview.error || 'Unknown error occurred'}
+            {currentPreview?.error || 'Unknown error occurred'}
           </div>
         </div>
       );
     }
 
-    // Render completed preview
-    if (type === 'video') {
-      return (
-        <video
-          controls
-          autoPlay
-          style={{
-            width: '100%',
-            height: 'auto',
-            maxHeight: '80vh',
-            backgroundColor: '#000'
-          }}
-          src={preview.playlistUrl ? undefined : ''}
-        >
-          {preview.playlistUrl && (
-            <source src={preview.playlistUrl} type="application/vnd.apple.mpegurl" />
-          )}
-          Your browser does not support the video tag.
-        </video>
-      );
+    // Render completed or progressive_ready preview
+    if (type === 'video' && (currentPreview?.status === 'completed' || currentPreview?.status === 'progressive_ready')) {
+      return <VideoPlayer preview={currentPreview} />;
     }
 
     if (type === 'image') {
       return (
         <img
-          src={preview.previewUrl || preview.directUrl}
+          src={preview?.previewUrl || preview?.directUrl}
           alt="Preview"
           style={{
             width: '100%',
@@ -858,10 +888,6 @@ function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchOffset, setSearchOffset] = useState(0);
   const [hasMoreResults, setHasMoreResults] = useState(false);
-  const [searchMode, setSearchMode] = useState('browse'); // 'browse' or 'search'
-  const [searchEngine, setSearchEngine] = useState('auto'); // 'auto', 'postgres', 'elasticsearch'
-  const [searchError, setSearchError] = useState(null);
-  const [elasticsearchAvailable, setElasticsearchAvailable] = useState(false);
   const [indexStatus, setIndexStatus] = useState(null);
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexStartTime, setIndexStartTime] = useState(null);
@@ -914,25 +940,10 @@ function App() {
     return () => document.head.removeChild(style);
   }, []);
 
-  // Check Elasticsearch availability
-  const checkElasticsearchAvailability = async () => {
-    try {
-      const response = await fetch(`${FileSystemAPI.baseURL}/search/stats`);
-      if (response.ok) {
-        const data = await response.json();
-        setElasticsearchAvailable(data.available);
-      }
-    } catch (error) {
-      console.log('Elasticsearch not available:', error);
-      setElasticsearchAvailable(false);
-    }
-  };
-
   // Load root directories on mount
   useEffect(() => {
     loadRoots();
     loadJobs();
-    checkElasticsearchAvailability();
     loadCacheStats();
     checkIndexStatus();
     
@@ -1588,11 +1599,11 @@ function App() {
       // Open preview modal
       setPreviewModal({
         filePath,
-        preview: result.preview,
+        preview: result,
         type: getPreviewType(filePath)
       });
 
-      console.log('Preview generated:', result.preview);
+      console.log('Preview generated:', result);
 
     } catch (error) {
       console.error('Error generating preview:', error);
@@ -1659,54 +1670,21 @@ function App() {
     }
   };
 
-  // Enhanced search functionality with dual-mode support
+  // Search functionality
   const handleSearch = async (query, offset = 0, append = false) => {
     if (!query.trim()) {
       setSearchResults(null);
       setSearchOffset(0);
       setHasMoreResults(false);
-      setSearchMode('browse');
-      setSearchError(null);
       return;
     }
 
     setIsSearching(true);
-    setSearchError(null);
-    setSearchMode('search');
-    
     try {
-      const limit = 50;
-      let searchUrl;
-      let useElasticsearch = false;
-
-      // Determine which search engine to use
-      if (searchEngine === 'elasticsearch' && elasticsearchAvailable) {
-        useElasticsearch = true;
-      } else if (searchEngine === 'auto' && elasticsearchAvailable) {
-        // Use Elasticsearch for boolean operators and complex queries
-        useElasticsearch = /\b(AND|OR|NOT)\b/.test(query) || query.includes('*');
-      }
-
-      if (useElasticsearch) {
-        searchUrl = `${FileSystemAPI.baseURL}/search/es?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`;
-      } else {
-        searchUrl = `${FileSystemAPI.baseURL}/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`;
-      }
-
-      const response = await fetch(searchUrl);
-      
+      const limit = 50; // Fixed page size
+      const response = await fetch(`${FileSystemAPI.baseURL}/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`);
       if (response.ok) {
-        const data = await response.json();
-        
-        // Handle different response formats
-        let results;
-        if (useElasticsearch) {
-          results = data.results || [];
-          setHasMoreResults(data.total > (offset + results.length));
-        } else {
-          results = Array.isArray(data) ? data : [];
-          setHasMoreResults(results.length === limit);
-        }
+        const results = await response.json();
         
         if (append && searchResults) {
           setSearchResults([...searchResults, ...results]);
@@ -1715,33 +1693,11 @@ function App() {
         }
         
         setSearchOffset(offset);
-        
-        // Show search engine used for debugging
-        console.log(`Search completed using ${useElasticsearch ? 'Elasticsearch' : 'PostgreSQL'}`);
-        
+        setHasMoreResults(results.length === limit); // Has more if we got a full page
       } else {
-        const errorData = await response.json().catch(() => ({}));
-        
-        // If Elasticsearch search fails, try PostgreSQL fallback
-        if (useElasticsearch && searchEngine === 'auto') {
-          console.log('Elasticsearch search failed, falling back to PostgreSQL');
-          const fallbackUrl = `${FileSystemAPI.baseURL}/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`;
-          const fallbackResponse = await fetch(fallbackUrl);
-          
-          if (fallbackResponse.ok) {
-            const results = await fallbackResponse.json();
-            setSearchResults(Array.isArray(results) ? results : []);
-            setSearchOffset(offset);
-            setHasMoreResults(results.length === limit);
-            return;
-          }
-        }
-        
-        setSearchError(errorData.error || 'Search failed');
-        console.error('Search failed:', errorData);
+        console.error('Search failed');
       }
     } catch (error) {
-      setSearchError('Search error: ' + error.message);
       console.error('Search error:', error);
     } finally {
       setIsSearching(false);
@@ -1774,19 +1730,9 @@ function App() {
   const clearSearch = () => {
     setSearchQuery('');
     setSearchResults(null);
-    setSearchMode('browse');
-    setSearchError(null);
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
-  };
-
-  // Show in folder function for search results
-  const showInFolder = (filePath) => {
-    const parentPath = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
-    clearSearch();
-    setCurrentPath(parentPath);
-    loadFiles(parentPath);
   };
 
   // Indexing functions
@@ -2011,23 +1957,9 @@ function App() {
         
         <div style={styles.headerCenter}>
           <div style={styles.searchContainer}>
-            {/* Search mode indicator */}
-            {searchMode === 'search' && (
-              <div style={styles.searchModeIndicator}>
-                <span>🔍</span>
-                <span>
-                  {elasticsearchAvailable ? 'ES' : 'PG'}
-                  {isSearching && ' searching...'}
-                </span>
-              </div>
-            )}
-            
             <input
               type="text"
-              placeholder={elasticsearchAvailable ? 
-                "Search files... (supports AND, OR, NOT)" : 
-                "Search files..."
-              }
+              placeholder="Search files..."
               value={searchQuery}
               onChange={handleSearchInputChange}
               style={styles.searchInput}
@@ -2046,13 +1978,6 @@ function App() {
               <svg style={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path d="M21 21L16.5 16.5M19 11C19 15.4183 15.4183 19 11 19C6.58172 19 3 15.4183 3 11C3 6.58172 6.58172 3 11 3C15.4183 3 19 6.58172 19 11Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-            )}
-            
-            {/* Search error message */}
-            {searchError && (
-              <div style={styles.searchErrorMessage}>
-                {searchError}
-              </div>
             )}
           </div>
           
@@ -2286,31 +2211,7 @@ function App() {
         
         <main style={styles.contentArea}>
           <div style={styles.breadcrumb}>
-            <span>
-              {searchMode === 'search' ? 
-                `Search results for "${searchQuery}"` + 
-                (searchResults ? ` (${searchResults.length} found)` : '') :
-                currentPath
-              }
-            </span>
-            {searchMode === 'search' && (
-              <button
-                onClick={clearSearch}
-                style={{
-                  marginLeft: '12px',
-                  backgroundColor: 'transparent',
-                  border: '1px solid #3a3a3a',
-                  color: '#e4e4e7',
-                  padding: '2px 8px',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                }}
-                title="Return to folder view"
-              >
-                Back to Browse
-              </button>
-            )}
+            <span>{searchResults !== null ? `Search results for "${searchQuery}"` : currentPath}</span>
           </div>
           
           <div style={{
@@ -2509,73 +2410,37 @@ function App() {
                         </span>
                       )}
                     </td>
-                    <td style={{...styles.tableCell, textAlign: 'center', width: searchMode === 'search' ? '160px' : '120px'}}>
-                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', justifyContent: 'center' }}>
-                        <button
-                          style={{
-                            backgroundColor: 'transparent',
-                            color: '#3b82f6',
-                            border: '1px solid #3b82f6',
-                            borderRadius: '12px',
-                            padding: '6px 12px',
-                            fontSize: '12px',
-                            fontWeight: '500',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            minHeight: '24px',
-                            minWidth: '80px',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.target.style.backgroundColor = '#3b82f6';
-                            e.target.style.color = '#ffffff';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.target.style.backgroundColor = 'transparent';
-                            e.target.style.color = '#3b82f6';
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            generateDirectLink(file.path);
-                          }}
-                          disabled={directLinkLoading.has(file.path)}
-                        >
-                          {directLinkLoading.has(file.path) ? '...' : 'direct link'}
-                        </button>
-                        
-                        {/* Show in folder button for search results */}
-                        {searchMode === 'search' && (
-                          <button
-                            style={{
-                              backgroundColor: 'transparent',
-                              color: '#8b5cf6',
-                              border: '1px solid #8b5cf6',
-                              borderRadius: '12px',
-                              padding: '6px 8px',
-                              fontSize: '12px',
-                              fontWeight: '500',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s ease',
-                              minHeight: '24px',
-                              minWidth: '32px',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.target.style.backgroundColor = '#8b5cf6';
-                              e.target.style.color = '#ffffff';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.target.style.backgroundColor = 'transparent';
-                              e.target.style.color = '#8b5cf6';
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              showInFolder(file.path);
-                            }}
-                            title="Show in folder"
-                          >
-                            📁
-                          </button>
-                        )}
-                      </div>
+                    <td style={{...styles.tableCell, textAlign: 'center', width: '120px'}}>
+                      <button
+                        style={{
+                          backgroundColor: 'transparent',
+                          color: '#3b82f6',
+                          border: '1px solid #3b82f6',
+                          borderRadius: '12px',
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          minHeight: '24px',
+                          minWidth: '80px',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.backgroundColor = '#3b82f6';
+                          e.target.style.color = '#ffffff';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.backgroundColor = 'transparent';
+                          e.target.style.color = '#3b82f6';
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          generateDirectLink(file.path);
+                        }}
+                        disabled={directLinkLoading.has(file.path)}
+                      >
+                        {directLinkLoading.has(file.path) ? '...' : 'direct link'}
+                      </button>
                     </td>
                   </tr>
                 ))}

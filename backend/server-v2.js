@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
@@ -31,8 +32,8 @@ const NetworkStatsWorker = require('./network-stats-worker');
 const LucidLinkStatsWorker = require('./lucidlink-stats-worker');
 const VarnishStatsWorker = require('./varnish-stats-worker');
 
-// Import Elasticsearch client
-const ElasticsearchClient = require('./elasticsearch-client');
+// Import media preview service
+const { MediaPreviewService } = require('./services/media-preview-service');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -71,6 +72,9 @@ const jobs = new Map();
 
 // Global stats workers for API access
 let varnishStatsWorkerInstance = null;
+
+// Global media preview service instance
+let mediaPreviewService = null;
 
 // WebSocket server
 const wss = new WebSocket.Server({ port: WEBSOCKET_PORT });
@@ -481,146 +485,6 @@ app.get('/api/search', async (req, res) => {
   } catch (error) {
     console.error('Error searching files:', error);
     res.status(500).json({ error: 'Failed to search files' });
-  }
-});
-
-// Elasticsearch enhanced search endpoint
-app.get('/api/search/es', async (req, res) => {
-  try {
-    const elasticsearchClient = req.app.locals.elasticsearchClient;
-    
-    if (!elasticsearchClient) {
-      return res.status(503).json({ 
-        error: 'Elasticsearch not available',
-        fallback: '/api/search'
-      });
-    }
-
-    const query = req.query.q;
-    if (!query) {
-      return res.status(400).json({ error: 'Query parameter required' });
-    }
-    
-    const options = {
-      size: parseInt(req.query.limit) || 50,
-      from: parseInt(req.query.offset) || 0,
-      sortBy: req.query.sortBy || 'name.keyword',
-      sortOrder: req.query.sortOrder || 'asc',
-      filters: {}
-    };
-
-    // Parse filters from query parameters
-    if (req.query.is_directory !== undefined) {
-      options.filters.is_directory = req.query.is_directory === 'true';
-    }
-    if (req.query.cached !== undefined) {
-      options.filters.cached = req.query.cached === 'true';
-    }
-    if (req.query.extension) {
-      options.filters.extension = req.query.extension;
-    }
-    if (req.query.size_min) {
-      options.filters.size_min = parseInt(req.query.size_min);
-    }
-    if (req.query.size_max) {
-      options.filters.size_max = parseInt(req.query.size_max);
-    }
-    if (req.query.modified_after) {
-      options.filters.modified_after = req.query.modified_after;
-    }
-    if (req.query.modified_before) {
-      options.filters.modified_before = req.query.modified_before;
-    }
-
-    const searchResults = await elasticsearchClient.searchFiles(query, options);
-    
-    // Format results to match existing API
-    const formattedResults = searchResults.hits.map(file => ({
-      name: file.name,
-      path: file.path,
-      isDirectory: file.is_directory,
-      size: file.size,
-      sizeFormatted: file.size_formatted,
-      modified: file.modified_at,
-      created: file.modified_at,
-      extension: file.extension,
-      cached: file.cached,
-      score: file._score
-    }));
-    
-    res.json({
-      results: formattedResults,
-      total: searchResults.total,
-      took: searchResults.took,
-      query: query,
-      filters: options.filters
-    });
-
-  } catch (error) {
-    console.error('Error in Elasticsearch search:', error);
-    res.status(500).json({ 
-      error: 'Elasticsearch search failed',
-      message: error.message,
-      fallback: '/api/search'
-    });
-  }
-});
-
-// Search suggestions/autocomplete endpoint
-app.get('/api/search/suggestions', async (req, res) => {
-  try {
-    const elasticsearchClient = req.app.locals.elasticsearchClient;
-    
-    if (!elasticsearchClient) {
-      return res.status(503).json({ 
-        error: 'Elasticsearch not available' 
-      });
-    }
-
-    const query = req.query.q;
-    if (!query || query.trim().length < 2) {
-      return res.json({ suggestions: [] });
-    }
-    
-    const size = parseInt(req.query.size) || 10;
-    const suggestions = await elasticsearchClient.getSuggestions(query, size);
-    
-    res.json({ suggestions });
-
-  } catch (error) {
-    console.error('Error getting search suggestions:', error);
-    res.status(500).json({ 
-      error: 'Failed to get suggestions',
-      message: error.message
-    });
-  }
-});
-
-// Elasticsearch index statistics endpoint
-app.get('/api/search/stats', async (req, res) => {
-  try {
-    const elasticsearchClient = req.app.locals.elasticsearchClient;
-    
-    if (!elasticsearchClient) {
-      return res.status(503).json({ 
-        error: 'Elasticsearch not available' 
-      });
-    }
-
-    const stats = await elasticsearchClient.getIndexStats();
-    
-    res.json({
-      elasticsearch: stats,
-      available: true
-    });
-
-  } catch (error) {
-    console.error('Error getting Elasticsearch stats:', error);
-    res.status(500).json({ 
-      error: 'Failed to get Elasticsearch stats',
-      message: error.message,
-      available: false
-    });
   }
 });
 
@@ -1341,7 +1205,7 @@ app.post('/api/validate-directory-cache', async (req, res) => {
   }
 });
 
-// Media Preview Endpoints (proxy to media-preview service)
+// Media Preview Endpoints (using local MediaPreviewService)
 app.post('/api/preview', async (req, res) => {
   try {
     const { filePath, type = 'auto' } = req.body;
@@ -1363,8 +1227,12 @@ app.post('/api/preview', async (req, res) => {
       return res.status(404).json({ error: 'File not found' });
     }
     
+    // Check if media preview service is initialized
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service not available' });
+    }
+    
     // Determine preview type based on file extension
-    const MediaPreviewService = require('./services/media-preview-service');
     const previewType = type === 'auto' ? 
       MediaPreviewService.getPreviewType(filePath) : type;
     
@@ -1376,20 +1244,14 @@ app.post('/api/preview', async (req, res) => {
       });
     }
     
-    // Forward request to media preview service
-    const previewServiceUrl = process.env.MEDIA_PREVIEW_SERVICE_URL || 'http://media-preview:3003';
-    const endpoint = previewType === 'video' ? 'video' : 'image';
-    
-    const response = await fetch(`${previewServiceUrl}/api/preview/${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath, options: req.body.options || {} })
-    });
-    
-    const result = await response.json();
-    
-    if (!response.ok) {
-      return res.status(response.status).json(result);
+    // Generate preview using local service
+    let result;
+    if (previewType === 'video') {
+      result = await mediaPreviewService.generateVideoPreview(filePath, req.body.options || {});
+    } else if (previewType === 'image') {
+      result = await mediaPreviewService.generateImagePreview(filePath, req.body.options || {});
+    } else {
+      return res.status(400).json({ error: 'Unsupported preview type' });
     }
     
     res.json(result);
@@ -1404,13 +1266,16 @@ app.post('/api/preview', async (req, res) => {
 app.get('/api/preview/status/:cacheKey', async (req, res) => {
   try {
     const { cacheKey } = req.params;
-    const previewServiceUrl = process.env.MEDIA_PREVIEW_SERVICE_URL || 'http://media-preview:3003';
     
-    const response = await fetch(`${previewServiceUrl}/api/preview/status/${cacheKey}`);
-    const result = await response.json();
+    // Check if media preview service is initialized
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service not available' });
+    }
     
-    if (!response.ok) {
-      return res.status(response.status).json(result);
+    const result = await mediaPreviewService.getPreviewStatus(cacheKey);
+    
+    if (!result) {
+      return res.status(404).json({ error: 'Preview not found' });
     }
     
     res.json(result);
@@ -1421,31 +1286,136 @@ app.get('/api/preview/status/:cacheKey', async (req, res) => {
   }
 });
 
-// Proxy preview file serving to media preview service
+// Direct preview file serving from local cache
 app.get('/api/preview/:type/:cacheKey/*', async (req, res) => {
   try {
     const { type, cacheKey } = req.params;
     const filename = req.params[0];
-    const previewServiceUrl = process.env.MEDIA_PREVIEW_SERVICE_URL || 'http://media-preview:3003';
     
-    const response = await fetch(`${previewServiceUrl}/api/preview/${type}/${cacheKey}/${filename}`);
-    
-    if (!response.ok) {
-      return res.status(response.status).json({ error: 'Preview file not found' });
+    // Check if media preview service is initialized
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service not available' });
     }
     
-    // Forward headers
-    const contentType = response.headers.get('content-type');
-    if (contentType) {
-      res.setHeader('Content-Type', contentType);
-    }
+    const cacheDir = process.env.PREVIEW_CACHE_DIR || '/tmp/previews';
     
-    // Stream the response
-    response.body.pipe(res);
+    if (type === 'video') {
+      // For video previews, serve HLS files from cache directory
+      const filePath = path.join(cacheDir, cacheKey, filename);
+      
+      if (!fsSync.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Preview file not found' });
+      }
+      
+      // Set appropriate content type
+      if (filename.endsWith('.m3u8')) {
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      } else if (filename.endsWith('.ts')) {
+        res.setHeader('Content-Type', 'video/mp2t');
+      }
+      
+      // Stream the file
+      const stream = fsSync.createReadStream(filePath);
+      stream.pipe(res);
+      
+    } else if (type === 'image') {
+      // For images, we need to handle direct serving differently
+      const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
+      if (!previewData) {
+        return res.status(404).json({ error: 'Preview not found' });
+      }
+      
+      if (filename === 'direct') {
+        // Serve original image directly
+        const originalPath = previewData.originalFilePath;
+        if (fsSync.existsSync(originalPath)) {
+          const contentType = MediaPreviewService.getContentType(originalPath);
+          res.setHeader('Content-Type', contentType);
+          const stream = fsSync.createReadStream(originalPath);
+          stream.pipe(res);
+        } else {
+          return res.status(404).json({ error: 'Original file not found' });
+        }
+      } else {
+        // Serve converted image
+        const convertedPath = path.join(cacheDir, cacheKey, filename);
+        if (!fsSync.existsSync(convertedPath)) {
+          // Convert on demand
+          const outputPath = path.join(cacheDir, cacheKey);
+          if (!fsSync.existsSync(outputPath)) {
+            fsSync.mkdirSync(outputPath, { recursive: true });
+          }
+          
+          await mediaPreviewService.convertImageToWebFormat(previewData.originalFilePath, convertedPath);
+        }
+        
+        res.setHeader('Content-Type', 'image/jpeg');
+        const stream = fsSync.createReadStream(convertedPath);
+        stream.pipe(res);
+      }
+    } else {
+      return res.status(400).json({ error: 'Invalid preview type' });
+    }
     
   } catch (error) {
     console.error('Error serving preview file:', error);
     res.status(500).json({ error: 'Failed to serve preview file' });
+  }
+});
+
+// Direct video streaming endpoint for web-compatible videos
+app.get('/api/video/stream/:cacheKey', async (req, res) => {
+  try {
+    const { cacheKey } = req.params;
+    
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service not available' });
+    }
+    
+    const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
+    if (!previewData || !previewData.originalFilePath) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+    
+    const videoPath = previewData.originalFilePath;
+    if (!fsSync.existsSync(videoPath)) {
+      return res.status(404).json({ error: 'Video file not found' });
+    }
+    
+    const stat = fsSync.statSync(videoPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+    
+    if (range) {
+      // Handle range requests for video seeking
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = (end - start) + 1;
+      
+      const stream = fsSync.createReadStream(videoPath, {start, end});
+      const head = {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': MediaPreviewService.getContentType(videoPath),
+      };
+      
+      res.writeHead(206, head);
+      stream.pipe(res);
+    } else {
+      // Serve entire file
+      const head = {
+        'Content-Length': fileSize,
+        'Content-Type': MediaPreviewService.getContentType(videoPath),
+      };
+      res.writeHead(200, head);
+      fsSync.createReadStream(videoPath).pipe(res);
+    }
+    
+  } catch (error) {
+    console.error('Error streaming video:', error);
+    res.status(500).json({ error: 'Failed to stream video' });
   }
 });
 
@@ -1608,20 +1578,12 @@ async function startServer() {
     console.log('Varnish stats disabled');
   }
   
-  // Initialize Elasticsearch client
-  let elasticsearchClient = null;
+  // Initialize media preview service
   try {
-    elasticsearchClient = new ElasticsearchClient();
-    const esConnected = await elasticsearchClient.testConnection();
-    if (esConnected) {
-      await elasticsearchClient.ensureIndexExists();
-      console.log('Elasticsearch client initialized successfully');
-    } else {
-      console.log('Elasticsearch not available - search will use PostgreSQL fallback');
-    }
+    mediaPreviewService = new MediaPreviewService();
+    console.log('Media preview service initialized');
   } catch (error) {
-    console.error('Failed to initialize Elasticsearch:', error.message);
-    console.log('Search will use PostgreSQL fallback');
+    console.error('Failed to initialize media preview service:', error);
   }
   
   // Start HTTP server
@@ -1640,7 +1602,6 @@ async function startServer() {
   app.locals.wss = wss;
   app.locals.cacheManager = getCacheWorkerManager();
   app.locals.indexer = getIndexer();
-  app.locals.elasticsearchClient = elasticsearchClient;
 }
 
 // Graceful shutdown handler

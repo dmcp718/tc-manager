@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fuse \
     ca-certificates \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install custom LucidLink build
