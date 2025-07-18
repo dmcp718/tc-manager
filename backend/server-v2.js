@@ -1313,6 +1313,8 @@ app.post('/api/preview', async (req, res) => {
       result = await mediaPreviewService.generateVideoPreview(filePath, req.body.options || {});
     } else if (previewType === 'image') {
       result = await mediaPreviewService.generateImagePreview(filePath, req.body.options || {});
+    } else if (previewType === 'audio') {
+      result = await mediaPreviewService.generateAudioPreview(filePath, req.body.options || {});
     } else {
       return res.status(400).json({ error: 'Unsupported preview type' });
     }
@@ -1415,6 +1417,29 @@ app.get('/api/preview/:type/:cacheKey/*', async (req, res) => {
         res.setHeader('Content-Type', 'image/jpeg');
         const stream = fsSync.createReadStream(convertedPath);
         stream.pipe(res);
+      }
+    } else if (type === 'audio') {
+      // For audio files, serve directly or converted versions
+      const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
+      if (!previewData) {
+        return res.status(404).json({ error: 'Preview not found' });
+      }
+      
+      if (filename === 'direct') {
+        // Serve original audio file directly
+        const originalPath = previewData.originalFilePath;
+        if (fsSync.existsSync(originalPath)) {
+          const contentType = MediaPreviewService.getContentType(originalPath);
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Accept-Ranges', 'bytes');
+          const stream = fsSync.createReadStream(originalPath);
+          stream.pipe(res);
+        } else {
+          return res.status(404).json({ error: 'Original file not found' });
+        }
+      } else {
+        // For converted audio files (if needed in future)
+        return res.status(404).json({ error: 'Audio conversion not implemented' });
       }
     } else {
       return res.status(400).json({ error: 'Invalid preview type' });

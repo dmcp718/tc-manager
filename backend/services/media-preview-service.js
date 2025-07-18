@@ -222,6 +222,32 @@ class MediaPreviewService {
     return previewData;
   }
   
+  // Generate audio preview
+  async generateAudioPreview(filePath, options = {}) {
+    const cacheKey = this.generateCacheKey(filePath, options);
+    
+    // For audio files, we provide direct streaming for web-compatible formats
+    const previewData = {
+      type: 'audio',
+      cacheKey,
+      originalFilePath: filePath,
+      status: 'completed',
+      createdAt: new Date().toISOString()
+    };
+    
+    // For web-compatible audio files, serve directly
+    if (MediaPreviewService.isWebCompatible(filePath)) {
+      previewData.directUrl = `/api/preview/audio/${cacheKey}/direct`;
+    } else {
+      // For non-web-compatible audio, we'll convert on-demand
+      previewData.previewUrl = `/api/preview/audio/${cacheKey}/preview.mp3`;
+    }
+    
+    // Store the file path mapping in Redis for direct serving
+    await this.storePreviewInCache(cacheKey, previewData, 86400);
+    return previewData;
+  }
+  
   // Generate image preview - simplified approach like staging
   async generateImagePreview(filePath, options = {}) {
     const cacheKey = this.generateCacheKey(filePath, options);

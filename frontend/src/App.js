@@ -631,17 +631,26 @@ function VideoPlayer({ preview }) {
     const video = videoRef.current;
     if (!video) return;
 
+    // Helper to ensure URLs have the correct base path
+    const ensureFullUrl = (url) => {
+      if (url && !url.startsWith('http')) {
+        return `${FileSystemAPI.baseURL.replace('/api', '')}${url}`;
+      }
+      return url;
+    };
+
     // If it's a direct stream URL (MP4), use native video player
     if (preview?.directStreamUrl) {
-      video.src = preview.directStreamUrl;
+      video.src = ensureFullUrl(preview.directStreamUrl);
       return;
     }
 
     // If it's an HLS stream, use hls.js for Chromium support
     if (preview?.playlistUrl) {
+      const playlistUrl = ensureFullUrl(preview.playlistUrl);
       if (Hls.isSupported()) {
         const hls = new Hls();
-        hls.loadSource(preview.playlistUrl);
+        hls.loadSource(playlistUrl);
         hls.attachMedia(video);
         
         return () => {
@@ -649,7 +658,7 @@ function VideoPlayer({ preview }) {
         };
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Safari native HLS support
-        video.src = preview.playlistUrl;
+        video.src = playlistUrl;
       }
     }
   }, [preview]);
@@ -770,9 +779,19 @@ function PreviewModal({ filePath, preview, type, onClose }) {
     }
 
     if (type === 'image') {
+      console.log('Rendering image preview:', preview);
+      let imageUrl = preview?.previewUrl || preview?.directUrl;
+      
+      // Ensure URL has the correct base path
+      if (imageUrl && !imageUrl.startsWith('http')) {
+        imageUrl = `${FileSystemAPI.baseURL.replace('/api', '')}${imageUrl}`;
+      }
+      
+      console.log('Image URL:', imageUrl);
+      
       return (
         <img
-          src={preview?.previewUrl || preview?.directUrl}
+          src={imageUrl}
           alt="Preview"
           style={{
             width: '100%',
@@ -780,7 +799,54 @@ function PreviewModal({ filePath, preview, type, onClose }) {
             maxHeight: '80vh',
             objectFit: 'contain'
           }}
+          onError={(e) => {
+            console.error('Image failed to load:', e.target.src);
+          }}
         />
+      );
+    }
+
+    if (type === 'audio') {
+      let audioUrl = preview?.previewUrl || preview?.directUrl;
+      
+      // Ensure URL has the correct base path
+      if (audioUrl && !audioUrl.startsWith('http')) {
+        audioUrl = `${FileSystemAPI.baseURL.replace('/api', '')}${audioUrl}`;
+      }
+      
+      return (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '200px',
+          flexDirection: 'column',
+          gap: '20px',
+          padding: '40px',
+          width: '100%'
+        }}>
+          <div style={{
+            fontSize: '18px',
+            color: '#e4e4e7',
+            marginBottom: '10px'
+          }}>
+            Audio Preview
+          </div>
+          <audio
+            controls
+            autoPlay
+            style={{
+              width: '100%',
+              maxWidth: '800px',
+              height: '54px'
+            }}
+          >
+            <source src={audioUrl} type="audio/mpeg" />
+            <source src={audioUrl} type="audio/wav" />
+            <source src={audioUrl} type="audio/ogg" />
+            Your browser does not support the audio element.
+          </audio>
+        </div>
       );
     }
 
@@ -1599,6 +1665,8 @@ function App() {
       }
 
       const result = await response.json();
+      
+      console.log('Preview API response:', result);
       
       // Open preview modal
       setPreviewModal({
