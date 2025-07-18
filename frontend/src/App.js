@@ -809,6 +809,27 @@ function PreviewModal({ filePath, preview, type, onClose }) {
     if (type === 'audio') {
       let audioUrl = preview?.previewUrl || preview?.directUrl;
       
+      // Check for error conditions
+      if (currentPreview?.error || !audioUrl) {
+        return (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '400px',
+            flexDirection: 'column',
+            gap: '16px',
+            color: '#ef4444'
+          }}>
+            <div style={{ fontSize: '48px' }}>🔊</div>
+            <div style={{ fontSize: '18px' }}>Audio preview unavailable</div>
+            <div style={{ fontSize: '14px', color: '#a1a1aa' }}>
+              {currentPreview?.error || 'Audio URL not found'}
+            </div>
+          </div>
+        );
+      }
+      
       // Ensure URL has the correct base path
       if (audioUrl && !audioUrl.startsWith('http')) {
         audioUrl = `${FileSystemAPI.baseURL.replace('/api', '')}${audioUrl}`;
@@ -822,7 +843,7 @@ function PreviewModal({ filePath, preview, type, onClose }) {
           height: '200px',
           flexDirection: 'column',
           gap: '20px',
-          padding: '40px',
+          padding: '20px',
           width: '100%'
         }}>
           <div style={{
@@ -838,12 +859,18 @@ function PreviewModal({ filePath, preview, type, onClose }) {
             style={{
               width: '100%',
               maxWidth: '800px',
+              minWidth: '600px',
               height: '54px'
+            }}
+            onError={(e) => {
+              console.error('Audio failed to load:', e.target.src);
             }}
           >
             <source src={audioUrl} type="audio/mpeg" />
             <source src={audioUrl} type="audio/wav" />
             <source src={audioUrl} type="audio/ogg" />
+            <source src={audioUrl} type="audio/flac" />
+            <source src={audioUrl} type="audio/aac" />
             Your browser does not support the audio element.
           </audio>
         </div>
@@ -881,7 +908,8 @@ function PreviewModal({ filePath, preview, type, onClose }) {
         backgroundColor: '#1a1a1a',
         borderRadius: '12px',
         padding: '24px',
-        maxWidth: '90vw',
+        maxWidth: type === 'audio' ? '900px' : '90vw',
+        minWidth: type === 'audio' ? '800px' : 'auto',
         maxHeight: '90vh',
         overflow: 'auto',
         border: '1px solid #2a2a2a'
@@ -2434,7 +2462,7 @@ function App() {
                   <th style={styles.tableHeaderCell}>Size</th>
                   <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Cached</th>
                   <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Preview</th>
-                  <th style={{...styles.tableHeaderCell, width: '120px', textAlign: 'center'}}>Direct Link</th>
+                  <th style={{...styles.tableHeaderCell, width: '126px', textAlign: 'center'}}>Direct Link</th>
                 </tr>
               </thead>
               <tbody>
@@ -2563,7 +2591,8 @@ function App() {
                             cursor: 'pointer',
                             transition: 'all 0.2s ease',
                             minHeight: '24px',
-                            minWidth: '80px',
+                            minWidth: '90px',
+                            whiteSpace: 'nowrap',
                           }}
                           onMouseEnter={(e) => {
                             e.target.style.backgroundColor = '#3b82f6';
