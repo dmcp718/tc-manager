@@ -1979,8 +1979,8 @@ function App() {
             <input
               type="text"
               placeholder={elasticsearchAvailable ? 
-                "Search files... (supports AND, OR, NOT)" : 
-                "Search files..."
+                "Search files... (supports AND, OR, NOT) - ES ON" : 
+                "Search files... - ES OFF"
               }
               value={searchQuery}
               onChange={handleSearchInputChange}
