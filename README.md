@@ -1,4 +1,4 @@
-# SiteCache Browser
+# SiteCache Manager
 
 A production-ready file system browser and cache management system for LucidLink cloud filesystems with real-time monitoring, intelligent caching, and Docker deployment.
 
@@ -925,4 +925,4 @@ sc-browser/
     └── smoke-test.sh        # Health verification
 ```
 
-This README provides complete instructions for successful greenfield deployment of the SiteCache Browser system, including all necessary configuration, security considerations, and troubleshooting guidance.
+This README provides complete instructions for successful greenfield deployment of the SiteCache Manager system, including all necessary configuration, security considerations, and troubleshooting guidance.

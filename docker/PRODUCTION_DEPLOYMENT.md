@@ -1,7 +1,7 @@
 # Production Deployment Guide for Ubuntu 25
 
 ## Overview
-This guide covers deploying SiteCache Browser on Ubuntu 25 using Docker with host network mode for optimal performance and direct LucidLink API access.
+This guide covers deploying SiteCache Manager on Ubuntu 25 using Docker with host network mode for optimal performance and direct LucidLink API access.
 
 ## Prerequisites
 - Ubuntu 25 server
