@@ -169,12 +169,19 @@ class FileIndexer extends EventEmitter {
         await IndexingSessionModel.updateStatus(this.currentSession.id, sessionStatus);
       }
 
+      // Update final progress with correct processed file count
+      await IndexProgressModel.updateProgress(
+        this.currentProgress.id,
+        this.indexedCount + this.skippedCount, // All files processed (indexed + skipped)
+        'Indexing complete'
+      );
+
       // Update final status
       const finalStatus = this.shouldStop ? 'stopped' : 'completed';
       await IndexProgressModel.updateStatus(
         this.currentProgress.id,
         finalStatus,
-        this.processedCount
+        this.indexedCount + this.skippedCount // Total files found (indexed + skipped)
       );
 
       // Calculate duration from session start time
@@ -523,7 +530,7 @@ class FileIndexer extends EventEmitter {
     try {
       await IndexProgressModel.updateProgress(
         this.currentProgress.id,
-        this.processedCount,
+        this.indexedCount + this.skippedCount, // Show all files processed (indexed + skipped)
         currentPath
       );
 
@@ -577,9 +584,9 @@ class FileIndexer extends EventEmitter {
       this.lastProgressUpdate = 0;
     }
     
-    // Minimal progress updates for maximum speed - animation doesn't need frequent updates
-    const PROGRESS_THROTTLE_MS = 30000; // Every 30 seconds
-    const PROGRESS_FILE_INTERVAL = 100000; // Every 100K files
+    // More frequent progress updates for better UI feedback
+    const PROGRESS_THROTTLE_MS = 2000; // Every 2 seconds
+    const PROGRESS_FILE_INTERVAL = 5000; // Every 5K files
     
     const timeSinceLastUpdate = now - this.lastProgressUpdate;
     const shouldUpdateByTime = timeSinceLastUpdate >= PROGRESS_THROTTLE_MS;

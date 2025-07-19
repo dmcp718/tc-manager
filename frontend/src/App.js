@@ -602,7 +602,9 @@ const JobPanel = ({ isOpen, onClose, jobs, onClearJobs, onCancelJob }) => {
             border: '1px solid #2a2a2a',
           }}>
             <div style={{ fontSize: '14px', marginBottom: '5px' }}>
-              {job.type === 'script' ? job.scriptPath.split('/').pop() : `Cache Job (${job.totalFiles} files)`}
+              {job.type === 'script' ? job.scriptPath.split('/').pop() : 
+               job.type === 'index' ? `Index Files: ${job.rootPath || '/media/lucidlink-1'}` :
+               `Cache Job (${job.totalFiles} files)`}
             </div>
             <div style={{ fontSize: '11px', color: '#666', marginBottom: '3px' }}>
               ID: {job.id.substring(0, 8)}...
@@ -621,6 +623,12 @@ const JobPanel = ({ isOpen, onClose, jobs, onClearJobs, onCancelJob }) => {
                 <span style={{ marginLeft: '10px' }}>
                   {job.completedFiles || 0}/{job.totalFiles} files cached
                   {job.failedFiles > 0 && ` (${job.failedFiles} failed)`}
+                </span>
+              )}
+              {job.type === 'index' && (
+                <span style={{ marginLeft: '10px' }}>
+                  {job.processedFiles || 0} files processed
+                  {job.totalFiles > 0 && ` of ${job.totalFiles}`}
                 </span>
               )}
               {job.endTime && job.startTime && job.status === 'completed' && (() => {
@@ -678,6 +686,20 @@ const JobPanel = ({ isOpen, onClose, jobs, onClearJobs, onCancelJob }) => {
                 >
                   Stop Job
                 </button>
+              </div>
+            )}
+            {job.type === 'index' && job.status === 'running' && (
+              <div style={{ marginTop: '10px' }}>
+                {job.currentPath && (
+                  <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                    Current: {job.currentPath.length > 60 ? 
+                      '...' + job.currentPath.slice(-60) : 
+                      job.currentPath}
+                  </div>
+                )}
+                <div style={{ fontSize: '11px', color: '#888' }}>
+                  Progress: {job.processedFiles || 0} files processed
+                </div>
               </div>
             )}
             {job.output && job.output.length > 0 && (
@@ -1203,9 +1225,6 @@ function App() {
   const [searchError, setSearchError] = useState(null);
   const [elasticsearchAvailable, setElasticsearchAvailable] = useState(false);
   const [showSearchTooltip, setShowSearchTooltip] = useState(false);
-  const [indexStatus, setIndexStatus] = useState(null);
-  const [isIndexing, setIsIndexing] = useState(false);
-  const [indexStartTime, setIndexStartTime] = useState(null);
   const [directorySizes, setDirectorySizes] = useState({});
   const [loadingSizes, setLoadingSizes] = useState(new Set());
   const [networkStats, setNetworkStats] = useState(null);
@@ -1222,15 +1241,6 @@ function App() {
   const [toastMessage, setToastMessage] = useState(null);
   const treeRef = useRef();
   const searchTimeoutRef = useRef(null);
-  const indexStartTimeRef = useRef(null);
-  
-  // Store duration calculation function on window for WebSocket access
-  window._calculateIndexDuration = () => {
-    if (window._indexStartTime) {
-      return Date.now() - window._indexStartTime;
-    }
-    return 5000; // 5 second fallback
-  };
   
   window._formatDuration = (ms) => {
     const seconds = Math.floor(ms / 1000);
@@ -1328,7 +1338,6 @@ function App() {
       loadRoots();
       loadJobs();
       loadCacheStats();
-      checkIndexStatus();
       checkElasticsearchStatus();
     }
     
@@ -1363,24 +1372,14 @@ function App() {
           loadDirectory(currentPath);
         }
       } else if (data.type === 'index-progress') {
-        setIndexStatus(prev => ({
-          ...prev,
-          processedFiles: data.processedFiles,
-          currentPath: data.currentPath,
-          errors: data.errors
-        }));
+        // Refresh jobs to show progress
+        loadJobs();
       } else if (data.type === 'index-complete') {
-        setIsIndexing(false);
-        setIndexStatus(null);
+        // Refresh jobs to show completed index job
+        loadJobs();
         
-        // Use duration from backend if available, otherwise calculate from frontend start time
-        let duration = data.duration;
-        if (!duration && window._calculateIndexDuration) {
-          duration = window._calculateIndexDuration();
-        }
-        if (!duration) {
-          duration = 5000; // fallback
-        }
+        // Use duration from backend
+        const duration = data.duration || 5000; // fallback if no duration
         const formatDuration = window._formatDuration || ((ms) => `${Math.floor(ms/1000)}s`);
         
         // Show completion toast with summary and duration
@@ -1399,18 +1398,11 @@ function App() {
         
         showToast(message, 'success', 5000); // 5 seconds for stats readability
         
-        // Reset start time
-        setIndexStartTime(null);
-        indexStartTimeRef.current = null;
-        window._indexStartTime = null;
-        
         // Refresh the current directory to show updated data
         if (currentPath && currentPath !== '/') {
           loadDirectory(currentPath);
         }
       } else if (data.type === 'index-error') {
-        setIsIndexing(false);
-        setIndexStatus(null);
         console.error('Indexing error:', data.error);
         
         // Show error toast
@@ -2167,21 +2159,11 @@ function App() {
   // Indexing functions
   const startIndexing = async () => {
     try {
-      setIsIndexing(true);
-      const startTime = Date.now();
-      setIndexStartTime(startTime);
-      indexStartTimeRef.current = startTime;
-      window._indexStartTime = startTime;
-      
-      const authHeaders = FileSystemAPI.getAuthHeaders();
-      console.log('Auth headers:', authHeaders);
-      console.log('Token from localStorage:', localStorage.getItem('authToken'));
-      
       const response = await fetch(`${FileSystemAPI.baseURL}/index/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...authHeaders
+          ...FileSystemAPI.getAuthHeaders()
         },
         body: JSON.stringify({ path: '/media/lucidlink-1' })
       });
@@ -2189,73 +2171,20 @@ function App() {
       if (response.ok) {
         const result = await response.json();
         console.log('Indexing started:', result);
-        setIndexStatus({ processedFiles: 0, currentPath: '', errors: 0 });
+        // Refresh jobs to show the new index job
+        loadJobs();
       } else {
-        setIsIndexing(false);
         const errorData = await response.text();
         console.error('Failed to start indexing:', response.status, errorData);
         alert(`Failed to start indexing: ${errorData}`);
       }
     } catch (error) {
-      setIsIndexing(false);
       console.error('Error starting indexing:', error);
       alert(`Error starting indexing: ${error.message}`);
     }
   };
 
-  const stopIndexing = async () => {
-    try {
-      const response = await fetch(`${FileSystemAPI.baseURL}/index/stop`, {
-        method: 'POST',
-        headers: FileSystemAPI.getAuthHeaders()
-      });
-      
-      if (response.ok) {
-        console.log('Indexing stop requested');
-      }
-    } catch (error) {
-      console.error('Error stopping indexing:', error);
-    }
-  };
 
-  const checkIndexStatus = async () => {
-    try {
-      const authHeaders = FileSystemAPI.getAuthHeaders();
-      // Only make the call if we have auth headers
-      if (!authHeaders.Authorization) {
-        console.log('Skipping index status check - no auth token available');
-        return;
-      }
-
-      const response = await fetch(`${FileSystemAPI.baseURL}/index/status`, {
-        headers: authHeaders
-      });
-      if (response.ok) {
-        const status = await response.json();
-        setIsIndexing(status.running);
-        if (status.running) {
-          // If indexing is already running, set current time as start time
-          // This won't be perfectly accurate but will give us some duration
-          const fallbackStartTime = Date.now();
-          window._indexStartTime = fallbackStartTime;
-        }
-        if (status.running && status.progress) {
-          setIndexStatus({
-            processedFiles: status.progress.processed_files,
-            currentPath: status.progress.current_path,
-            errors: 0
-          });
-        }
-      } else if (response.status === 401) {
-        console.log('Index status check failed - authentication required');
-        // Don't log as error since this is expected when not authenticated
-      } else {
-        console.error('Failed to check index status:', response.status);
-      }
-    } catch (error) {
-      console.error('Error checking index status:', error);
-    }
-  };
 
   // Load directory sizes for visible directories
   const loadDirectorySizes = async (directories) => {
@@ -2567,28 +2496,6 @@ function App() {
           </div>
           
           
-          {/* Indexing Status */}
-          {isIndexing && (
-            <div style={{
-              marginLeft: '20px',
-              fontSize: '13px',
-              color: '#a1a1aa',
-              whiteSpace: 'nowrap',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              Indexing files
-              <div style={{
-                width: '16px',
-                height: '16px',
-                border: '2px solid #3a3a3a',
-                borderTop: '2px solid #3b82f6',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite'
-              }} />
-            </div>
-          )}
         </div>
         
         <div style={styles.headerRight}>
@@ -2722,29 +2629,19 @@ function App() {
             />
           </button>
           
-          {isIndexing ? (
-            <button
-              style={{
-                ...styles.button,
-                minWidth: '110px',
-                justifyContent: 'center'
-              }}
-              onClick={stopIndexing}
-            >
-              Stop Indexing
-            </button>
-          ) : (
-            <button
-              style={{
-                ...styles.button,
-                minWidth: '110px',
-                justifyContent: 'center'
-              }}
-              onClick={startIndexing}
-            >
-              Index Files
-            </button>
-          )}
+          <button
+            style={{
+              ...styles.button,
+              minWidth: '110px',
+              justifyContent: 'center'
+            }}
+            onClick={async () => {
+              await startIndexing();
+              setShowJobPanel(true); // Open jobs panel to show progress
+            }}
+          >
+            Index Files
+          </button>
           
           <button
             style={{
@@ -2920,22 +2817,20 @@ function App() {
               </button>
             ))}
             
-            {/* Toast Message - right-justified in filter bar */}
+            {/* Toast Message - positioned to right of filter buttons to avoid Jobs drawer */}
             {toastMessage && (
               <div style={{
-                position: 'absolute',
-                right: '20px', // Right-justified with small margin
-                top: '50%',
-                transform: 'translateY(-50%)',
+                marginLeft: '16px', // Space after the last filter button
                 backgroundColor: (typeof toastMessage === 'object' && toastMessage.type === 'error') ? '#ef4444' : '#15803d',
                 color: '#ffffff',
                 padding: '8px 16px',
                 borderRadius: '6px',
                 fontSize: '13px',
                 fontWeight: '500',
-                zIndex: 1000,
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                whiteSpace: 'nowrap'
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center'
               }}>
                 {typeof toastMessage === 'string' ? toastMessage : toastMessage.text}
               </div>

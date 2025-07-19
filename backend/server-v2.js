@@ -1081,8 +1081,40 @@ app.get('/api/jobs', authService.requireAuth, async (req, res) => {
       output: job.output.slice(-10) // Return last 10 output entries
     }));
     
+    // Get index jobs from database (only active + most recent completed)
+    const { IndexProgressModel } = require('./database');
+    const allIndexJobs = await IndexProgressModel.findAll(10);
+    
+    // Filter to get active jobs and most recent completed job
+    const activeIndexJobs = allIndexJobs.filter(job => 
+      ['pending', 'running'].includes(job.status)
+    );
+    const completedIndexJobs = allIndexJobs.filter(job => 
+      ['completed', 'failed', 'stopped'].includes(job.status)
+    );
+    
+    // Combine: all active jobs + last 5 completed jobs (if any)
+    const relevantIndexJobs = [
+      ...activeIndexJobs,
+      ...completedIndexJobs.slice(0, 5)
+    ];
+    
+    const indexJobList = relevantIndexJobs.map(job => ({
+      id: `index-${job.id}`,
+      type: 'index',
+      status: job.status,
+      totalFiles: job.total_files || 0,
+      processedFiles: job.processed_files || 0,
+      currentPath: job.current_path,
+      rootPath: job.root_path,
+      startTime: job.started_at,
+      endTime: job.completed_at,
+      errorMessage: job.error_message,
+      output: [] // Index jobs don't have output like script jobs
+    }));
+    
     // Combine and sort by start time
-    const allJobs = [...dbJobList, ...scriptJobList]
+    const allJobs = [...dbJobList, ...scriptJobList, ...indexJobList]
       .sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
     
     res.json(allJobs);
@@ -1115,6 +1147,28 @@ app.get('/api/jobs/:id', authService.requireAuth, async (req, res) => {
         ...scriptJob,
         type: 'script'
       });
+    }
+    
+    // Try index jobs (format: index-{id})
+    if (jobId.startsWith('index-')) {
+      const indexId = parseInt(jobId.replace('index-', ''));
+      const { IndexProgressModel } = require('./database');
+      const indexProgress = await IndexProgressModel.findAll(50); // Search recent jobs
+      const indexJob = indexProgress.find(job => job.id === indexId);
+      if (indexJob) {
+        return res.json({
+          id: `index-${indexJob.id}`,
+          type: 'index',
+          status: indexJob.status,
+          totalFiles: indexJob.total_files || 0,
+          processedFiles: indexJob.processed_files || 0,
+          currentPath: indexJob.current_path,
+          rootPath: indexJob.root_path,
+          startTime: indexJob.started_at,
+          endTime: indexJob.completed_at,
+          errorMessage: indexJob.error_message
+        });
+      }
     }
     
     res.status(404).json({ error: 'Job not found' });
