@@ -14,7 +14,7 @@ services:
       - ./backend:/app
       - /app/node_modules  # Anonymous volume for node_modules
       - backend_logs:/app/logs
-      - lucidlink_mount:/media/lucidlink-1
+      - ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}:/media/lucidlink-1
       - varnish_stats:/data
     environment:
       NODE_ENV: development
@@ -31,9 +31,9 @@ services:
       ENABLE_NETWORK_STATS: "false"
       ENABLE_LUCIDLINK_STATS: "true"
       LUCIDLINK_COMMAND: /usr/local/bin/lucid
-      LUCIDLINK_FILESPACE: ""
-      LUCIDLINK_USER: ""
-      LUCIDLINK_PASSWORD: ""
+      LUCIDLINK_FILESPACE: ${LUCIDLINK_FILESPACE:-}
+      LUCIDLINK_USER: ${LUCIDLINK_USER:-}
+      LUCIDLINK_PASSWORD: ${LUCIDLINK_PASSWORD:-}
       LUCIDLINK_MOUNT_POINT: /media/lucidlink-1
       UV_THREADPOOL_SIZE: 16
       NODE_OPTIONS: "--max-old-space-size=1536"
@@ -71,14 +71,15 @@ services:
       - ./frontend/package.json:/app/package.json
       - /app/node_modules  # Anonymous volume for node_modules
     environment:
-      REACT_APP_API_URL: http://localhost:3001/api
-      REACT_APP_WS_URL: ws://localhost:3002
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:3001/api}
+      REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:3002}
       REACT_APP_LUCIDLINK_MOUNT_POINT: /media/lucidlink-1
       CHOKIDAR_USEPOLLING: "true"  # For file watching in Docker
       FAST_REFRESH: "true"
+      PORT: 3010  # Use port 3010 inside container too
     command: npm start
     ports:
-      - "3010:3000"  # React dev server port (avoid conflict with Grafana)
+      - "3010:3010"  # React dev server port (avoid conflict with Grafana)
     depends_on:
       - backend
     stdin_open: true  # Needed for React dev server

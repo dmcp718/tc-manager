@@ -1600,37 +1600,57 @@ function App() {
     };
   }, [isAuthenticated]);
 
-  // Load jobs on mount and periodically
+  // Load jobs periodically when authenticated
   useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+    
     loadJobs();
     
     // Refresh jobs every 2 seconds to catch any missed WebSocket updates
     const interval = setInterval(() => {
-      loadJobs();
+      if (isAuthenticated) {
+        loadJobs();
+      }
     }, 2000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthenticated]);
 
   const loadRoots = async () => {
     try {
       const roots = await FileSystemAPI.getRoots();
-      setTreeData(roots.map(root => ({
-        ...root,
-        id: root.path,
-        children: null, // null indicates not loaded yet, [] indicates loaded but empty
-      })));
+      // Ensure we always have an array, even if API returns an error object
+      if (Array.isArray(roots)) {
+        setTreeData(roots.map(root => ({
+          ...root,
+          id: root.path,
+          children: null, // null indicates not loaded yet, [] indicates loaded but empty
+        })));
+      } else {
+        console.error('API returned non-array for roots:', roots);
+        setTreeData([]);
+      }
     } catch (error) {
       console.error('Failed to load roots:', error);
+      setTreeData([]);
     }
   };
 
   const loadJobs = async () => {
     try {
       const jobList = await FileSystemAPI.getJobs();
-      setJobs(jobList);
+      // Ensure we always have an array, even if API returns an error object
+      if (Array.isArray(jobList)) {
+        setJobs(jobList);
+      } else {
+        console.error('API returned non-array for jobs:', jobList);
+        setJobs([]);
+      }
     } catch (error) {
       console.error('Failed to load jobs:', error);
+      setJobs([]);
     }
   };
 
