@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Tree } from 'react-arborist';
 import Hls from 'hls.js';
 
-// Cache buster: 2025-07-18-v1.4.0-es-search-no-show-in-folder
+// Cache buster: 2025-07-19-v1.5.0-dev-workflow-improvements
 
 // Fonts are loaded in index.html for better performance
 
@@ -2414,7 +2414,7 @@ function App() {
               color: '#a1a1aa',
               fontWeight: 'normal'
             }}>
-              v1.4.0
+              v1.5.0
             </span>
           </h1>
         </div>
