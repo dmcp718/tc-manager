@@ -73,7 +73,7 @@ A production-ready file system browser and cache management system for LucidLink
 
 ```bash
 git clone <repository-url>
-cd sc-browser-v2
+cd sc-manager
 cp .env.example .env
 ```
 

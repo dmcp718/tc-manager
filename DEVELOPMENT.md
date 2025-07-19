@@ -56,7 +56,7 @@ npm run dev:build
 ### 3. File Structure
 
 ```
-/sc-browser-v2/
+/sc-manager/
 ├── docker-compose.yml           # Base services (DB, Redis, ES)
 ├── docker-compose.dev.yml       # Development overrides
 ├── docker-compose.prod.yml      # Production configuration
