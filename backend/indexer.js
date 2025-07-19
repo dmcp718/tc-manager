@@ -177,6 +177,12 @@ class FileIndexer extends EventEmitter {
         this.processedCount
       );
 
+      // Calculate duration from session start time
+      let duration = null;
+      if (this.currentSession && this.currentSession.created_at) {
+        duration = Date.now() - new Date(this.currentSession.created_at).getTime();
+      }
+
       this.emit('complete', {
         id: this.currentProgress.id,
         status: finalStatus,
@@ -185,7 +191,8 @@ class FileIndexer extends EventEmitter {
         skippedFiles: this.skippedCount,
         deletedFiles: this.deletedCount,
         errors: this.errorCount,
-        directorySizesProcessed: this.directorySizeQueue.length
+        directorySizesProcessed: this.directorySizeQueue.length,
+        duration: duration
       });
 
     } catch (error) {

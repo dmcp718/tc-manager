@@ -1373,8 +1373,14 @@ function App() {
         setIsIndexing(false);
         setIndexStatus(null);
         
-        // Calculate duration using window functions
-        const duration = window._calculateIndexDuration ? window._calculateIndexDuration() : 5000;
+        // Use duration from backend if available, otherwise calculate from frontend start time
+        let duration = data.duration;
+        if (!duration && window._calculateIndexDuration) {
+          duration = window._calculateIndexDuration();
+        }
+        if (!duration) {
+          duration = 5000; // fallback
+        }
         const formatDuration = window._formatDuration || ((ms) => `${Math.floor(ms/1000)}s`);
         
         // Show completion toast with summary and duration
@@ -2177,7 +2183,7 @@ function App() {
           'Content-Type': 'application/json',
           ...authHeaders
         },
-        body: JSON.stringify({ path: currentPath || '/media/lucidlink-1' })
+        body: JSON.stringify({ path: '/media/lucidlink-1' })
       });
       
       if (response.ok) {
