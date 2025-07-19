@@ -715,6 +715,32 @@ class FileIndexer extends EventEmitter {
         this.deletedCount = deletedFiles.length; // Track for reporting
         console.log(`Detected and removed ${deletedFiles.length} deleted files from database`);
         
+        // Synchronize Elasticsearch deletions if enabled
+        const syncElasticsearch = process.env.ELASTICSEARCH_SYNC_DELETIONS !== 'false';
+        if (this.elasticsearchEnabled && syncElasticsearch && deletedFiles.length > 0) {
+          try {
+            this.emit('progress', {
+              id: this.currentProgress?.id,
+              processedFiles: this.processedCount,
+              currentPath: `Synchronizing ${deletedFiles.length} deletions with Elasticsearch...`,
+              errors: this.errorCount
+            });
+
+            const deletedPaths = deletedFiles.map(file => file.path);
+            const esResult = await this.elasticsearchClient.bulkDeleteByPaths(deletedPaths);
+            
+            console.log(`Elasticsearch sync: ${esResult.deleted} documents deleted, ${esResult.errors.length} errors`);
+            
+            if (esResult.errors.length > 0) {
+              console.warn('Some Elasticsearch deletions failed:', esResult.errors.slice(0, 5)); // Log first 5 errors
+            }
+          } catch (error) {
+            console.error('Failed to synchronize deletions with Elasticsearch:', error.message);
+            // Don't fail the entire indexing process if ES sync fails
+            this.errorCount++;
+          }
+        }
+        
         // Track affected directories for size recalculation
         deletedFiles.forEach(file => {
           if (file.parent_path) {

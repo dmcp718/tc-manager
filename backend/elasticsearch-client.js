@@ -429,6 +429,82 @@ class ElasticsearchClient {
   }
 
   /**
+   * Bulk delete multiple files from index by their paths
+   */
+  async bulkDeleteByPaths(paths) {
+    if (!paths || paths.length === 0) {
+      return { deleted: 0, errors: [] };
+    }
+
+    try {
+      const body = [];
+      
+      for (const filePath of paths) {
+        // Add delete action
+        body.push({
+          delete: {
+            _index: this.indexName,
+            _id: filePath
+          }
+        });
+      }
+
+      const response = await this.client.bulk({
+        refresh: true,
+        body: body
+      });
+
+      // Count successes and errors
+      let deleted = 0;
+      const errors = [];
+
+      if (response.items) {
+        response.items.forEach((item, index) => {
+          const deleteResult = item.delete;
+          if (deleteResult.status === 200 || deleteResult.status === 404) {
+            // 200 = deleted, 404 = not found (which is fine)
+            deleted++;
+          } else {
+            errors.push({
+              index: index,
+              error: deleteResult.error,
+              path: paths[index]
+            });
+          }
+        });
+      }
+
+      console.log(`Bulk deleted ${deleted} files from ES index, ${errors.length} errors`);
+      
+      return { deleted, errors };
+    } catch (error) {
+      console.error('Bulk deletion failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete documents by query (useful for pattern-based cleanup)
+   */
+  async deleteByQuery(query) {
+    try {
+      const response = await this.client.deleteByQuery({
+        index: this.indexName,
+        body: {
+          query: query
+        },
+        refresh: true
+      });
+
+      console.log(`Deleted ${response.deleted} documents by query`);
+      return response;
+    } catch (error) {
+      console.error('Delete by query failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Get search suggestions/autocomplete
    */
   async getSuggestions(query, size = 10) {

@@ -516,6 +516,86 @@ app.get('/api/files', authService.requireAuth, async (req, res) => {
   }
 });
 
+// Filesystem verification for search results
+async function verifySearchResults(results, options = {}) {
+  const { batchSize = 50, logStaleEntries = true } = options;
+  const verifiedResults = [];
+  const staleEntries = [];
+  
+  // Process results in batches to avoid overwhelming the filesystem
+  for (let i = 0; i < results.length; i += batchSize) {
+    const batch = results.slice(i, i + batchSize);
+    
+    // Check filesystem existence for each file in batch
+    const verificationPromises = batch.map(async (result) => {
+      try {
+        await fs.access(result.path);
+        return { result, exists: true };
+      } catch (error) {
+        return { result, exists: false };
+      }
+    });
+    
+    const verificationResults = await Promise.all(verificationPromises);
+    
+    // Separate verified from stale entries
+    for (const { result, exists } of verificationResults) {
+      if (exists) {
+        verifiedResults.push(result);
+      } else {
+        staleEntries.push(result.path);
+        if (logStaleEntries) {
+          console.log(`Stale entry detected in search results: ${result.path}`);
+        }
+      }
+    }
+  }
+  
+  // Queue stale entries for async cleanup if any found
+  if (staleEntries.length > 0) {
+    setImmediate(() => {
+      queueStaleEntriesForCleanup(staleEntries);
+    });
+  }
+  
+  return {
+    verified: verifiedResults,
+    staleCount: staleEntries.length,
+    originalCount: results.length
+  };
+}
+
+// Queue stale entries for cleanup (async, non-blocking)
+async function queueStaleEntriesForCleanup(stalePaths) {
+  if (stalePaths.length === 0) return;
+  
+  try {
+    console.log(`Queuing ${stalePaths.length} stale entries for cleanup`);
+    
+    // Remove from PostgreSQL
+    const { pool } = require('./database');
+    const result = await pool.query(
+      'DELETE FROM files WHERE path = ANY($1) RETURNING path',
+      [stalePaths]
+    );
+    
+    console.log(`Removed ${result.rows.length} stale entries from PostgreSQL`);
+    
+    // Remove from Elasticsearch if enabled
+    const syncElasticsearch = process.env.ELASTICSEARCH_SYNC_DELETIONS !== 'false';
+    if (elasticsearchClient && syncElasticsearch) {
+      try {
+        const esResult = await elasticsearchClient.bulkDeleteByPaths(stalePaths);
+        console.log(`Removed ${esResult.deleted} stale entries from Elasticsearch`);
+      } catch (error) {
+        console.warn('Failed to clean stale entries from Elasticsearch:', error.message);
+      }
+    }
+  } catch (error) {
+    console.error('Error during stale entry cleanup:', error.message);
+  }
+}
+
 // Search files
 app.get('/api/search', authService.requireAuth, async (req, res) => {
   try {
@@ -538,7 +618,21 @@ app.get('/api/search', authService.requireAuth, async (req, res) => {
       cached: file.cached
     }));
     
-    res.json(formattedResults);
+    // Verify filesystem existence for all results
+    const verification = await verifySearchResults(formattedResults);
+    
+    // Add verification metadata to response
+    const response = {
+      results: verification.verified,
+      total: verification.verified.length,
+      verification: {
+        originalCount: verification.originalCount,
+        staleCount: verification.staleCount,
+        verifiedCount: verification.verified.length
+      }
+    };
+    
+    res.json(response);
   } catch (error) {
     console.error('Error searching files:', error);
     res.status(500).json({ error: 'Failed to search files' });
@@ -574,10 +668,19 @@ app.get('/api/search/elasticsearch', authService.requireAuth, async (req, res) =
       score: hit._score
     }));
     
+    // Verify filesystem existence for all results
+    const verification = await verifySearchResults(formattedResults);
+    
     res.json({
-      results: formattedResults,
-      total: results.total,
-      took: results.took
+      results: verification.verified,
+      total: verification.verified.length,
+      originalTotal: results.total,
+      took: results.took,
+      verification: {
+        originalCount: verification.originalCount,
+        staleCount: verification.staleCount,
+        verifiedCount: verification.verified.length
+      }
     });
   } catch (error) {
     console.error('Error searching files with Elasticsearch:', error);
@@ -721,6 +824,117 @@ app.get('/api/index/history', authService.requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error getting index history:', error);
     res.status(500).json({ error: 'Failed to get index history' });
+  }
+});
+
+app.post('/api/index/cleanup-elasticsearch', authService.requireAuth, async (req, res) => {
+  try {
+    const ElasticsearchClient = require('./elasticsearch-client');
+    const esClient = new ElasticsearchClient();
+    
+    // Test ES connection first
+    const isConnected = await esClient.testConnection();
+    if (!isConnected) {
+      return res.status(503).json({ error: 'Elasticsearch not available' });
+    }
+
+    // Get all paths from PostgreSQL files table
+    const { pool } = require('./database');
+    const pgResult = await pool.query('SELECT path FROM files');
+    const pgPaths = new Set(pgResult.rows.map(row => row.path));
+    
+    console.log(`Found ${pgPaths.size} files in PostgreSQL database`);
+
+    // Get all document IDs from Elasticsearch
+    const esSearchResult = await esClient.client.search({
+      index: esClient.indexName,
+      scroll: '1m',
+      body: {
+        query: { match_all: {} },
+        _source: false,
+        size: 10000 // Start with reasonable batch size
+      }
+    });
+
+    let allEsPaths = [];
+    let scrollId = esSearchResult._scroll_id;
+    
+    // Collect all ES document IDs using scroll API
+    let esHits = esSearchResult.hits.hits;
+    while (esHits.length > 0) {
+      allEsPaths.push(...esHits.map(hit => hit._id));
+      
+      if (esHits.length < 10000) break; // No more results
+      
+      const scrollResult = await esClient.client.scroll({
+        scroll_id: scrollId,
+        scroll: '1m'
+      });
+      
+      esHits = scrollResult.hits.hits;
+      scrollId = scrollResult._scroll_id;
+    }
+
+    // Clear scroll context
+    if (scrollId) {
+      try {
+        await esClient.client.clearScroll({ scroll_id: scrollId });
+      } catch (error) {
+        console.warn('Failed to clear scroll context:', error.message);
+      }
+    }
+
+    console.log(`Found ${allEsPaths.length} documents in Elasticsearch index`);
+
+    // Find orphaned paths (in ES but not in PostgreSQL)
+    const orphanedPaths = allEsPaths.filter(path => !pgPaths.has(path));
+    
+    console.log(`Found ${orphanedPaths.length} orphaned documents in Elasticsearch`);
+
+    if (orphanedPaths.length === 0) {
+      return res.json({
+        message: 'No orphaned documents found',
+        orphaned: 0,
+        deleted: 0
+      });
+    }
+
+    // Safety check - don't delete more than 50% of ES documents
+    const deletionPercentage = (orphanedPaths.length / allEsPaths.length) * 100;
+    const maxDeletionPercentage = 50;
+    
+    if (deletionPercentage > maxDeletionPercentage) {
+      return res.status(400).json({
+        error: `Safety check failed: Would delete ${deletionPercentage.toFixed(1)}% of documents (max ${maxDeletionPercentage}%)`,
+        orphaned: orphanedPaths.length,
+        total: allEsPaths.length,
+        deletionPercentage: deletionPercentage
+      });
+    }
+
+    // Bulk delete orphaned documents in batches
+    const batchSize = 1000;
+    let totalDeleted = 0;
+    let totalErrors = 0;
+
+    for (let i = 0; i < orphanedPaths.length; i += batchSize) {
+      const batch = orphanedPaths.slice(i, i + batchSize);
+      const result = await esClient.bulkDeleteByPaths(batch);
+      totalDeleted += result.deleted;
+      totalErrors += result.errors.length;
+    }
+
+    res.json({
+      message: `Cleanup completed: ${totalDeleted} orphaned documents deleted`,
+      orphaned: orphanedPaths.length,
+      deleted: totalDeleted,
+      errors: totalErrors,
+      deletionPercentage: deletionPercentage.toFixed(1)
+    });
+
+  } catch (error) {
+    console.error('Error cleaning up Elasticsearch:', error);
+    res.status(500).json({ error: `Cleanup failed: ${error.message}` });
   }
 });
 

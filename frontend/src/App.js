@@ -2100,8 +2100,13 @@ function App() {
       if (response.ok) {
         const data = await response.json();
         
-        // Handle different response formats
-        const results = elasticsearchAvailable ? data.results : data;
+        // Both endpoints now return {results: [...], verification: {...}} format
+        const results = data.results || data; // Fallback for backward compatibility
+        
+        // Log verification info if available
+        if (data.verification && data.verification.staleCount > 0) {
+          console.log(`Search verification: ${data.verification.staleCount} stale entries removed, ${data.verification.verifiedCount} results verified`);
+        }
         
         if (append && searchResults) {
           setSearchResults([...searchResults, ...results]);
