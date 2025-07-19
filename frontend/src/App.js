@@ -890,9 +890,17 @@ function PreviewModal({ filePath, preview, type, onClose }) {
       console.log('Rendering image preview:', preview);
       let imageUrl = preview?.previewUrl || preview?.directUrl;
       
-      // Ensure URL has the correct base path
+      // Ensure URL has the correct base path and add auth token
       if (imageUrl && !imageUrl.startsWith('http')) {
-        imageUrl = `${FileSystemAPI.baseURL.replace('/api', '')}${imageUrl}`;
+        const fullUrl = `${FileSystemAPI.baseURL.replace('/api', '')}${imageUrl}`;
+        // Add auth token for image preview URLs
+        const token = localStorage.getItem('authToken');
+        if (token) {
+          const separator = fullUrl.includes('?') ? '&' : '?';
+          imageUrl = `${fullUrl}${separator}token=${token}`;
+        } else {
+          imageUrl = fullUrl;
+        }
       }
       
       console.log('Image URL:', imageUrl);
@@ -2684,6 +2692,29 @@ function App() {
               {cacheUsage.loading ? '...' : formatBytes(cacheUsage.totalSpace)}
             </span>
           </div>
+          
+          <button
+            style={{
+              ...styles.button,
+              minWidth: 'auto',
+              padding: '5px 8px 6px 8px',
+              lineHeight: 0,
+              fontSize: 0
+            }}
+            onClick={() => window.open(process.env.REACT_APP_GRAFANA_URL || 'http://192.168.8.28:3000', '_blank')}
+            title="Open Grafana Dashboard"
+          >
+            <img 
+              src="/Grafana_icon.svg" 
+              alt="Grafana" 
+              style={{
+                width: '16px',
+                height: '16px',
+                filter: 'brightness(0.9)',
+                display: 'block'
+              }}
+            />
+          </button>
           
           {isIndexing ? (
             <button
