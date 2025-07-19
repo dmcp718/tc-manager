@@ -1075,7 +1075,7 @@ function LoginScreen({ onLogin }) {
     setError('');
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1102,7 +1102,7 @@ function LoginScreen({ onLogin }) {
   return (
     <div style={styles.loginContainer}>
       <form style={styles.loginForm} onSubmit={handleSubmit}>
-        <h1 style={styles.loginTitle}>Site Cache Browser</h1>
+        <h1 style={styles.loginTitle}>SiteCache Manager</h1>
         
         <div style={styles.loginField}>
           <label style={styles.loginLabel} htmlFor="username">
@@ -1225,7 +1225,7 @@ function App() {
     }
 
     try {
-      const response = await fetch('/api/auth/verify', {
+      const response = await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/auth/verify`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -1256,7 +1256,7 @@ function App() {
     try {
       const token = localStorage.getItem('authToken');
       if (token) {
-        await fetch('/api/auth/logout', {
+        await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/auth/logout`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -2120,12 +2120,18 @@ function App() {
       setIndexStartTime(startTime);
       indexStartTimeRef.current = startTime;
       window._indexStartTime = startTime;
+      
+      const authHeaders = FileSystemAPI.getAuthHeaders();
+      console.log('Auth headers:', authHeaders);
+      console.log('Token from localStorage:', localStorage.getItem('authToken'));
+      
       const response = await fetch(`${FileSystemAPI.baseURL}/index/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders
         },
-        body: JSON.stringify({})
+        body: JSON.stringify({ path: currentPath || '/media/lucidlink-1' })
       });
       
       if (response.ok) {
@@ -2134,18 +2140,22 @@ function App() {
         setIndexStatus({ processedFiles: 0, currentPath: '', errors: 0 });
       } else {
         setIsIndexing(false);
-        console.error('Failed to start indexing');
+        const errorData = await response.text();
+        console.error('Failed to start indexing:', response.status, errorData);
+        alert(`Failed to start indexing: ${errorData}`);
       }
     } catch (error) {
       setIsIndexing(false);
       console.error('Error starting indexing:', error);
+      alert(`Error starting indexing: ${error.message}`);
     }
   };
 
   const stopIndexing = async () => {
     try {
       const response = await fetch(`${FileSystemAPI.baseURL}/index/stop`, {
-        method: 'POST'
+        method: 'POST',
+        headers: FileSystemAPI.getAuthHeaders()
       });
       
       if (response.ok) {
@@ -2158,7 +2168,16 @@ function App() {
 
   const checkIndexStatus = async () => {
     try {
-      const response = await fetch(`${FileSystemAPI.baseURL}/index/status`);
+      const authHeaders = FileSystemAPI.getAuthHeaders();
+      // Only make the call if we have auth headers
+      if (!authHeaders.Authorization) {
+        console.log('Skipping index status check - no auth token available');
+        return;
+      }
+
+      const response = await fetch(`${FileSystemAPI.baseURL}/index/status`, {
+        headers: authHeaders
+      });
       if (response.ok) {
         const status = await response.json();
         setIsIndexing(status.running);
@@ -2175,6 +2194,11 @@ function App() {
             errors: 0
           });
         }
+      } else if (response.status === 401) {
+        console.log('Index status check failed - authentication required');
+        // Don't log as error since this is expected when not authenticated
+      } else {
+        console.error('Failed to check index status:', response.status);
       }
     } catch (error) {
       console.error('Error checking index status:', error);
@@ -2205,6 +2229,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...FileSystemAPI.getAuthHeaders()
         },
         body: JSON.stringify({ paths })
       });
@@ -2322,12 +2347,34 @@ function App() {
     
     // Apply filters to the file list
     if (activeFilter === 'all') return fileList;
-    if (activeFilter === 'images') return fileList.filter(f => f.extension && ['.jpg', '.png', '.gif', '.jpeg', '.webp', '.tif', '.tiff', '.psd', '.dpx', '.exr'].includes(f.extension.toLowerCase()));
-    if (activeFilter === 'videos') return fileList.filter(f => f.extension && ['.mp4', '.mov', '.avi', '.mkv', '.m4v', '.mxf', '.braw', '.r3d'].includes(f.extension.toLowerCase()));
-    if (activeFilter === 'audio') return fileList.filter(f => f.extension && ['.mp3', '.wav', '.flac', '.aac'].includes(f.extension.toLowerCase()));
-    if (activeFilter === 'documents') return fileList.filter(f => f.extension && ['.pdf', '.doc', '.docx', '.txt', '.md'].includes(f.extension.toLowerCase()));
+    
+    // Helper function to safely get lowercase extension
+    const getExtension = (file) => {
+      if (!file.extension) return null;
+      return typeof file.extension === 'string' ? file.extension.toLowerCase() : null;
+    };
+    
+    if (activeFilter === 'images') return fileList.filter(f => {
+      const ext = getExtension(f);
+      return ext && ['.jpg', '.png', '.gif', '.jpeg', '.webp', '.tif', '.tiff', '.psd', '.dpx', '.exr'].includes(ext);
+    });
+    if (activeFilter === 'videos') return fileList.filter(f => {
+      const ext = getExtension(f);
+      return ext && ['.mp4', '.mov', '.avi', '.mkv', '.m4v', '.mxf', '.braw', '.r3d'].includes(ext);
+    });
+    if (activeFilter === 'audio') return fileList.filter(f => {
+      const ext = getExtension(f);
+      return ext && ['.mp3', '.wav', '.flac', '.aac'].includes(ext);
+    });
+    if (activeFilter === 'documents') return fileList.filter(f => {
+      const ext = getExtension(f);
+      return ext && ['.pdf', '.doc', '.docx', '.txt', '.md'].includes(ext);
+    });
     if (activeFilter === 'cached') return fileList.filter(f => f.cached === true);
-    if (activeFilter === 'other') return fileList.filter(f => !f.isDirectory && f.extension && !['.jpg', '.png', '.gif', '.jpeg', '.webp', '.tif', '.tiff', '.psd', '.dpx', '.exr', '.mp4', '.mov', '.avi', '.mkv', '.m4v', '.mxf', '.braw', '.r3d', '.mp3', '.wav', '.flac', '.aac', '.pdf', '.doc', '.docx', '.txt', '.md'].includes(f.extension.toLowerCase()));
+    if (activeFilter === 'other') return fileList.filter(f => {
+      const ext = getExtension(f);
+      return !f.isDirectory && ext && !['.jpg', '.png', '.gif', '.jpeg', '.webp', '.tif', '.tiff', '.psd', '.dpx', '.exr', '.mp4', '.mov', '.avi', '.mkv', '.m4v', '.mxf', '.braw', '.r3d', '.mp3', '.wav', '.flac', '.aac', '.pdf', '.doc', '.docx', '.txt', '.md'].includes(ext);
+    });
     return fileList;
   };
 
@@ -2771,8 +2818,8 @@ function App() {
               { key: 'videos', label: 'Videos', type: 'video' },
               { key: 'audio', label: 'Audio', type: 'audio' },
               { key: 'documents', label: 'Documents', type: 'pdf' },
-              { key: 'cached', label: 'Cached', type: 'cached' },
-              { key: 'other', label: 'Other', type: 'default' }
+              { key: 'other', label: 'Other', type: 'default' },
+              { key: 'cached', label: 'Cached', type: 'cached' }
             ].map(filter => (
               <button
                 key={filter.key}

@@ -5,7 +5,11 @@
   "main": "server-v2.js",
   "scripts": {
     "start": "node server-v2.js",
-    "dev": "nodemon server.js",
+    "dev": "nodemon --inspect=0.0.0.0:9229 server-v2.js",
+    "dev:watch": "nodemon --watch . --ext js,json server-v2.js",
+    "dev:debug": "nodemon --inspect-brk=0.0.0.0:9229 server-v2.js",
+    "build": "echo 'No build step required for Node.js backend'",
+    "test": "echo 'No tests specified'",
     "db:setup": "psql -d sitecache_db -f schema.sql",
     "db:reset": "psql -d sitecache_db -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' && npm run db:setup"
   },

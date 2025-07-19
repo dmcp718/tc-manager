@@ -601,7 +601,7 @@ app.get('/api/search/elasticsearch/availability', async (req, res) => {
 });
 
 // Get cache statistics
-app.get('/api/stats', async (req, res) => {
+app.get('/api/stats', authService.requireAuth, async (req, res) => {
   try {
     const stats = await FileModel.getStats();
     res.json(stats);
@@ -612,7 +612,7 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // Cache statistics endpoint for immediate access
-app.get('/api/cache-stats', async (req, res) => {
+app.get('/api/cache-stats', authService.requireAuth, async (req, res) => {
   try {
     if (varnishStatsWorkerInstance) {
       const stats = varnishStatsWorkerInstance.getCurrentStats();
@@ -713,7 +713,7 @@ app.post('/api/index/stop', authService.requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/index/history', async (req, res) => {
+app.get('/api/index/history', authService.requireAuth, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
     const history = await IndexProgressModel.findAll(limit);
@@ -756,7 +756,7 @@ app.get('/api/actions', authService.requireAuth, async (req, res) => {
 });
 
 // Get or calculate directory size
-app.get('/api/directory-size', async (req, res) => {
+app.get('/api/directory-size', authService.requireAuth, async (req, res) => {
   try {
     const { path: dirPath } = req.query;
     
@@ -781,7 +781,7 @@ app.get('/api/directory-size', async (req, res) => {
 });
 
 // Batch calculate directory sizes
-app.post('/api/directory-sizes', async (req, res) => {
+app.post('/api/directory-sizes', authService.requireAuth, async (req, res) => {
   try {
     const { paths } = req.body;
     
@@ -811,7 +811,7 @@ app.post('/api/directory-sizes', async (req, res) => {
 });
 
 // Get available cache job profiles
-app.get('/api/profiles', async (req, res) => {
+app.get('/api/profiles', authService.requireAuth, async (req, res) => {
   try {
     const profiles = await CacheJobProfileModel.findAll();
     res.json(profiles);
@@ -822,7 +822,7 @@ app.get('/api/profiles', async (req, res) => {
 });
 
 // Create cache job from selected files
-app.post('/api/jobs/cache', async (req, res) => {
+app.post('/api/jobs/cache', authService.requireAuth, async (req, res) => {
   try {
     const { filePaths, directories = [], profileName, profileId } = req.body;
     
@@ -885,7 +885,7 @@ app.post('/api/jobs/cache', async (req, res) => {
 });
 
 // Generate direct link for a file
-app.post('/api/direct-link', async (req, res) => {
+app.post('/api/direct-link', authService.requireAuth, async (req, res) => {
   try {
     const { filePath } = req.body;
     
@@ -926,7 +926,7 @@ app.post('/api/direct-link', async (req, res) => {
 });
 
 // Get all cached files from database
-app.get('/api/files/cached', async (req, res) => {
+app.get('/api/files/cached', authService.requireAuth, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
@@ -1053,7 +1053,7 @@ app.post('/api/execute', authService.requireAuth, async (req, res) => {
 });
 
 // Get all jobs (hybrid - database + in-memory)
-app.get('/api/jobs', async (req, res) => {
+app.get('/api/jobs', authService.requireAuth, async (req, res) => {
   try {
     // Get cache jobs from database
     const cacheJobs = await CacheJobModel.findAll(20);
@@ -1093,7 +1093,7 @@ app.get('/api/jobs', async (req, res) => {
 });
 
 // Get specific job
-app.get('/api/jobs/:id', async (req, res) => {
+app.get('/api/jobs/:id', authService.requireAuth, async (req, res) => {
   try {
     const jobId = req.params.id;
     
@@ -1127,7 +1127,7 @@ app.get('/api/jobs/:id', async (req, res) => {
 // Cache Job Control Endpoints
 
 // Start cache job processing
-app.post('/api/jobs/:id/start', async (req, res) => {
+app.post('/api/jobs/:id/start', authService.requireAuth, async (req, res) => {
   try {
     const jobId = req.params.id;
     
@@ -1158,7 +1158,7 @@ app.post('/api/jobs/:id/start', async (req, res) => {
 });
 
 // Pause cache job (mark as paused, workers will skip)
-app.post('/api/jobs/:id/pause', async (req, res) => {
+app.post('/api/jobs/:id/pause', authService.requireAuth, async (req, res) => {
   try {
     const jobId = req.params.id;
     
@@ -1189,7 +1189,7 @@ app.post('/api/jobs/:id/pause', async (req, res) => {
 });
 
 // Cancel cache job
-app.post('/api/jobs/:id/cancel', async (req, res) => {
+app.post('/api/jobs/:id/cancel', authService.requireAuth, async (req, res) => {
   try {
     const jobId = req.params.id;
     console.log(`Attempting to cancel job: ${jobId}`);
@@ -1231,7 +1231,7 @@ app.post('/api/jobs/:id/cancel', async (req, res) => {
 });
 
 // Get cache worker status
-app.get('/api/workers/status', async (req, res) => {
+app.get('/api/workers/status', authService.requireAuth, async (req, res) => {
   try {
     const manager = getCacheWorkerManager();
     const status = manager.getOverallStatus();
@@ -1243,7 +1243,7 @@ app.get('/api/workers/status', async (req, res) => {
 });
 
 // Clear completed cache jobs
-app.post('/api/jobs/clear', async (req, res) => {
+app.post('/api/jobs/clear', authService.requireAuth, async (req, res) => {
   try {
     // Delete completed and failed cache jobs from database
     const result = await pool.query(`
@@ -1280,7 +1280,7 @@ app.post('/api/jobs/clear', async (req, res) => {
 });
 
 // Validate directory cache status
-app.post('/api/validate-directory-cache', async (req, res) => {
+app.post('/api/validate-directory-cache', authService.requireAuth, async (req, res) => {
   try {
     const { path: dirPath } = req.body;
     
@@ -1318,7 +1318,7 @@ app.post('/api/validate-directory-cache', async (req, res) => {
 });
 
 // Media Preview Endpoints (using local MediaPreviewService)
-app.post('/api/preview', async (req, res) => {
+app.post('/api/preview', authService.requireAuth, async (req, res) => {
   try {
     const { filePath, type = 'auto' } = req.body;
     
@@ -1377,7 +1377,7 @@ app.post('/api/preview', async (req, res) => {
 });
 
 // Get preview status
-app.get('/api/preview/status/:cacheKey', async (req, res) => {
+app.get('/api/preview/status/:cacheKey', authService.requireAuth, async (req, res) => {
   try {
     const { cacheKey } = req.params;
     
@@ -1401,7 +1401,7 @@ app.get('/api/preview/status/:cacheKey', async (req, res) => {
 });
 
 // Direct preview file serving from local cache
-app.get('/api/preview/:type/:cacheKey/*', async (req, res) => {
+app.get('/api/preview/:type/:cacheKey/*', authService.requireAuth, async (req, res) => {
   try {
     const { type, cacheKey } = req.params;
     const filename = req.params[0];
@@ -1501,7 +1501,7 @@ app.get('/api/preview/:type/:cacheKey/*', async (req, res) => {
 });
 
 // Direct video streaming endpoint for web-compatible videos
-app.get('/api/video/stream/:cacheKey', async (req, res) => {
+app.get('/api/video/stream/:cacheKey', authService.requireAuth, async (req, res) => {
   try {
     const { cacheKey } = req.params;
     

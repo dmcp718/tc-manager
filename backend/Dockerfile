@@ -1,5 +1,53 @@
-# Backend Dockerfile - Optimized for production
-FROM node:18-bullseye-slim
+# Multi-stage Dockerfile for Backend
+# Development stage
+FROM node:18-bullseye-slim AS development
+
+# Install development dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    dumb-init \
+    wget \
+    fuse \
+    ca-certificates \
+    curl \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install custom LucidLink build
+COPY lucidlink_3.2.6817_amd64.deb /tmp/
+RUN apt-get update \
+    && apt-get install -y /tmp/lucidlink_3.2.6817_amd64.deb \
+    && rm /tmp/lucidlink_3.2.6817_amd64.deb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Enable FUSE user_allow_other option
+RUN echo "user_allow_other" >> /etc/fuse.conf
+
+# Set working directory
+WORKDIR /app
+
+# Set development environment
+ENV NODE_ENV=development
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev dependencies)
+RUN npm ci
+
+# Copy source code (for development, this will be overridden by volume mount)
+COPY . .
+
+# Make startup script executable
+RUN chmod +x start-lucidlink.sh
+
+# Expose ports (including debugger port)
+EXPOSE 3001 3002 9229
+
+# Development command with nodemon
+CMD ["dumb-init", "./start-lucidlink.sh", "npm", "run", "dev"]
+
+# Production stage
+FROM node:18-bullseye-slim AS production
 
 # Install production dependencies for better performance
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -49,7 +97,7 @@ RUN chown -R nextjs:nodejs /app
 # Don't switch to nextjs user yet - startup script needs root privileges
 
 # Expose port
-EXPOSE 3001
+EXPOSE 3001 3002
 
 # Health check with reduced frequency
 HEALTHCHECK --interval=60s --timeout=3s --start-period=10s --retries=2 \

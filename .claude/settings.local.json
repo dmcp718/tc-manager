@@ -4,7 +4,10 @@
       "Bash(find:*)",
       "Bash(docker logs:*)",
       "Bash(docker build:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(docker tag:*)",
+      "Bash(chmod:*)",
+      "Bash(npm run dev:down:*)"
     ],
     "deny": []
   }

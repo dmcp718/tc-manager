@@ -1,0 +1,103 @@
+# Development Environment - Hot Reload & Volume Mounts
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  # Backend with volume mount for hot reload
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development  # We'll add this target to Dockerfile
+    container_name: sitecache-backend-dev
+    volumes:
+      # Mount source code for live reload
+      - ./backend:/app
+      - /app/node_modules  # Anonymous volume for node_modules
+      - backend_logs:/app/logs
+      - lucidlink_mount:/media/lucidlink-1
+      - varnish_stats:/data
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: sitecache_db
+      DB_USER: sitecache_user
+      DB_PASSWORD: sitecache_password
+      INDEX_ROOT_PATH: /media/lucidlink-1
+      ALLOWED_PATHS: /media/lucidlink-1
+      NETWORK_INTERFACE: eth0
+      LUCIDLINK_FS_1_PORT: 7778
+      ENABLE_NETWORK_STATS: "false"
+      ENABLE_LUCIDLINK_STATS: "true"
+      LUCIDLINK_COMMAND: /usr/local/bin/lucid
+      LUCIDLINK_FILESPACE: ""
+      LUCIDLINK_USER: ""
+      LUCIDLINK_PASSWORD: ""
+      LUCIDLINK_MOUNT_POINT: /media/lucidlink-1
+      UV_THREADPOOL_SIZE: 16
+      NODE_OPTIONS: "--max-old-space-size=1536"
+      CACHE_WORKER_COUNT: 2
+      MAX_CONCURRENT_FILES: 5
+      WORKER_POLL_INTERVAL: 2000
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+      ELASTICSEARCH_INDEX: sitecache-files
+      JWT_SECRET: dev-secret-key-change-in-production
+      JWT_EXPIRY: 8h
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin123
+      LUCIDLINK_API_HOST: host.docker.internal
+    command: npm run dev  # We'll add this script
+    ports:
+      - "3001:3001"
+      - "3002:3002"
+      - "9229:9229"  # Node.js debugger port
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Frontend with volume mount for hot reload
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development  # We'll add this target to Dockerfile
+    container_name: sitecache-frontend-dev
+    volumes:
+      # Mount source code for live reload
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/package.json:/app/package.json
+      - /app/node_modules  # Anonymous volume for node_modules
+    environment:
+      REACT_APP_API_URL: http://localhost:3001/api
+      REACT_APP_WS_URL: ws://localhost:3002
+      REACT_APP_LUCIDLINK_MOUNT_POINT: /media/lucidlink-1
+      CHOKIDAR_USEPOLLING: "true"  # For file watching in Docker
+      FAST_REFRESH: "true"
+    command: npm start
+    ports:
+      - "3000:3000"  # React dev server port
+    depends_on:
+      - backend
+    stdin_open: true  # Needed for React dev server
+    tty: true
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_logs:
+    driver: local
+  lucidlink_mount:
+    driver: local
+  varnish_stats:
+    driver: local
+  redis_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+
+networks:
+  default:
+    name: sitecache-network

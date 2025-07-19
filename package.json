@@ -1,0 +1,48 @@
+{
+  "name": "sitecache-manager",
+  "version": "1.4.0",
+  "description": "SiteCache Manager - File caching and management for LucidLink",
+  "private": true,
+  "scripts": {
+    "dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up",
+    "dev:build": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",
+    "dev:frontend": "cd frontend && npm start",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:services": "docker compose up postgres redis elasticsearch varnish-stats",
+    "dev:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
+    "prod": "docker compose -f docker-compose.yml -f docker-compose.prod.yml up",
+    "prod:build": "docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build",
+    "prod:down": "docker compose -f docker-compose.yml -f docker-compose.prod.yml down",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "cd frontend && npm test -- --watchAll=false",
+    "test:backend": "cd backend && npm test",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "clean": "docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.prod.yml down --volumes --remove-orphans",
+    "clean:images": "docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.prod.yml down --rmi all",
+    "bootstrap": "./scripts/bootstrap-production.sh",
+    "deploy": "./scripts/deploy.sh",
+    "logs": "docker compose logs -f",
+    "logs:backend": "docker compose logs -f backend",
+    "logs:frontend": "docker compose logs -f frontend"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/sitecache-manager.git"
+  },
+  "keywords": [
+    "file-management",
+    "caching",
+    "lucidlink",
+    "react",
+    "docker"
+  ],
+  "author": "Your Organization",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
