@@ -48,7 +48,12 @@ class AuthService {
   // Middleware to protect routes
   requireAuth = (req, res, next) => {
     const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    let token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    
+    // If no header token, check query parameter (for HLS video requests)
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
 
     if (!token) {
       return res.status(401).json({ error: 'Access token required' });

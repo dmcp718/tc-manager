@@ -719,10 +719,19 @@ function VideoPlayer({ preview }) {
     const video = videoRef.current;
     if (!video) return;
 
-    // Helper to ensure URLs have the correct base path
+    // Helper to ensure URLs have the correct base path and auth token for video
     const ensureFullUrl = (url) => {
       if (url && !url.startsWith('http')) {
-        return `${FileSystemAPI.baseURL.replace('/api', '')}${url}`;
+        const fullUrl = `${FileSystemAPI.baseURL.replace('/api', '')}${url}`;
+        // Add auth token for video URLs (needed for authentication)
+        if (url.includes('/api/preview/video/') || url.includes('/api/video/stream/')) {
+          const token = localStorage.getItem('authToken');
+          if (token) {
+            const separator = fullUrl.includes('?') ? '&' : '?';
+            return `${fullUrl}${separator}token=${token}`;
+          }
+        }
+        return fullUrl;
       }
       return url;
     };
@@ -737,7 +746,16 @@ function VideoPlayer({ preview }) {
     if (preview?.playlistUrl) {
       const playlistUrl = ensureFullUrl(preview.playlistUrl);
       if (Hls.isSupported()) {
-        const hls = new Hls();
+        const token = localStorage.getItem('authToken');
+        const hls = new Hls({
+          xhrSetup: function(xhr, url) {
+            // Add auth token to all HLS requests
+            if (token) {
+              const separator = url.includes('?') ? '&' : '?';
+              xhr.open('GET', `${url}${separator}token=${token}`, true);
+            }
+          }
+        });
         hls.loadSource(playlistUrl);
         hls.attachMedia(video);
         

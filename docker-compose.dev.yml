@@ -9,6 +9,7 @@ services:
       dockerfile: Dockerfile
       target: development  # We'll add this target to Dockerfile
     container_name: sc-mgr-backend-dev
+    user: root
     volumes:
       # Mount source code for live reload
       - ./backend:/app
@@ -64,6 +65,7 @@ services:
       dockerfile: Dockerfile
       target: development  # We'll add this target to Dockerfile
     container_name: sc-mgr-frontend-dev
+    user: root
     volumes:
       # Mount source code for live reload
       - ./frontend/src:/app/src
