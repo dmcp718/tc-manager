@@ -77,6 +77,10 @@ cd sc-manager
 cp .env.example .env
 ```
 
+**Development vs Production:**
+- **Development**: Uses port 3010 for frontend with hot reload and volume mounts
+- **Production**: Uses port 8080 for frontend with optimized builds
+
 ### 2. Install LucidLink Binary (Required)
 
 The LucidLink client binary is required but not included in the repository due to file size limits. Download and place it manually:
@@ -119,8 +123,11 @@ REACT_APP_WS_URL=ws://YOUR_DOCKER_HOST_IP:3002
 ### 3. Start Development Environment
 
 ```bash
-# Start all services
-docker compose up -d
+# Start development environment with hot reload
+npm run dev
+
+# Or start production environment  
+npm run prod:build
 
 # Verify deployment
 docker compose ps
@@ -129,7 +136,7 @@ docker compose logs backend | head -20
 
 ### 4. Access Application
 
-- **Frontend**: http://localhost:8080
+- **Frontend**: http://localhost:8080 (production) or http://localhost:3010 (development)
 - **Backend API**: http://localhost:3001
 - **Health Check**: http://localhost:3001/health
 - **WebSocket**: ws://localhost:3002
@@ -306,12 +313,20 @@ VARNISH_STATS_INTERVAL=60000          # Stats update interval (ms)
 
 The system supports multiple deployment configurations:
 
-#### Development (`docker-compose.yml`)
-- **Purpose**: Local development and testing
-- **Network**: Bridge networking with port mapping
-- **LucidLink**: Accesses host via `host.docker.internal`
-- **Security**: Basic configuration for development ease
-- **Volumes**: Direct mount of host filesystem
+#### Development Environment
+- **Files**: `docker-compose.yml` + `docker-compose.dev.yml`
+- **Command**: `npm run dev` or `docker compose -f docker-compose.yml -f docker-compose.dev.yml up`
+- **Features**: Hot reload, volume mounts, development ports
+- **Frontend Port**: 3010 (avoids conflict with Grafana on port 3000)
+- **Container Names**: sc-mgr-backend-dev, sc-mgr-frontend-dev
+- **Debugging**: Node.js debugger available on port 9229
+
+#### Production Environment  
+- **Files**: `docker-compose.yml` + `docker-compose.prod.yml`
+- **Command**: `npm run prod:build` or `docker compose -f docker-compose.yml -f docker-compose.prod.yml up`
+- **Features**: Optimized builds, resource limits, health checks
+- **Frontend Port**: 8080
+- **Container Names**: sc-mgr-backend-prod, sc-mgr-frontend-prod
 
 #### Production Optimizations
 - **Performance**: Increased memory limits and CPU allocation
@@ -438,18 +453,17 @@ lucid daemon \
 #### Container Networking
 ```yaml
 networks:
-  sitecache-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+  default:
+    name: sc-mgr-network
 ```
 
 #### Port Security
 - **3001**: Backend API (HTTP)
 - **3002**: WebSocket server (WS)
+- **3010**: Frontend development server (HTTP) - development only
 - **5432**: PostgreSQL database (internal only)
-- **8080**: Frontend web server (HTTP/HTTPS)
+- **8080**: Frontend web server (HTTP/HTTPS) - production
+- **9229**: Node.js debugger port - development only
 
 ## 🔧 Troubleshooting
 
@@ -887,9 +901,13 @@ For issues and questions:
 ## 🗂️ Project Structure
 
 ```
-sc-browser/
+sc-manager/
 ├── README.md                     # This comprehensive guide
-├── docker-compose.yml            # Development environment
+├── docker-compose.yml            # Base service definitions
+├── docker-compose.dev.yml        # Development overrides (hot reload)
+├── docker-compose.prod.yml       # Production overrides (optimized)
+├── package.json                  # Development workflow scripts
+├── .env.development              # Committed development settings
 ├── .env.example                  # Environment template
 ├── .env                         # Your environment (create from template)
 │

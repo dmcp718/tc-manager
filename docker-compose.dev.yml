@@ -8,7 +8,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: development  # We'll add this target to Dockerfile
-    container_name: sitecache-backend-dev
+    container_name: sc-mgr-backend-dev
     volumes:
       # Mount source code for live reload
       - ./backend:/app
@@ -63,7 +63,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: development  # We'll add this target to Dockerfile
-    container_name: sitecache-frontend-dev
+    container_name: sc-mgr-frontend-dev
     volumes:
       # Mount source code for live reload
       - ./frontend/src:/app/src
@@ -78,7 +78,7 @@ services:
       FAST_REFRESH: "true"
     command: npm start
     ports:
-      - "3000:3000"  # React dev server port
+      - "3010:3000"  # React dev server port (avoid conflict with Grafana)
     depends_on:
       - backend
     stdin_open: true  # Needed for React dev server
@@ -100,4 +100,4 @@ volumes:
 
 networks:
   default:
-    name: sitecache-network
+    name: sc-mgr-network

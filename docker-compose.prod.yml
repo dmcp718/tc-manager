@@ -8,7 +8,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: production
-    container_name: sitecache-backend-prod
+    container_name: sc-mgr-backend-prod
     # Performance optimizations
     mem_limit: 4g
     cpus: 4.0
@@ -94,7 +94,7 @@ services:
         REACT_APP_API_URL: ${REACT_APP_API_URL:-http://192.168.8.28:3001/api}
         REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://192.168.8.28:3002}
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
-    container_name: sitecache-frontend-prod
+    container_name: sc-mgr-frontend-prod
     ports:
       - "8080:80"
     depends_on:
@@ -122,4 +122,4 @@ volumes:
 
 networks:
   default:
-    name: sitecache-network
+    name: sc-mgr-network

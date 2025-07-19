@@ -12,12 +12,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install custom LucidLink build
-COPY lucidlink_3.2.6817_amd64.deb /tmp/
-RUN apt-get update \
-    && apt-get install -y /tmp/lucidlink_3.2.6817_amd64.deb \
-    && rm /tmp/lucidlink_3.2.6817_amd64.deb \
-    && rm -rf /var/lib/apt/lists/*
+# Copy and install custom LucidLink build (if available)
+COPY lucidlink*.* /tmp/
+RUN if [ -f /tmp/lucidlink_3.2.6817_amd64.deb ]; then \
+        echo "Installing LucidLink package..." \
+        && apt-get update \
+        && apt-get install -y /tmp/lucidlink_3.2.6817_amd64.deb \
+        && rm /tmp/lucidlink_3.2.6817_amd64.deb \
+        && rm -rf /var/lib/apt/lists/*; \
+    else \
+        echo "LucidLink package not found - development mode without LucidLink" \
+        && rm -f /tmp/lucidlink*; \
+    fi
 
 # Enable FUSE user_allow_other option
 RUN echo "user_allow_other" >> /etc/fuse.conf
@@ -59,12 +65,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install custom LucidLink build
-COPY lucidlink_3.2.6817_amd64.deb /tmp/
-RUN apt-get update \
-    && apt-get install -y /tmp/lucidlink_3.2.6817_amd64.deb \
-    && rm /tmp/lucidlink_3.2.6817_amd64.deb \
-    && rm -rf /var/lib/apt/lists/*
+# Copy and install custom LucidLink build (if available)
+COPY lucidlink*.* /tmp/
+RUN if [ -f /tmp/lucidlink_3.2.6817_amd64.deb ]; then \
+        echo "Installing LucidLink package..." \
+        && apt-get update \
+        && apt-get install -y /tmp/lucidlink_3.2.6817_amd64.deb \
+        && rm /tmp/lucidlink_3.2.6817_amd64.deb \
+        && rm -rf /var/lib/apt/lists/*; \
+    else \
+        echo "LucidLink package not found - development mode without LucidLink" \
+        && rm -f /tmp/lucidlink*; \
+    fi
 
 # Enable FUSE user_allow_other option
 RUN echo "user_allow_other" >> /etc/fuse.conf
