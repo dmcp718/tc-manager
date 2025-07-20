@@ -41,6 +41,9 @@ const { MediaPreviewService } = require('./services/media-preview-service');
 // Import Elasticsearch client
 const ElasticsearchClient = require('./elasticsearch-client');
 
+// Import RUI service
+const RUIService = require('./rui-service');
+
 // Import authentication service
 const authService = require('./auth');
 
@@ -87,6 +90,9 @@ let mediaPreviewService = null;
 
 // Global Elasticsearch client instance
 let elasticsearchClient = null;
+
+// Global RUI service instance
+let ruiService = null;
 
 // WebSocket server
 const wss = new WebSocket.Server({ port: WEBSOCKET_PORT });
@@ -935,6 +941,107 @@ app.post('/api/index/cleanup-elasticsearch', authService.requireAuth, async (req
   } catch (error) {
     console.error('Error cleaning up Elasticsearch:', error);
     res.status(500).json({ error: `Cleanup failed: ${error.message}` });
+  }
+});
+
+// RUI (Remote Upload Indicator) Endpoints
+
+// Get RUI service status
+app.get('/api/rui/status', authService.requireAuth, async (req, res) => {
+  try {
+    if (!ruiService) {
+      return res.json({ enabled: false, message: 'RUI service not initialized' });
+    }
+    
+    const status = ruiService.getStatus();
+    res.json(status);
+  } catch (error) {
+    console.error('Error getting RUI status:', error);
+    res.status(500).json({ error: `Failed to get RUI status: ${error.message}` });
+  }
+});
+
+// Get currently uploading files
+app.get('/api/rui/uploading', authService.requireAuth, async (req, res) => {
+  try {
+    if (!ruiService) {
+      return res.json([]);
+    }
+    
+    const uploadingFiles = await ruiService.getUploadingFiles();
+    res.json(uploadingFiles);
+  } catch (error) {
+    console.error('Error getting uploading files:', error);
+    res.status(500).json({ error: `Failed to get uploading files: ${error.message}` });
+  }
+});
+
+// Force check RUI status for specific file
+app.post('/api/rui/check', authService.requireAuth, async (req, res) => {
+  try {
+    const { filePath } = req.body;
+    
+    if (!filePath) {
+      return res.status(400).json({ error: 'filePath is required' });
+    }
+    
+    if (!ruiService) {
+      return res.status(503).json({ error: 'RUI service not available' });
+    }
+    
+    const result = await ruiService.forceCheckFile(filePath);
+    res.json(result);
+  } catch (error) {
+    console.error('Error force checking file:', error);
+    res.status(500).json({ error: `Failed to check file: ${error.message}` });
+  }
+});
+
+// Test RUI API connection
+app.post('/api/rui/test-connection', authService.requireAuth, async (req, res) => {
+  try {
+    if (!ruiService) {
+      return res.status(503).json({ error: 'RUI service not available' });
+    }
+    
+    const result = await ruiService.testConnection();
+    res.json(result);
+  } catch (error) {
+    console.error('Error testing RUI connection:', error);
+    res.status(500).json({ error: `Connection test failed: ${error.message}` });
+  }
+});
+
+// Start RUI service
+app.post('/api/rui/start', authService.requireAuth, async (req, res) => {
+  try {
+    if (!ruiService) {
+      return res.status(503).json({ error: 'RUI service not initialized' });
+    }
+    
+    const started = await ruiService.start();
+    res.json({ 
+      success: started, 
+      message: started ? 'RUI service started' : 'RUI service already running' 
+    });
+  } catch (error) {
+    console.error('Error starting RUI service:', error);
+    res.status(500).json({ error: `Failed to start RUI service: ${error.message}` });
+  }
+});
+
+// Stop RUI service
+app.post('/api/rui/stop', authService.requireAuth, async (req, res) => {
+  try {
+    if (!ruiService) {
+      return res.status(503).json({ error: 'RUI service not initialized' });
+    }
+    
+    ruiService.stop();
+    res.json({ success: true, message: 'RUI service stopped' });
+  } catch (error) {
+    console.error('Error stopping RUI service:', error);
+    res.status(500).json({ error: `Failed to stop RUI service: ${error.message}` });
   }
 });
 
@@ -2003,6 +2110,20 @@ async function startServer() {
     }
   } catch (error) {
     console.error('Failed to initialize Elasticsearch client:', error);
+  }
+  
+  // Initialize RUI service
+  try {
+    ruiService = new RUIService(broadcast);
+    console.log('RUI service initialized');
+    
+    // Auto-start RUI service if enabled
+    if (process.env.ENABLE_RUI === 'true') {
+      await ruiService.start();
+      console.log('RUI service auto-started');
+    }
+  } catch (error) {
+    console.error('Failed to initialize RUI service:', error);
   }
   
   // Start HTTP server

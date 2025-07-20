@@ -257,6 +257,128 @@ class FileModel {
     });
   }
 
+  // RUI (Remote Upload Indicator) Methods
+  static async updateRUIStatus(path, ruiData) {
+    try {
+      const metadata = {
+        rui: {
+          status: ruiData.isUploading ? 'uploading' : 'complete',
+          lastChecked: ruiData.timestamp,
+          lucidId: ruiData.lucidId,
+          remoteUpload: ruiData.remoteUpload
+        }
+      };
+
+      const result = await pool.query(
+        `UPDATE files 
+         SET metadata = jsonb_set(
+           COALESCE(metadata, '{}'),
+           '{rui}',
+           $2::jsonb
+         ),
+         updated_at = NOW()
+         WHERE path = $1
+         RETURNING *`,
+        [path, JSON.stringify(metadata.rui)]
+      );
+      
+      return result.rows[0];
+    } catch (error) {
+      console.error(`Error updating RUI status for ${path}:`, error);
+      throw error;
+    }
+  }
+
+  static async getRUIStatus(path) {
+    try {
+      const result = await pool.query(
+        `SELECT metadata->'rui' as rui_data FROM files WHERE path = $1`,
+        [path]
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return result.rows[0].rui_data;
+    } catch (error) {
+      console.error(`Error getting RUI status for ${path}:`, error);
+      throw error;
+    }
+  }
+
+  static async findFilesWithRUIStatus(status = 'uploading', limit = 100) {
+    try {
+      const result = await pool.query(
+        `SELECT path, name, metadata->'rui' as rui_data 
+         FROM files 
+         WHERE metadata->'rui'->>'status' = $1
+         AND is_directory = false
+         ORDER BY (metadata->'rui'->>'lastChecked')::timestamp DESC
+         LIMIT $2`,
+        [status, limit]
+      );
+      
+      return result.rows;
+    } catch (error) {
+      console.error(`Error finding files with RUI status ${status}:`, error);
+      throw error;
+    }
+  }
+
+  static async findAllRegularFiles(limit = 1000, offset = 0) {
+    try {
+      const result = await pool.query(
+        `SELECT path, name, metadata->'rui' as rui_data
+         FROM files 
+         WHERE is_directory = false
+         ORDER BY path ASC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset]
+      );
+      
+      return result.rows;
+    } catch (error) {
+      console.error('Error finding regular files for RUI scan:', error);
+      throw error;
+    }
+  }
+
+  static async getRegularFileCount() {
+    try {
+      const result = await pool.query(
+        'SELECT COUNT(*) as count FROM files WHERE is_directory = false'
+      );
+      
+      return parseInt(result.rows[0].count);
+    } catch (error) {
+      console.error('Error getting regular file count:', error);
+      throw error;
+    }
+  }
+
+  static async clearStaleRUIStatus(maxAge = 300000) { // Default 5 minutes
+    try {
+      const cutoffTime = new Date(Date.now() - maxAge);
+      
+      const result = await pool.query(
+        `UPDATE files 
+         SET metadata = metadata - 'rui',
+         updated_at = NOW()
+         WHERE metadata->'rui'->>'status' = 'uploading'
+         AND (metadata->'rui'->>'lastChecked')::timestamp < $1
+         RETURNING path`,
+        [cutoffTime]
+      );
+      
+      console.log(`Cleared stale RUI status for ${result.rows.length} files`);
+      return result.rows.map(row => row.path);
+    } catch (error) {
+      console.error('Error clearing stale RUI status:', error);
+      throw error;
+    }
+  }
+
   static async getStats() {
     const result = await pool.query('SELECT * FROM get_cache_stats()');
     return result.rows[0];

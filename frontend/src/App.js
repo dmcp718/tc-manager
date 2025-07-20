@@ -1237,6 +1237,7 @@ function App() {
   }); // Real Varnish cache stats
   const [directLinkLoading, setDirectLinkLoading] = useState(new Set());
   const [previewLoading, setPreviewLoading] = useState(new Set());
+  const [ruiStatus, setRuiStatus] = useState(new Map()); // Map file paths to RUI status
   const [previewModal, setPreviewModal] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const treeRef = useRef();
@@ -1509,6 +1510,25 @@ function App() {
           }
           return job;
         }));
+      } else if (data.type === 'rui-update') {
+        // RUI status update
+        console.log('RUI update received:', data);
+        const { path, status } = data;
+        
+        setRuiStatus(prevStatus => {
+          const newStatus = new Map(prevStatus);
+          if (status === 'uploading') {
+            newStatus.set(path, 'uploading');
+          } else {
+            newStatus.delete(path); // Remove when upload is complete
+          }
+          return newStatus;
+        });
+        
+        // Also refresh current directory to show updated RUI status
+        if (currentPath && files.length > 0) {
+          loadDirectory(currentPath);
+        }
       } else if (data.type === 'network-stats') {
         // Legacy network statistics (fallback)
         setNetworkStats({
@@ -2265,6 +2285,23 @@ function App() {
     return <FileIcon type={type} size={size} />;
   };
 
+  // Helper function to get RUI status for a file
+  const getRUIStatus = (file) => {
+    // Only check RUI status for regular files (not directories)
+    if (file.isDirectory) {
+      return false;
+    }
+    
+    // Check if file has RUI status in metadata
+    if (file.metadata && file.metadata.rui && file.metadata.rui.status === 'uploading') {
+      return true;
+    }
+    
+    // Check runtime RUI status
+    const status = ruiStatus.get(file.path);
+    return status === 'uploading';
+  };
+
   const formatFileSize = (file) => {
     if (file.isDirectory) {
       // First check if we have computed size from the backend
@@ -2863,6 +2900,7 @@ function App() {
                   <th style={{...styles.tableHeaderCell, width: '60px'}}>Type</th>
                   <th style={styles.tableHeaderCell}>Size</th>
                   <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Cached</th>
+                  <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>RUI</th>
                   <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Preview</th>
                   <th style={{...styles.tableHeaderCell, width: '126px', textAlign: 'center'}}>Direct Link</th>
                 </tr>
@@ -2929,6 +2967,41 @@ function App() {
                         }}>
                           ✓
                         </span>
+                      ) : (
+                        <span style={{ 
+                          color: '#6b7280', 
+                          fontSize: '12px' 
+                        }}>
+                          -
+                        </span>
+                      )}
+                    </td>
+                    <td style={{...styles.tableCell, textAlign: 'center', width: '100px'}}>
+                      {!file.isDirectory && getRUIStatus(file) ? (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px'
+                        }}>
+                          <div
+                            style={{
+                              width: '12px',
+                              height: '12px',
+                              border: '2px solid #f59e0b',
+                              borderTop: '2px solid transparent',
+                              borderRadius: '50%',
+                              animation: 'spin 1s linear infinite'
+                            }}
+                          />
+                          <span style={{
+                            color: '#f59e0b',
+                            fontSize: '12px',
+                            fontWeight: '500'
+                          }}>
+                            UPLOADING...
+                          </span>
+                        </div>
                       ) : (
                         <span style={{ 
                           color: '#6b7280', 
