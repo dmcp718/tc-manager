@@ -63,7 +63,7 @@ services:
       # Shared volume for varnish stats
       - varnish_stats:/data
       # Persistent preview cache
-      - ${PREVIEW_CACHE_HOST_PATH:-/var/sitecache/previews}:/app/preview-cache
+      - ${PREVIEW_CACHE_HOST_PATH:-/var/sc-mgr/previews}:/app/preview-cache
     ports:
       - "3001:3001"
       - "3002:3002"
