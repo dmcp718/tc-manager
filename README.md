@@ -1,6 +1,6 @@
 # SiteCache Manager
 
-A production-ready file system browser and cache management system for LucidLink cloud filesystems with real-time monitoring, intelligent caching, and Docker deployment.
+A production-ready file system browser and cache management system for LucidLink cloud filesystems with advanced search capabilities, intelligent caching, real-time data verification, and Docker deployment.
 
 ## 🚀 Key Features
 
@@ -8,7 +8,16 @@ A production-ready file system browser and cache management system for LucidLink
 - **LucidLink Integration**: Native integration with LucidLink API for cloud filesystem operations
 - **Interactive File Browser**: Real-time tree navigation with WebSocket updates
 - **Direct Link Generation**: Secure download links for files and directories
-- **Smart Indexing**: Efficient PostgreSQL-based file metadata indexing
+- **Smart Indexing**: Efficient PostgreSQL-based file metadata indexing with automatic cleanup
+- **Real-time Verification**: Filesystem existence checks ensure sidebar-level accuracy
+
+### 🔍 Advanced Search & Indexing
+- **Dual Search Engines**: PostgreSQL for reliability + Elasticsearch for performance
+- **Real-time Verification**: Search results verified against filesystem for accuracy
+- **Automatic Indexing**: Background file system scanning with change detection
+- **Stale Data Cleanup**: Self-healing system removes outdated entries automatically
+- **Boolean Search**: Support for wildcards, operators, and complex queries
+- **Unified Jobs Panel**: Track indexing, caching, and script execution in one interface
 
 ### ⚡ Intelligent Cache Management  
 - **Job Profiles**: Automatic optimization based on file types and sizes
@@ -32,25 +41,31 @@ A production-ready file system browser and cache management system for LucidLink
 ## 🏗️ Architecture Overview
 
 ```
-┌─────────────────┬─────────────────┬─────────────────┐
-│   Frontend      │    Backend      │    Database     │
-│                 │                 │                 │
-│  React SPA      │  Node.js API    │  PostgreSQL 15  │
-│  WebSocket      │  Express.js     │  File Metadata  │
-│  Real-time UI   │  Cache Workers  │  Job Queue      │
-│  (Port 8080)    │  (Port 3001)    │  (Port 5432)    │
-└─────────────────┴─────────────────┴─────────────────┘
-         │                 │                 │
-         └─────────────────┼─────────────────┘
-                          │
-    ┌─────────────────────┼─────────────────────┐
-    │              Docker Network              │
-    │                                          │
-    │  ┌─────────────────┐  ┌─────────────────┐ │
-    │  │  LucidLink API  │  │ Varnish Cache   │ │
-    │  │  (Port 7778)    │  │ Stats Collector │ │
-    │  └─────────────────┘  └─────────────────┘ │
-    └──────────────────────────────────────────┘
+┌─────────────────┬─────────────────┬─────────────────┬─────────────────┐
+│   Frontend      │    Backend      │    Database     │   Search Index  │
+│                 │                 │                 │                 │
+│  React SPA      │  Node.js API    │  PostgreSQL 15  │ Elasticsearch 8 │
+│  WebSocket      │  Express.js     │  File Metadata  │  Search Engine  │
+│  Search UI      │  Index Workers  │  Job Queue      │  Full-text      │
+│  (Port 8080)    │  (Port 3001)    │  (Port 5432)    │  (Port 9200)    │
+└─────────────────┴─────────────────┴─────────────────┴─────────────────┘
+         │                 │                 │                 │
+         └─────────────────┼─────────────────┼─────────────────┘
+                          │                 │
+                  ┌───────┴─────────────────┴──────┐
+                  │      Data Synchronization      │
+                  │   Real-time Verification       │
+                  │   Stale Entry Cleanup          │
+                  └───────┬─────────────────┬──────┘
+                          │                 │
+    ┌─────────────────────┼─────────────────┼─────────────────────┐
+    │                Docker Network                              │
+    │                                                            │
+    │  ┌─────────────────┐  ┌─────────────────┐ ┌─────────────────┐ │
+    │  │  LucidLink API  │  │ Varnish Cache   │ │   Grafana       │ │
+    │  │  (Port 7778)    │  │ Stats Collector │ │  Monitoring     │ │
+    │  └─────────────────┘  └─────────────────┘ └─────────────────┘ │
+    └────────────────────────────────────────────────────────────────┘
 ```
 
 ## 📋 Prerequisites
@@ -64,8 +79,10 @@ A production-ready file system browser and cache management system for LucidLink
 
 ### Required Services
 - **LucidLink Client**: Must be installed and configured on the host system
+- **PostgreSQL**: Provided via Docker container for metadata and job management
+- **Elasticsearch**: Provided via Docker container for high-performance search
 - **Varnish Cache** (optional): For cache statistics integration
-- **PostgreSQL**: Provided via Docker container
+- **Grafana** (optional): For advanced monitoring and dashboards
 
 ## 🚀 Quick Start (Development)
 
@@ -276,6 +293,19 @@ LUCIDLINK_API_HOST=host.docker.internal  # LucidLink API access
 LUCIDLINK_FS_1_PORT=7778                 # LucidLink API port
 ```
 
+#### Search & Indexing Configuration
+```bash
+# Elasticsearch Settings
+ELASTICSEARCH_HOST=elasticsearch          # Elasticsearch hostname (container name)
+ELASTICSEARCH_PORT=9200                  # Elasticsearch HTTP port
+ELASTICSEARCH_INDEX=sitecache-files      # Search index name
+ELASTICSEARCH_SYNC_DELETIONS=true        # Auto-sync deletions between PG and ES
+
+# Indexing Settings
+INDEX_ROOT_PATH=/media/lucidlink-1       # Root path for file indexing
+ALLOWED_PATHS=/media/lucidlink-1         # Paths allowed for indexing (security)
+```
+
 #### Performance Tuning
 ```bash
 CACHE_WORKER_COUNT=4                     # Number of parallel cache workers
@@ -292,6 +322,7 @@ WEBSOCKET_PORT=3002                     # WebSocket server port
 NETWORK_INTERFACE=eth0                  # Network interface for monitoring
 REACT_APP_API_URL=http://host:3001/api # Frontend API endpoint
 REACT_APP_WS_URL=ws://host:3002        # Frontend WebSocket endpoint
+REACT_APP_GRAFANA_URL=http://host:3000 # Grafana dashboard URL
 ```
 
 #### Security Settings
@@ -376,6 +407,28 @@ worker_id  TEXT                    -- Processing worker
 started_at TIMESTAMP               -- Item start time
 completed_at TIMESTAMP             -- Item completion time
 file_size  BIGINT                  -- File size in bytes
+```
+
+**index_progress**: File indexing operation tracking
+```sql
+id              BIGSERIAL PRIMARY KEY  -- Progress entry identifier
+root_path       TEXT NOT NULL          -- Root path being indexed
+status          TEXT NOT NULL          -- Status (pending/running/completed/failed)
+total_files     INTEGER                -- Total files discovered
+processed_files INTEGER DEFAULT 0      -- Files processed so far
+current_path    TEXT                   -- Currently processing path
+error_message   TEXT                   -- Error details if failed
+started_at      TIMESTAMP DEFAULT NOW() -- Indexing start time
+completed_at    TIMESTAMP              -- Indexing completion time
+```
+
+**indexing_sessions**: Session tracking for deletion detection
+```sql
+id           BIGSERIAL PRIMARY KEY     -- Session identifier
+root_path    TEXT NOT NULL            -- Root path for session
+status       TEXT NOT NULL            -- Session status
+created_at   TIMESTAMP DEFAULT NOW()  -- Session creation time
+completed_at TIMESTAMP                -- Session completion time
 ```
 
 ### Job Profiles
@@ -463,7 +516,9 @@ networks:
 - **3010**: Frontend development server (HTTP) - development only
 - **5432**: PostgreSQL database (internal only)
 - **8080**: Frontend web server (HTTP/HTTPS) - production
+- **9200**: Elasticsearch HTTP API (internal only)
 - **9229**: Node.js debugger port - development only
+- **9300**: Elasticsearch cluster communication (internal only)
 
 ## 🔧 Troubleshooting
 
@@ -546,6 +601,63 @@ curl http://localhost:3001/api/jobs/{job-id}
 3. Monitor system resources (memory, CPU, disk)
 4. Restart cache workers: restart backend service
 
+#### Elasticsearch Search Issues
+
+**Symptom**: "Elasticsearch is unavailable" or search errors
+```bash
+# Check Elasticsearch status
+curl http://localhost:9200/_cluster/health
+
+# Verify Elasticsearch container
+docker compose logs elasticsearch
+
+# Test search availability
+curl http://localhost:3001/api/search/elasticsearch/availability
+```
+
+**Solutions**:
+1. Ensure Elasticsearch container is running: `docker compose ps elasticsearch`
+2. Check Elasticsearch memory settings: verify `ES_JAVA_OPTS=-Xms2g -Xmx2g`
+3. Verify index exists: `curl http://localhost:9200/sitecache-files/_mapping`
+4. Restart Elasticsearch: `docker compose restart elasticsearch`
+
+#### Indexing Performance Issues
+
+**Symptom**: Slow indexing or high memory usage
+```bash
+# Monitor indexing progress
+curl http://localhost:3001/api/index/status
+
+# Check indexing logs
+docker compose logs backend | grep -i index
+
+# Monitor system resources
+docker stats
+```
+
+**Solutions**:
+1. Reduce concurrent indexing: decrease `CACHE_WORKER_COUNT` in .env
+2. Increase memory limits in docker-compose.yml
+3. Check filesystem performance: run `iostat -x 1`
+4. Consider indexing smaller directory subsets
+
+#### Search Result Verification Issues
+
+**Symptom**: Search results show "stale" or missing files
+```bash
+# Check verification statistics
+curl http://localhost:3001/api/search?q=test | jq '.verification'
+
+# Manual cleanup of stale Elasticsearch entries
+curl -X POST http://localhost:3001/api/index/cleanup-elasticsearch
+```
+
+**Solutions**:
+1. Re-run indexing to update database: use "Index Files" button
+2. Clean stale Elasticsearch entries: manual cleanup endpoint
+3. Verify filesystem connectivity: check LucidLink mount status
+4. Check synchronization settings: `ELASTICSEARCH_SYNC_DELETIONS=true`
+
 #### Frontend Loading Issues
 
 **Symptom**: Frontend shows blank page or loading indefinitely
@@ -607,6 +719,39 @@ iotop
 iftop
 ```
 
+#### Search and Indexing Performance
+
+**Elasticsearch Optimization**
+```bash
+# Monitor Elasticsearch performance
+curl http://localhost:9200/_cluster/stats
+
+# Check index size and document count
+curl http://localhost:9200/sitecache-files/_stats
+
+# Monitor search performance
+curl "http://localhost:9200/sitecache-files/_search?q=test&explain=true"
+```
+
+**Indexing Performance Tuning**
+```bash
+# Environment variables for indexing optimization
+CACHE_WORKER_COUNT=4              # Increase for more parallel processing
+ELASTICSEARCH_SYNC_DELETIONS=true # Keep ES and PostgreSQL synchronized
+INDEX_ROOT_PATH=/media/lucidlink-1 # Ensure correct root path
+
+# Monitor indexing memory usage
+docker stats sc-browser-backend-1
+
+# Check indexing throughput
+curl http://localhost:3001/api/index/status
+```
+
+**Search Result Verification Performance**
+- Real-time filesystem verification ensures accuracy but adds overhead
+- Stale entries are automatically queued for cleanup to maintain performance
+- Verification statistics help monitor system health and data consistency
+
 ## 📊 Monitoring & Maintenance
 
 ### Health Checks
@@ -622,8 +767,14 @@ curl http://localhost:3001/api/health/database
 # LucidLink status
 curl http://localhost:3001/api/health/lucidlink
 
+# Elasticsearch availability
+curl http://localhost:3001/api/search/elasticsearch/availability
+
 # Worker status
 curl http://localhost:3001/api/workers/status
+
+# Indexing status
+curl http://localhost:3001/api/index/status
 ```
 
 #### Service Status
@@ -635,9 +786,13 @@ docker compose ps
 docker compose logs -f backend
 docker compose logs -f frontend
 docker compose logs -f postgres
+docker compose logs -f elasticsearch
 
 # Container resource usage
 docker stats
+
+# Elasticsearch cluster health
+curl http://localhost:9200/_cluster/health?pretty
 ```
 
 ### Log Management
@@ -740,10 +895,52 @@ GET /api/files?path=/media/lucidlink-1/some/directory
 Authorization: Bearer your_token_here
 ```
 
-#### Search Files
+#### Search Files (PostgreSQL)
 ```http
-GET /api/search?q=searchterm&path=/media/lucidlink-1
+GET /api/search?q=searchterm&limit=50&offset=0
 Authorization: Bearer your_token_here
+
+Response:
+{
+  "results": [...],
+  "total": 25,
+  "verification": {
+    "originalCount": 26,
+    "staleCount": 1,
+    "verifiedCount": 25
+  }
+}
+```
+
+#### Search Files (Elasticsearch)
+```http
+GET /api/search/elasticsearch?q=searchterm&limit=50&offset=0
+Authorization: Bearer your_token_here
+
+Response:
+{
+  "results": [...],
+  "total": 45,
+  "originalTotal": 47,
+  "took": 12,
+  "verification": {
+    "originalCount": 47,
+    "staleCount": 2,
+    "verifiedCount": 45
+  }
+}
+```
+
+#### Check Elasticsearch Availability
+```http
+GET /api/search/elasticsearch/availability
+Authorization: Bearer your_token_here
+
+Response:
+{
+  "available": true,
+  "status": "green"
+}
 ```
 
 #### Generate Direct Link
@@ -784,6 +981,85 @@ GET /api/jobs/{job-id}
 #### Cancel Job
 ```http
 POST /api/jobs/{job-id}/cancel
+```
+
+### File Indexing
+
+#### Start Indexing
+```http
+POST /api/index/start
+Content-Type: application/json
+Authorization: Bearer your_token_here
+
+{
+  "path": "/media/lucidlink-1"
+}
+
+Response:
+{
+  "status": "started",
+  "path": "/media/lucidlink-1",
+  "message": "Indexing started in background"
+}
+```
+
+#### Stop Indexing
+```http
+POST /api/index/stop
+Authorization: Bearer your_token_here
+
+Response:
+{
+  "status": "stopping"
+}
+```
+
+#### Get Indexing Status
+```http
+GET /api/index/status
+Authorization: Bearer your_token_here
+
+Response:
+{
+  "running": true,
+  "progress": {
+    "processed_files": 1500,
+    "current_path": "/media/lucidlink-1/some/path"
+  }
+}
+```
+
+#### Get Indexing History
+```http
+GET /api/index/history?limit=10
+Authorization: Bearer your_token_here
+
+Response:
+[
+  {
+    "id": 5,
+    "status": "completed",
+    "total_files": 32567,
+    "processed_files": 32567,
+    "started_at": "2023-12-01T10:00:00Z",
+    "completed_at": "2023-12-01T10:02:15Z"
+  }
+]
+```
+
+#### Clean Elasticsearch Orphaned Data
+```http
+POST /api/index/cleanup-elasticsearch
+Authorization: Bearer your_token_here
+
+Response:
+{
+  "message": "Cleanup completed: 15 orphaned documents deleted",
+  "orphaned": 15,
+  "deleted": 15,
+  "errors": 0,
+  "deletionPercentage": "0.1"
+}
 ```
 
 ### System Status
@@ -834,6 +1110,43 @@ Connect to `ws://localhost:3002` for real-time updates:
   "bytesUsed": 50000000000,
   "totalSpace": 100000000000,
   "usagePercentage": 50.0
+}
+```
+
+#### Indexing Progress Updates
+```json
+{
+  "type": "index-progress",
+  "id": 5,
+  "processedFiles": 1500,
+  "indexedFiles": 45,
+  "skippedFiles": 1455,
+  "currentPath": "/media/lucidlink-1/some/directory",
+  "errors": 0
+}
+```
+
+#### Indexing Complete
+```json
+{
+  "type": "index-complete",
+  "id": 5,
+  "status": "completed",
+  "totalFiles": 32567,
+  "indexedFiles": 137,
+  "skippedFiles": 32430,
+  "deletedFiles": 3,
+  "errors": 0,
+  "duration": 4500
+}
+```
+
+#### Indexing Error
+```json
+{
+  "type": "index-error",
+  "id": 5,
+  "error": "Access denied to path: /media/lucidlink-1/restricted"
 }
 ```
 
@@ -921,6 +1234,9 @@ sc-manager/
 │
 ├── backend/                    # Node.js backend service
 │   ├── server-v2.js           # Main application server
+│   ├── database.js            # Database models and operations
+│   ├── indexer.js             # File system indexing service
+│   ├── elasticsearch-client.js # Elasticsearch integration
 │   ├── package.json           # Backend dependencies
 │   ├── Dockerfile             # Backend container build
 │   ├── start-lucidlink.sh     # LucidLink startup script
