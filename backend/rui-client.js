@@ -30,20 +30,41 @@ class RUIClient {
     
     // Cache port for 5 minutes to avoid frequent `lucid list` calls
     if (this.apiPort && (now - this.lastPortCheck) < this.portCheckInterval) {
+      console.log(`Using cached LucidLink API port: ${this.apiPort}`);
       return this.apiPort;
     }
 
     try {
       console.log('Discovering LucidLink API port...');
+      console.log(`NODE_ENV: ${process.env.NODE_ENV}, LUCIDLINK_API_PORT: ${process.env.LUCIDLINK_API_PORT}`);
       
-      // In development mode, try to use host system's LucidLink
-      const isDevMode = process.env.NODE_ENV === 'development';
-      if (isDevMode) {
-        // For development, check if port is provided via environment or use hardcoded known port
-        const devPort = process.env.LUCIDLINK_API_PORT || '9780'; // Use discovered port from host
-        this.apiPort = devPort;
+      // In container environment, use container's LucidLink daemon port
+      // First try to discover the actual port using lucid list
+      const isContainerEnv = process.env.NODE_ENV === 'development';
+      if (isContainerEnv) {
+        try {
+          // Try to discover the actual port using lucid list
+          const { stdout } = await execAsync(`${this.lucidCommand} list`);
+          const lines = stdout.trim().split('\n');
+          
+          for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 3 && parts[1] === this.filespace) {
+              this.apiPort = parts[2];
+              this.lastPortCheck = now;
+              console.log(`Container mode: Discovered LucidLink API port: ${this.apiPort} for filespace: ${this.filespace}`);
+              return this.apiPort;
+            }
+          }
+        } catch (error) {
+          console.warn('Failed to discover port via lucid list:', error.message);
+        }
+        
+        // Fallback to configured port
+        const containerPort = process.env.LUCIDLINK_API_PORT || '9780';
+        this.apiPort = containerPort;
         this.lastPortCheck = now;
-        console.log(`Development mode: Using LucidLink API port: ${this.apiPort} for filespace: ${this.filespace}`);
+        console.log(`Container mode: Using fallback LucidLink API port: ${this.apiPort} for filespace: ${this.filespace}`);
         return this.apiPort;
       }
       
@@ -185,16 +206,20 @@ class RUIClient {
       const port = await this.discoverPort();
       // Use 127.0.0.1 to force IPv4 and avoid IPv6 connection issues
       const apiHost = '127.0.0.1';
-      const url = `http://${apiHost}:${port}/v1/${this.filespace}/files`;
+      const baseUrl = `http://${apiHost}:${port}/v1/${this.filespace}`;
       
-      // Test with a specific file path (root path returns 405)
-      const testPath = '/00_Media/Audio_files/SweetHomeChicago.wav';
-      const response = await axios.get(url, { 
-        params: { path: testPath },
-        timeout: 5000
+      // Test with a simple GET to the base endpoint to verify API is responding
+      // We expect this to return some response (even if it's an error about missing params)
+      // as long as the LucidLink API service is running
+      const response = await axios.get(baseUrl, { 
+        timeout: 5000,
+        validateStatus: function (status) {
+          // Accept any response as long as we get a response from the API
+          return status < 500; // Accept 2xx, 3xx, 4xx but not 5xx
+        }
       });
       
-      console.log('RUI API connection test successful');
+      console.log(`RUI API connection test successful - API responding on port ${port}`);
       return {
         success: true,
         port: port,

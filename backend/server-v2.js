@@ -1045,6 +1045,7 @@ app.post('/api/rui/stop', authService.requireAuth, async (req, res) => {
   }
 });
 
+
 // Get available actions for a file
 app.get('/api/actions', authService.requireAuth, async (req, res) => {
   try {

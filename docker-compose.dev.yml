@@ -5,9 +5,9 @@ services:
   # Backend with volume mount for hot reload
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: development  # We'll add this target to Dockerfile
+      context: ..
+      dockerfile: ./sc-browser-v2/backend/Dockerfile
+      target: development
     container_name: sc-mgr-backend-dev
     user: root
     network_mode: host  # Use host networking to access LucidLink API

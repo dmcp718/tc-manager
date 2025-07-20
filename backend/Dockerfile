@@ -13,16 +13,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install custom LucidLink build (if available)
-COPY lucidlink*.* /tmp/
-RUN if [ -f /tmp/lucidlink_3.2.6817_amd64.deb ]; then \
+COPY lucidlink-builds/ /tmp/lucidlink-builds/
+RUN if [ -f /tmp/lucidlink-builds/lucidlink_3.2.6817_amd64.deb ]; then \
         echo "Installing LucidLink package..." \
         && apt-get update \
-        && apt-get install -y /tmp/lucidlink_3.2.6817_amd64.deb \
-        && rm /tmp/lucidlink_3.2.6817_amd64.deb \
+        && apt-get install -y /tmp/lucidlink-builds/lucidlink_3.2.6817_amd64.deb \
+        && rm -rf /tmp/lucidlink-builds \
         && rm -rf /var/lib/apt/lists/*; \
     else \
         echo "LucidLink package not found - development mode without LucidLink" \
-        && rm -f /tmp/lucidlink*; \
+        && rm -rf /tmp/lucidlink-builds; \
     fi
 
 # Enable FUSE user_allow_other option
@@ -35,13 +35,13 @@ WORKDIR /app
 ENV NODE_ENV=development
 
 # Copy package files
-COPY package*.json ./
+COPY sc-browser-v2/backend/package*.json ./
 
 # Install all dependencies (including dev dependencies)
 RUN npm ci
 
 # Copy source code (for development, this will be overridden by volume mount)
-COPY . .
+COPY sc-browser-v2/backend/ .
 
 # Make startup script executable
 RUN chmod +x start-lucidlink.sh
@@ -66,16 +66,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install custom LucidLink build (if available)
-COPY lucidlink*.* /tmp/
-RUN if [ -f /tmp/lucidlink_3.2.6817_amd64.deb ]; then \
+COPY lucidlink-builds/ /tmp/lucidlink-builds/
+RUN if [ -f /tmp/lucidlink-builds/lucidlink_3.2.6817_amd64.deb ]; then \
         echo "Installing LucidLink package..." \
         && apt-get update \
-        && apt-get install -y /tmp/lucidlink_3.2.6817_amd64.deb \
-        && rm /tmp/lucidlink_3.2.6817_amd64.deb \
+        && apt-get install -y /tmp/lucidlink-builds/lucidlink_3.2.6817_amd64.deb \
+        && rm -rf /tmp/lucidlink-builds \
         && rm -rf /var/lib/apt/lists/*; \
     else \
         echo "LucidLink package not found - development mode without LucidLink" \
-        && rm -f /tmp/lucidlink*; \
+        && rm -rf /tmp/lucidlink-builds; \
     fi
 
 # Enable FUSE user_allow_other option
@@ -88,13 +88,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Copy package files
-COPY package*.json ./
+COPY sc-browser-v2/backend/package*.json ./
 
 # Install dependencies with optimization flags
 RUN npm ci --only=production --no-audit --no-fund
 
 # Copy source code
-COPY . .
+COPY sc-browser-v2/backend/ .
 
 # Make startup script executable
 RUN chmod +x start-lucidlink.sh

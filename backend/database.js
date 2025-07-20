@@ -344,6 +344,31 @@ class FileModel {
     }
   }
 
+  static async createMinimalRUIEntry(filePath, ruiData) {
+    try {
+      const fileName = filePath.split('/').pop();
+      const parentPath = filePath.substring(0, filePath.lastIndexOf('/'));
+      
+      await pool.query(
+        `INSERT INTO files (path, name, parent_path, is_directory, size, metadata) 
+         VALUES ($1, $2, $3, false, 0, $4)
+         ON CONFLICT (path) DO UPDATE SET 
+         metadata = jsonb_set(COALESCE(files.metadata, '{}'::jsonb), '{rui}', $4::jsonb)`,
+        [
+          filePath, 
+          fileName, 
+          parentPath, 
+          JSON.stringify({ rui: ruiData })
+        ]
+      );
+      
+      console.log(`Created minimal RUI entry for: ${filePath}`);
+    } catch (error) {
+      console.error(`Error creating minimal RUI entry for ${filePath}:`, error);
+      throw error;
+    }
+  }
+
   static async getRegularFileCount() {
     try {
       const result = await pool.query(

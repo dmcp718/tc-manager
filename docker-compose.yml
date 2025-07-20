@@ -36,8 +36,8 @@ services:
   # Backend API Service
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: ./sc-browser-v2/backend/Dockerfile
     container_name: sc-mgr-backend
     # Performance optimizations
     mem_limit: 4g
@@ -84,6 +84,17 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
       # Use host.docker.internal to access host machine from container
       LUCIDLINK_API_HOST: ${LUCIDLINK_API_HOST:-host.docker.internal}
+      LUCIDLINK_API_PORT: ${LUCIDLINK_API_PORT:-9780}
+      # RUI Configuration
+      ENABLE_RUI: ${ENABLE_RUI:-true}
+      RUI_SCAN_INTERVAL: ${RUI_SCAN_INTERVAL:-30000}
+      RUI_MONITOR_INTERVAL: ${RUI_MONITOR_INTERVAL:-2000}
+      RUI_BATCH_SIZE: ${RUI_BATCH_SIZE:-100}
+      RUI_MAX_CONCURRENT_MONITORS: ${RUI_MAX_CONCURRENT_MONITORS:-10}
+      ENABLE_RUI_FILESYSTEM_SCANNER: ${ENABLE_RUI_FILESYSTEM_SCANNER:-true}
+      RUI_FS_SCAN_INTERVAL: ${RUI_FS_SCAN_INTERVAL:-60000}
+      RUI_HOT_DIR_INTERVAL: ${RUI_HOT_DIR_INTERVAL:-15000}
+      RUI_MAX_CONCURRENT: ${RUI_MAX_CONCURRENT:-10}
     volumes:
       # Application logs
       - backend_logs:/app/logs
@@ -119,17 +130,18 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: development
       args:
         REACT_APP_API_URL: ${REACT_APP_API_URL:-http://192.168.8.28:3001/api}
         REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://192.168.8.28:3002}
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
     container_name: sc-mgr-frontend
     ports:
-      - "8080:80"
+      - "8080:3000"
     depends_on:
       - backend
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -197,6 +209,7 @@ services:
     volumes:
       - varnish_stats:/data
     restart: unless-stopped
+
 
 volumes:
   postgres_data:

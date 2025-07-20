@@ -10,7 +10,12 @@
       "Bash(npm run dev:down:*)",
       "Bash(docker run:*)",
       "Bash(docker exec:*)",
-      "Bash(docker restart:*)"
+      "Bash(docker restart:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(POSTGRES_PASSWORD=sitecache_password docker compose up -d)",
+      "Bash(POSTGRES_PASSWORD=sitecache_password docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d)",
+      "Bash(docker inspect:*)"
     ],
     "deny": []
   }

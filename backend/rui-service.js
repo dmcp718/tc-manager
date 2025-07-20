@@ -1,5 +1,6 @@
 const RUIClient = require('./rui-client');
 const { FileModel } = require('./database');
+const RUIFilesystemScanner = require('./rui-filesystem-scanner');
 const EventEmitter = require('events');
 
 /**
@@ -16,6 +17,7 @@ class RUIService extends EventEmitter {
     
     this.ruiClient = new RUIClient();
     this.websocketBroadcast = websocketBroadcast;
+    this.filesystemScanner = new RUIFilesystemScanner(websocketBroadcast);
     
     // Configuration
     this.enabled = process.env.ENABLE_RUI === 'true';
@@ -84,15 +86,33 @@ class RUIService extends EventEmitter {
       // Test connection first
       const connectionTest = await this.testConnection();
       if (!connectionTest.success) {
-        throw new Error(`RUI API connection failed: ${connectionTest.error}`);
+        console.warn(`RUI API connection test failed: ${connectionTest.error}`);
+        console.warn('Starting RUI Service in degraded mode - will retry connection during scans');
+        // Don't throw - allow service to start anyway
       }
 
       console.log('Starting RUI Service...');
       this.scannerActive = true;
-      this.scheduleNextScan();
       
-      // Start monitor queue processor
-      this.processMonitorQueue();
+      // Only start database scanner if connection is good
+      if (connectionTest.success) {
+        this.scheduleNextScan();
+        // Start monitor queue processor
+        this.processMonitorQueue();
+      }
+      
+      // Start filesystem scanner for real-time detection
+      const useFilesystemScanner = process.env.ENABLE_RUI_FILESYSTEM_SCANNER !== 'false';
+      if (useFilesystemScanner) {
+        console.log('Starting RUI Filesystem Scanner for real-time detection');
+        try {
+          await this.filesystemScanner.start();
+          console.log('Filesystem scanner started successfully');
+        } catch (fsError) {
+          console.error('Failed to start filesystem scanner:', fsError.message);
+          // Continue anyway - database scanner can still work
+        }
+      }
       
       this.emit('service-started');
       console.log(`RUI Service started - Scanner interval: ${this.scanInterval}ms, Monitor interval: ${this.monitorInterval}ms`);
@@ -126,6 +146,9 @@ class RUIService extends EventEmitter {
     }
     this.activeMonitors.clear();
     this.monitorQueue.length = 0;
+    
+    // Stop filesystem scanner
+    this.filesystemScanner.stop();
     
     this.emit('service-stopped');
     console.log('RUI Service stopped');
@@ -404,9 +427,12 @@ class RUIService extends EventEmitter {
    * Get service status and statistics
    */
   getStatus() {
+    const fsStatus = this.filesystemScanner.getStatus();
+    
     return {
       enabled: this.enabled,
       scannerActive: this.scannerActive,
+      filesystemScanner: fsStatus,
       stats: {
         ...this.stats,
         activeMonitors: this.activeMonitors.size,
@@ -427,7 +453,33 @@ class RUIService extends EventEmitter {
    */
   async getUploadingFiles() {
     try {
-      return await FileModel.findFilesWithRUIStatus('uploading');
+      // Combine results from database scanner and filesystem scanner
+      const dbFiles = await FileModel.findFilesWithRUIStatus('uploading');
+      
+      // Only get filesystem scanner results if it's active
+      let fsFiles = [];
+      if (this.filesystemScanner && this.filesystemScanner.scannerActive) {
+        try {
+          fsFiles = await this.filesystemScanner.getUploadingFiles();
+        } catch (fsError) {
+          console.error('Error getting files from filesystem scanner:', fsError.message);
+        }
+      }
+      
+      // Merge and deduplicate
+      const fileMap = new Map();
+      
+      // Add database files
+      for (const file of dbFiles) {
+        fileMap.set(file.path, file);
+      }
+      
+      // Add/update with filesystem scanner results
+      for (const file of fsFiles) {
+        fileMap.set(file.path, file);
+      }
+      
+      return Array.from(fileMap.values());
     } catch (error) {
       console.error('Error getting uploading files:', error);
       return [];
