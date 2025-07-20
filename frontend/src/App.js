@@ -771,10 +771,9 @@ function VideoPlayer({ preview }) {
         const token = localStorage.getItem('authToken');
         const hls = new Hls({
           xhrSetup: function(xhr, url) {
-            // Add auth token to all HLS requests
+            // Use Authorization header instead of query parameter
             if (token) {
-              const separator = url.includes('?') ? '&' : '?';
-              xhr.open('GET', `${url}${separator}token=${token}`, true);
+              xhr.setRequestHeader('Authorization', `Bearer ${token}`);
             }
           }
         });
@@ -785,8 +784,12 @@ function VideoPlayer({ preview }) {
           hls.destroy();
         };
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari native HLS support
-        video.src = playlistUrl;
+        // Safari native HLS support - note: Safari can't add headers to video src requests
+        const token = localStorage.getItem('authToken');
+        const playlistUrlWithToken = token ? 
+          `${playlistUrl}${playlistUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : 
+          playlistUrl;
+        video.src = playlistUrlWithToken;
       }
     }
   }, [preview]);

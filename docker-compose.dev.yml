@@ -18,8 +18,10 @@ services:
       - backend_logs:/app/logs
       - ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}:/media/lucidlink-1
       - varnish_stats:/data
+      - ${PREVIEW_CACHE_HOST_PATH:-./data/previews}:/app/preview-cache  # Persistent preview cache
     environment:
       NODE_ENV: development
+      PREVIEW_CACHE_DIR: /app/preview-cache
       PORT: 3001
       DB_HOST: localhost  # Use localhost with host networking
       DB_PORT: 5432
@@ -57,6 +59,8 @@ services:
       RUI_BATCH_SIZE: 100
       RUI_MAX_CONCURRENT_MONITORS: 10
       LUCIDLINK_API_PORT: 9780
+      # Redis connection for media preview service
+      REDIS_URL: redis://127.0.0.1:6379
     command: npm run dev  # We'll add this script
     # Ports not needed with host networking - uses host ports directly
     depends_on:

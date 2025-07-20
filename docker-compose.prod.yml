@@ -18,6 +18,7 @@ services:
         hard: 65536
     environment:
       NODE_ENV: production
+      PREVIEW_CACHE_DIR: /app/preview-cache
       PORT: ${PORT:-3001}
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
@@ -61,6 +62,8 @@ services:
       - lucidlink_mount:/media/lucidlink-1
       # Shared volume for varnish stats
       - varnish_stats:/data
+      # Persistent preview cache
+      - ${PREVIEW_CACHE_HOST_PATH:-/var/sitecache/previews}:/app/preview-cache
     ports:
       - "3001:3001"
       - "3002:3002"
