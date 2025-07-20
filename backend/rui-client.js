@@ -35,15 +35,27 @@ class RUIClient {
 
     try {
       console.log('Discovering LucidLink API port...');
+      
+      // In development mode, try to use host system's LucidLink
+      const isDevMode = process.env.NODE_ENV === 'development';
+      if (isDevMode) {
+        // For development, check if port is provided via environment or use hardcoded known port
+        const devPort = process.env.LUCIDLINK_API_PORT || '9780'; // Use discovered port from host
+        this.apiPort = devPort;
+        this.lastPortCheck = now;
+        console.log(`Development mode: Using LucidLink API port: ${this.apiPort} for filespace: ${this.filespace}`);
+        return this.apiPort;
+      }
+      
       const { stdout } = await execAsync(`${this.lucidCommand} list`);
       
       // Parse output to find port for filespace
-      // Expected format: "2002    production.dmpfs    7778    /media/lucidlink-1"
+      // Expected format: "2002    production.dmpfs    9780    live"
       const lines = stdout.trim().split('\n');
       
       for (const line of lines) {
         const parts = line.trim().split(/\s+/);
-        if (parts.length >= 4 && parts[1] === this.filespace) {
+        if (parts.length >= 3 && parts[1] === this.filespace) {
           this.apiPort = parts[2];
           this.lastPortCheck = now;
           console.log(`Found LucidLink API port: ${this.apiPort} for filespace: ${this.filespace}`);
@@ -82,7 +94,9 @@ class RUIClient {
       const port = await this.discoverPort();
       const lucidPath = this.convertToLucidPath(filePath);
       
-      const url = `http://localhost:${port}/v1/${this.filespace}/files`;
+      // Use 127.0.0.1 to force IPv4 and avoid IPv6 connection issues
+      const apiHost = '127.0.0.1';
+      const url = `http://${apiHost}:${port}/v1/${this.filespace}/files`;
       const params = { path: lucidPath };
       
       console.log(`Checking RUI status for: ${filePath} -> ${lucidPath}`);
@@ -169,10 +183,12 @@ class RUIClient {
   async testConnection() {
     try {
       const port = await this.discoverPort();
-      const url = `http://localhost:${port}/v1/${this.filespace}/files`;
+      // Use 127.0.0.1 to force IPv4 and avoid IPv6 connection issues
+      const apiHost = '127.0.0.1';
+      const url = `http://${apiHost}:${port}/v1/${this.filespace}/files`;
       
-      // Test with a simple path query
-      const testPath = '/';
+      // Test with a specific file path (root path returns 405)
+      const testPath = '/00_Media/Audio_files/SweetHomeChicago.wav';
       const response = await axios.get(url, { 
         params: { path: testPath },
         timeout: 5000

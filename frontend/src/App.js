@@ -2097,6 +2097,68 @@ function App() {
     }
   };
 
+  // Handle filter click - special handling for uploading filter
+  const handleFilterClick = async (filterKey) => {
+    if (filterKey === 'uploading') {
+      // Fetch all uploading files from the backend
+      setIsSearching(true);
+      setActiveFilter(filterKey);
+      
+      try {
+        const response = await fetch(`${FileSystemAPI.baseURL}/rui/uploading`, {
+          headers: FileSystemAPI.getAuthHeaders()
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch uploading files');
+        }
+        
+        const uploadingFiles = await response.json();
+        
+        // Transform the data to match the expected file format
+        const transformedFiles = uploadingFiles.map(file => {
+          // Extract extension from filename
+          const lastDot = file.name.lastIndexOf('.');
+          const extension = lastDot > 0 ? file.name.substring(lastDot).toLowerCase() : '';
+          
+          return {
+            path: file.path,
+            name: file.name,
+            extension: extension,
+            size: file.size || 0,
+            isDirectory: false,
+            cached: file.cached || false,
+            indexed: true,
+            hasPreview: false,
+            metadata: file.metadata || {
+              rui: file.rui_data || { status: 'uploading' }
+            }
+          };
+        });
+        
+        // Set as search results to display them
+        setSearchResults(transformedFiles);
+        setSearchQuery('RUI: Uploading Files');
+        setSearchOffset(0);
+        setHasMoreResults(false);
+        
+      } catch (error) {
+        console.error('Error fetching uploading files:', error);
+        showToast('Failed to fetch uploading files', 'error');
+      } finally {
+        setIsSearching(false);
+      }
+    } else {
+      // Normal filter behavior
+      setActiveFilter(filterKey);
+      // Clear search when switching to other filters
+      if (searchResults !== null && filterKey !== 'uploading') {
+        setSearchResults(null);
+        setSearchQuery('');
+      }
+    }
+  };
+
   // Search functionality
   const handleSearch = async (query, offset = 0, append = false) => {
     if (!query.trim()) {
@@ -2370,6 +2432,9 @@ function App() {
     
     // Apply filters to the file list
     if (activeFilter === 'all') return fileList;
+    
+    // Special handling for uploading filter - show search results
+    if (activeFilter === 'uploading') return fileList;
     
     // Helper function to safely get lowercase extension
     const getExtension = (file) => {
@@ -2833,7 +2898,8 @@ function App() {
               { key: 'audio', label: 'Audio', type: 'audio' },
               { key: 'documents', label: 'Documents', type: 'pdf' },
               { key: 'other', label: 'Other', type: 'default' },
-              { key: 'cached', label: 'Cached', type: 'cached' }
+              { key: 'cached', label: 'Cached', type: 'cached' },
+              { key: 'uploading', label: 'All Uploading Files', type: 'uploading' }
             ].map(filter => (
               <button
                 key={filter.key}
@@ -2841,7 +2907,7 @@ function App() {
                   ...styles.filterButton,
                   ...(activeFilter === filter.key ? styles.filterButtonActive : {})
                 }}
-                onClick={() => setActiveFilter(filter.key)}
+                onClick={() => handleFilterClick(filter.key)}
               >
                 <span>
                   {filter.type === 'folder' ? 
@@ -2852,6 +2918,12 @@ function App() {
                       fontSize: '14px',
                       fontWeight: '500'
                     }}>✓</span> :
+                  filter.type === 'uploading' ?
+                    <span style={{ 
+                      color: activeFilter === filter.key ? '#ffffff' : '#a1a1aa',
+                      fontSize: '14px',
+                      fontWeight: '500'
+                    }}>⬆</span> :
                     <FileIcon type={filter.type} size={14} color={activeFilter === filter.key ? '#ffffff' : '#a1a1aa'} />
                   }
                 </span>

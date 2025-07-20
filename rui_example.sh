@@ -1,0 +1,25 @@
+#!/bin/bash
+
+LUCIDLINK_FILESPACE=production.dmpfs
+LUCIDLINK_PORT=$(lucid list | awk '$1=="2002" {print $3}')
+FILEPATH="/media/lucidlink-1/00_Media/Audio_files/SweetHomeChicago.wav"
+echo "FILEPATH is '${FILEPATH}'"
+CUTPATH=$(cut -d'/' -f4- <<<"${FILEPATH}")
+LUCIDPATH="/${CUTPATH}"
+echo "LUCIDPATH is '${LUCIDPATH}'"
+
+# Debug the variables
+echo "LUCIDLINK_PORT is '${LUCIDLINK_PORT}'"
+echo "LUCIDLINK_FILESPACE is '${LUCIDLINK_FILESPACE}'"
+
+# Construct the full URL for debugging
+URL="http://localhost:${LUCIDLINK_PORT}/v1/${LUCIDLINK_FILESPACE}/files"
+echo "URL is '${URL}'"
+echo "Query parameter: path=${LUCIDPATH}"
+
+# Use curl with verbose output and error handling
+STATUS=$(curl -s --get --data-urlencode "path=${LUCIDPATH}" "${URL}" 2>&1)
+CURL_EXIT_CODE=$?
+
+echo "Curl exit code: ${CURL_EXIT_CODE}"
+echo "STATUS is '${STATUS}'"

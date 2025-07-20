@@ -8,7 +8,9 @@
       "Bash(docker tag:*)",
       "Bash(chmod:*)",
       "Bash(npm run dev:down:*)",
-      "Bash(docker run:*)"
+      "Bash(docker run:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker restart:*)"
     ],
     "deny": []
   }

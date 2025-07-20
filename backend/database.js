@@ -310,7 +310,7 @@ class FileModel {
   static async findFilesWithRUIStatus(status = 'uploading', limit = 100) {
     try {
       const result = await pool.query(
-        `SELECT path, name, metadata->'rui' as rui_data 
+        `SELECT path, name, size, cached, metadata, metadata->'rui' as rui_data 
          FROM files 
          WHERE metadata->'rui'->>'status' = $1
          AND is_directory = false
