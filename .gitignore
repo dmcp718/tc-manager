@@ -56,3 +56,6 @@ CLAUDE.local.md
 # LucidLink installer (large binary file)
 backend/lucidlink_3.2.6817_amd64.deb
 lucidlink_3.2.6817_amd64.deb
+
+# Preview cache data
+data/previews/

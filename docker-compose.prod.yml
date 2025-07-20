@@ -5,8 +5,8 @@ services:
   # Backend for production
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: ./sc-manager/backend/Dockerfile
       target: production
     container_name: sc-mgr-backend-prod
     # Performance optimizations
@@ -79,13 +79,8 @@ services:
     # Add host machine access (for LucidLink API)
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # LucidLink FUSE filesystem requirements
-    cap_add:
-      - SYS_ADMIN
-    devices:
-      - "/dev/fuse"
-    security_opt:
-      - "apparmor:unconfined"
+    # LucidLink FUSE filesystem requirements (inherited from base compose)
+    # cap_add, devices, and security_opt already defined in docker-compose.yml
 
   # Frontend for production
   frontend:

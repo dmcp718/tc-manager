@@ -35,13 +35,13 @@ WORKDIR /app
 ENV NODE_ENV=development
 
 # Copy package files
-COPY sc-browser-v2/backend/package*.json ./
+COPY sc-manager/backend/package*.json ./
 
 # Install all dependencies (including dev dependencies)
 RUN npm ci
 
 # Copy source code (for development, this will be overridden by volume mount)
-COPY sc-browser-v2/backend/ .
+COPY sc-manager/backend/ .
 
 # Make startup script executable
 RUN chmod +x start-lucidlink.sh
@@ -88,13 +88,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Copy package files
-COPY sc-browser-v2/backend/package*.json ./
+COPY sc-manager/backend/package*.json ./
 
 # Install dependencies with optimization flags
 RUN npm ci --only=production --no-audit --no-fund
 
 # Copy source code
-COPY sc-browser-v2/backend/ .
+COPY sc-manager/backend/ .
 
 # Make startup script executable
 RUN chmod +x start-lucidlink.sh

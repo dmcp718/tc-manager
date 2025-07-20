@@ -15,7 +15,16 @@
       "Bash(cat:*)",
       "Bash(POSTGRES_PASSWORD=sitecache_password docker compose up -d)",
       "Bash(POSTGRES_PASSWORD=sitecache_password docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d)",
-      "Bash(docker inspect:*)"
+      "Bash(docker inspect:*)",
+      "Bash(redis-cli:*)",
+      "Bash(mkdir:*)",
+      "Bash(SSL_HOST_IP=192.168.8.28 ENABLE_SSL=true ./test-production.sh)",
+      "Bash(SSL_HOST_IP=192.168.8.28 ./scripts/generate-ssl-cert.sh)",
+      "Bash(SSL_HOST_IP=192.168.8.28 ./scripts/generate-ssl-cert.sh --force)",
+      "Bash(SSL_HOST_IP=192.168.8.28 timeout 30 ./scripts/generate-ssl-cert.sh --force)",
+      "Bash(openssl req:*)",
+      "Bash(ENABLE_SSL=true ./test-production.sh)",
+      "Bash(mv:*)"
     ],
     "deny": []
   }

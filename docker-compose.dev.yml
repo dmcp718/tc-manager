@@ -6,7 +6,7 @@ services:
   backend:
     build:
       context: ..
-      dockerfile: ./sc-browser-v2/backend/Dockerfile
+      dockerfile: ./sc-manager/backend/Dockerfile
       target: development
     container_name: sc-mgr-backend-dev
     user: root
