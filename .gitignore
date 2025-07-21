@@ -65,3 +65,6 @@ lucidlink_3.2.6817_amd64.deb
 # Preview cache data
 data/previews/
 .claude/
+ssl/*.crt
+ssl/*.key
+ssl/*.pem
