@@ -262,6 +262,11 @@ The script generates:
 - **Nginx SSL configuration** with security headers
 - **Browser installation instructions**
 
+**SSL Certificate Types:**
+- **Self-signed certificates**: Use IP address in `DOMAIN_NAME` (works with script-generated certs)
+- **Let's Encrypt certificates**: Requires domain name in `DOMAIN_NAME` (cannot use IP addresses)
+- **Commercial CA certificates**: Usually require domain name in `DOMAIN_NAME`
+
 ### 3. Deploy Production Stack
 
 ```bash
@@ -361,7 +366,7 @@ REACT_APP_GRAFANA_URL=http://host:3000 # Grafana dashboard URL
 NODE_ENV=production                     # Production mode
 SSL_CERT_PATH=/path/to/cert.pem        # SSL certificate path
 SSL_KEY_PATH=/path/to/key.pem          # SSL private key path
-DOMAIN_NAME=your-domain.com            # Domain for SSL
+DOMAIN_NAME=YOUR_SERVER_IP             # Domain/IP for SSL (can be IP for self-signed certs)
 ```
 
 #### Varnish Integration (Optional)
