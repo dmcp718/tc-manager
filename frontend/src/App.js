@@ -1001,6 +1001,7 @@ function PreviewModal({ filePath, preview, type, onClose }) {
           <audio
             controls
             autoPlay
+            muted={/Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)}
             style={{
               width: '100%',
               maxWidth: '800px',
@@ -1009,6 +1010,12 @@ function PreviewModal({ filePath, preview, type, onClose }) {
             }}
             onError={(e) => {
               console.error('Audio failed to load:', e.target.src);
+            }}
+            onLoadedData={(e) => {
+              // For Safari, try to play and unmute after user interaction
+              if (/Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)) {
+                e.target.muted = false;
+              }
             }}
           >
             <source src={audioUrl} type="audio/mpeg" />
