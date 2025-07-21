@@ -122,6 +122,39 @@ const styles = {
     transition: 'border-color 0.2s ease',
     boxSizing: 'border-box',
   },
+  passwordContainer: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  passwordInput: {
+    width: '100%',
+    padding: '12px',
+    paddingRight: '48px',
+    borderRadius: '6px',
+    border: '1px solid #3a3a3a',
+    backgroundColor: '#1a1a1a',
+    color: '#e4e4e7',
+    fontSize: '14px',
+    outline: 'none',
+    transition: 'border-color 0.2s ease',
+    boxSizing: 'border-box',
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: '12px',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '16px',
+    color: '#9ca3af',
+    padding: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'color 0.2s ease',
+    opacity: 1,
+  },
   loginButton: {
     width: '100%',
     padding: '12px',
@@ -393,10 +426,11 @@ const styles = {
 
 // API client
 class FileSystemAPI {
-  static baseURL = process.env.REACT_APP_API_URL || 'http://192.168.8.28:3001/api';
+  static baseURL = process.env.REACT_APP_API_URL || '/api';
 
   static getAuthHeaders() {
     const token = localStorage.getItem('authToken');
+    console.log('Getting auth headers, token:', token ? `${token.substring(0, 20)}...` : 'null');
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
@@ -744,7 +778,7 @@ function VideoPlayer({ preview }) {
     // Helper to ensure URLs have the correct base path and auth token for video
     const ensureFullUrl = (url) => {
       if (url && !url.startsWith('http')) {
-        const fullUrl = `${FileSystemAPI.baseURL.replace('/api', '')}${url}`;
+        const fullUrl = url.startsWith('/api') ? url : `${url}`;
         // Add auth token for video URLs (needed for authentication)
         if (url.includes('/api/preview/video/') || url.includes('/api/video/stream/')) {
           const token = localStorage.getItem('authToken');
@@ -917,7 +951,7 @@ function PreviewModal({ filePath, preview, type, onClose }) {
       
       // Ensure URL has the correct base path and add auth token
       if (imageUrl && !imageUrl.startsWith('http')) {
-        const fullUrl = `${FileSystemAPI.baseURL.replace('/api', '')}${imageUrl}`;
+        const fullUrl = imageUrl.startsWith('/api') ? imageUrl : `${imageUrl}`;
         // Add auth token for image preview URLs
         const token = localStorage.getItem('authToken');
         if (token) {
@@ -973,7 +1007,7 @@ function PreviewModal({ filePath, preview, type, onClose }) {
       
       // Ensure URL has the correct base path
       if (audioUrl && !audioUrl.startsWith('http')) {
-        audioUrl = `${FileSystemAPI.baseURL.replace('/api', '')}${audioUrl}`;
+        audioUrl = audioUrl.startsWith('/api') ? audioUrl : `${audioUrl}`;
       }
       
       return (
@@ -1113,6 +1147,7 @@ function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1126,7 +1161,7 @@ function LoginScreen({ onLogin }) {
     setError('');
 
     try {
-      const response = await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/auth/login`, {
+      const response = await fetch(`/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1174,15 +1209,26 @@ function LoginScreen({ onLogin }) {
           <label style={styles.loginLabel} htmlFor="password">
             Password
           </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={styles.loginInput}
-            placeholder="Enter password"
-            disabled={loading}
-          />
+          <div style={styles.passwordContainer}>
+            <input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={styles.passwordInput}
+              placeholder="Enter password"
+              disabled={loading}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              style={styles.passwordToggle}
+              disabled={loading}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? "🙈" : "👁️"}
+            </button>
+          </div>
         </div>
 
         <button
@@ -1265,7 +1311,7 @@ function App() {
     }
 
     try {
-      const response = await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/auth/verify`, {
+      const response = await fetch(`/api/auth/verify`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -1287,16 +1333,27 @@ function App() {
   };
 
   const handleLogin = (userData, token) => {
+    console.log('handleLogin called with token:', token ? `${token.substring(0, 20)}...` : 'null');
+    console.log('Token in localStorage before setting:', localStorage.getItem('authToken') ? 'exists' : 'null');
     setUser(userData);
     setIsAuthenticated(true);
     setAuthLoading(false);
+    // Explicitly load roots after successful login
+    setTimeout(() => {
+      console.log('Loading data after login...');
+      console.log('Token in localStorage after timeout:', localStorage.getItem('authToken') ? 'exists' : 'null');
+      loadRoots();
+      loadJobs();
+      loadCacheStats();
+      checkElasticsearchStatus();
+    }, 100);
   };
 
   const handleLogout = async () => {
     try {
       const token = localStorage.getItem('authToken');
       if (token) {
-        await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/auth/logout`, {
+        await fetch(`/api/auth/logout`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -1346,7 +1403,7 @@ function App() {
     }
     
     // Enhanced WebSocket connection with auto-reconnect and fallback polling
-    const wsUrl = process.env.REACT_APP_WS_URL || 'ws://192.168.8.28:3002';
+    const wsUrl = process.env.REACT_APP_WS_URL || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws';
     let ws = null;
     let reconnectTimer = null;
     let fallbackPollingTimer = null;
@@ -1940,7 +1997,7 @@ function App() {
       // Mark as loading
       setDirectLinkLoading(prev => new Set(prev).add(filePath));
 
-      const response = await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/direct-link`, {
+      const response = await fetch(`/api/direct-link`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

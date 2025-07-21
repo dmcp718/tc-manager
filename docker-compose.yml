@@ -211,6 +211,7 @@ services:
       VARNISH_CONTAINER_NAME: ${VARNISH_CONTAINER_NAME:-sitecache-varnish-1}
     volumes:
       - varnish_stats:/data
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
 
