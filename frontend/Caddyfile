@@ -1,0 +1,50 @@
+# Caddyfile for SC-Manager Frontend
+{
+    # Global options
+    auto_https off
+    admin off
+}
+
+# HTTP site (for development/testing with existing certs)
+:80 {
+    # Serve React build files
+    root * /usr/share/caddy
+    file_server
+    
+    # Handle React Router (SPA)
+    try_files {path} /index.html
+    
+    # API proxy to backend
+    reverse_proxy /api/* backend:3001
+    
+    # WebSocket proxy
+    reverse_proxy /ws backend:3002
+}
+
+# HTTPS site (when SSL certs are available)
+:443 {
+    # Use existing certificates
+    tls /etc/ssl/certs/sc-mgr.crt /etc/ssl/certs/sc-mgr.key
+    
+    # Serve React build files
+    root * /usr/share/caddy
+    file_server
+    
+    # Handle React Router (SPA)
+    try_files {path} /index.html
+    
+    # API proxy to backend
+    reverse_proxy /api/* backend:3001
+    
+    # WebSocket proxy  
+    reverse_proxy /ws backend:3002
+    
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}

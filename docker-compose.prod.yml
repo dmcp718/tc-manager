@@ -94,7 +94,7 @@ services:
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
     container_name: sc-mgr-frontend-prod
     ports:
-      - "8080:80"
+      - "8090:80"
     depends_on:
       - backend
     healthcheck:

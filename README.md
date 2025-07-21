@@ -291,10 +291,13 @@ The script generates:
 # Deploy without SSL (HTTP only)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-# Or deploy with HTTPS (recommended for production)
+# Deploy with HTTPS using Caddy (recommended - simpler SSL)
 # First, place SSL certificates in ./ssl/ directory:
-# - sc-mgr.crt (certificate file)
+# - sc-mgr.crt (certificate file)  
 # - sc-mgr.key (private key file)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.caddy.yml up -d
+
+# Alternative: Deploy with nginx SSL (more complex)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ssl.yml up -d
 
 # Verify all services are healthy

@@ -1,0 +1,23 @@
+# Caddy-based frontend with auto HTTPS
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.caddy.yml up
+
+services:
+  frontend:
+    build:
+      context: ../
+      dockerfile: ./sc-manager/frontend/Dockerfile.caddy
+    image: sc-manager-frontend-caddy
+    container_name: sc-mgr-frontend-caddy
+    ports:
+      - "8090:80"   # HTTP
+      - "8443:443"  # HTTPS  
+    volumes:
+      - ./ssl:/etc/ssl/certs:ro  # Mount SSL certificates
+    environment:
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://192.168.8.28:3001/api}
+      - REACT_APP_WS_URL=${REACT_APP_WS_URL:-ws://192.168.8.28:3002}
+    depends_on:
+      - backend
+    networks:
+      - sc-mgr-network
+    restart: unless-stopped
