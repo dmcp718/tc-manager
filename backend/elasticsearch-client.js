@@ -333,24 +333,44 @@ class ElasticsearchClient {
         must.push({
           bool: {
             should: [
-              // Exact term matching
+              // Exact term matching with higher boost for filename
               {
                 multi_match: {
                   query: query,
-                  fields: ["path^2", "name^3", "path.hierarchy"],
-                  type: "best_fields",
-                  fuzziness: "AUTO"
+                  fields: ["name^4", "path^2", "path.hierarchy"],
+                  type: "best_fields"
                 }
               },
-              // Wildcard matching for filenames with special characters
+              // Exact keyword matching (highest priority)
               {
-                wildcard: {
-                  "name": wildcardQuery
+                bool: {
+                  should: [
+                    { match: { "name.keyword": { query: query, boost: 3.0 } } },
+                    { match: { "path.keyword": { query: query, boost: 2.0 } } }
+                  ]
                 }
               },
+              // Wildcard matching for partial matches (lower priority)
               {
-                wildcard: {
-                  "path": wildcardQuery
+                bool: {
+                  should: [
+                    {
+                      wildcard: {
+                        "name": {
+                          value: wildcardQuery,
+                          boost: 1.5
+                        }
+                      }
+                    },
+                    {
+                      wildcard: {
+                        "path": {
+                          value: wildcardQuery,
+                          boost: 1.0
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             ],
