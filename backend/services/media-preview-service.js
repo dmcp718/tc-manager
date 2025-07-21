@@ -10,6 +10,23 @@ class MediaPreviewService {
     this.PREVIEW_CACHE_DIR = process.env.PREVIEW_CACHE_DIR || '/tmp/previews';
     this.TEMP_DIR = process.env.TEMP_DIR || '/tmp';
     
+    // Video transcoding settings
+    this.VIDEO_BITRATE = process.env.TRANSCODE_VIDEO_BITRATE || '2800k';
+    this.VIDEO_MAXRATE = process.env.TRANSCODE_VIDEO_MAXRATE || '3000k';
+    this.VIDEO_BUFSIZE = process.env.TRANSCODE_VIDEO_BUFSIZE || '6000k';
+    this.VIDEO_WIDTH = parseInt(process.env.TRANSCODE_VIDEO_WIDTH || '1280');
+    this.VIDEO_HEIGHT = parseInt(process.env.TRANSCODE_VIDEO_HEIGHT || '720');
+    
+    // Audio transcoding settings
+    this.AUDIO_BITRATE = process.env.TRANSCODE_AUDIO_BITRATE || '128k';
+    this.AUDIO_CODEC = process.env.TRANSCODE_AUDIO_CODEC || 'aac';
+    this.AUDIO_CHANNELS = parseInt(process.env.TRANSCODE_AUDIO_CHANNELS || '2');
+    this.AUDIO_SAMPLE_RATE = parseInt(process.env.TRANSCODE_AUDIO_SAMPLE_RATE || '48000');
+    
+    // HLS streaming settings
+    this.HLS_SEGMENT_TIME = parseInt(process.env.TRANSCODE_HLS_SEGMENT_TIME || '2');
+    this.CONTAINER_FORMAT = process.env.TRANSCODE_CONTAINER_FORMAT || 'hls';
+    
     // Initialize Redis client
     this.redis = createClient({
       url: process.env.REDIS_URL || 'redis://redis:6379'
@@ -548,25 +565,25 @@ class FFmpegTranscoder {
       }
 
       args.push(
-        // Single 720p quality stream for faster transcoding
-        '-filter:v:0', 'scale=w=1280:h=720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-        '-maxrate:v:0', '3000k',
-        '-bufsize:v:0', '6000k',
-        '-b:v:0', '2800k'
+        // Configurable quality stream for transcoding
+        '-filter:v:0', `scale=w=${this.VIDEO_WIDTH}:h=${this.VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,pad=${this.VIDEO_WIDTH}:${this.VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2`,
+        '-maxrate:v:0', this.VIDEO_MAXRATE,
+        '-bufsize:v:0', this.VIDEO_BUFSIZE,
+        '-b:v:0', this.VIDEO_BITRATE
       );
       
       if (hasAudio) {
         args.push(
-          '-c:a', 'aac',
-          '-b:a', '128k',
-          '-ac', '2',
-          '-ar', '48000'
+          '-c:a', this.AUDIO_CODEC,
+          '-b:a', this.AUDIO_BITRATE,
+          '-ac', this.AUDIO_CHANNELS.toString(),
+          '-ar', this.AUDIO_SAMPLE_RATE.toString()
         );
       }
       
       args.push(
-        '-f', 'hls',
-        '-hls_time', '2',
+        '-f', this.CONTAINER_FORMAT,
+        '-hls_time', this.HLS_SEGMENT_TIME.toString(),
         '-hls_playlist_type', 'event',
         '-hls_flags', 'independent_segments+append_list+split_by_time',
         '-hls_segment_type', 'mpegts',
