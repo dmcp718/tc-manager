@@ -393,7 +393,7 @@ const styles = {
 
 // API client
 class FileSystemAPI {
-  static baseURL = process.env.REACT_APP_API_URL || 'http://192.168.8.28:3001/api';
+  static baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
   static getAuthHeaders() {
     const token = localStorage.getItem('authToken');
@@ -1380,7 +1380,7 @@ function App() {
     }
     
     // Enhanced WebSocket connection with auto-reconnect and fallback polling
-    const wsUrl = process.env.REACT_APP_WS_URL || 'ws://192.168.8.28:3002';
+    const wsUrl = process.env.REACT_APP_WS_URL || 'ws://localhost:3002';
     let ws = null;
     let reconnectTimer = null;
     let fallbackPollingTimer = null;
@@ -2758,7 +2758,7 @@ function App() {
               lineHeight: 0,
               fontSize: 0
             }}
-            onClick={() => window.open(process.env.REACT_APP_GRAFANA_URL || 'http://192.168.8.28:3000', '_blank')}
+            onClick={() => window.open(process.env.REACT_APP_GRAFANA_URL || 'http://localhost:3000', '_blank')}
             title="Open Grafana Dashboard"
           >
             <img 

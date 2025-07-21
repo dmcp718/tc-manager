@@ -14,6 +14,14 @@ yarn-error.log*
 # Allow committed development environment file
 !.env.development
 
+# SSL certificates and keys (NEVER commit these!)
+ssl/
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+
 # Production build
 build/
 dist/

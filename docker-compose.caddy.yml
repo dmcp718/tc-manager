@@ -14,8 +14,8 @@ services:
     volumes:
       - ./ssl:/etc/ssl/certs:ro  # Mount SSL certificates
     environment:
-      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://192.168.8.28:3001/api}
-      - REACT_APP_WS_URL=${REACT_APP_WS_URL:-ws://192.168.8.28:3002}
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:3001/api}
+      - REACT_APP_WS_URL=${REACT_APP_WS_URL:-ws://localhost:3002}
     depends_on:
       - backend
     restart: unless-stopped
