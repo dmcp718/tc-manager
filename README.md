@@ -91,7 +91,7 @@ A production-ready file system browser and cache management system for LucidLink
 ```bash
 git clone https://github.com/dmcp718/sc-manager.git
 cd sc-manager
-cp .env.example .env
+cp .env.development .env
 ```
 
 **Development vs Production:**
@@ -114,7 +114,12 @@ cp /path/to/lucidlink_3.2.6817_amd64.deb backend/
 
 ### 3. Configure Environment
 
-Edit `.env` with your LucidLink credentials:
+The repository includes pre-configured environment files for different deployment scenarios:
+
+- **`.env.development`**: Development settings with host.docker.internal for LucidLink API
+- **`.env.production`**: Production settings with containerized LucidLink daemon
+
+Edit your copied `.env` file with your LucidLink credentials:
 
 ```bash
 # Required LucidLink Configuration
@@ -184,10 +189,10 @@ LucidLink is automatically installed and configured within the Docker container.
 Create production environment file:
 
 ```bash
-cp .env.example .env.production
+cp .env.production .env
 
-# Edit with production values
-nano .env.production
+# Edit with your specific production values
+nano .env
 ```
 
 **Critical Production Settings:**
@@ -1221,8 +1226,8 @@ sc-manager/
 ├── docker-compose.prod.yml       # Production overrides (optimized)
 ├── package.json                  # Development workflow scripts
 ├── .env.development              # Committed development settings
-├── .env.example                  # Environment template
-├── .env                         # Your environment (create from template)
+├── .env.production               # Committed production settings
+├── .env                         # Your active environment (copy from .env.development or .env.production)
 │
 ├── frontend/                    # React frontend application
 │   ├── src/
