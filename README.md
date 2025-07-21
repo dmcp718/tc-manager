@@ -158,10 +158,15 @@ docker compose logs backend | head -20
 
 ### 4. Access Application
 
-- **Frontend**: http://localhost:8080 (production) or http://localhost:3010 (development)
+**Production Access:**
+- **Frontend (HTTP)**: http://localhost:8080 or http://YOUR_HOST_IP:8080
+- **Frontend (HTTPS)**: https://localhost:443 or https://YOUR_HOST_IP:443 (if SSL enabled)
 - **Backend API**: http://localhost:3001
 - **Health Check**: http://localhost:3001/health
 - **WebSocket**: ws://localhost:3002
+
+**Development Access:**
+- **Frontend**: http://localhost:3010 (development with hot reload)
 
 **Default Login Credentials:**
 - Username: `admin`
@@ -236,21 +241,45 @@ VARNISH_CONTAINER_NAME=sitecache-varnish-1
 VARNISH_STATS_INTERVAL=60000
 ```
 
-### 2. Deploy Production Stack
+### 2. SSL Certificate Setup (Optional but Recommended)
+
+For HTTPS access, generate self-signed certificates:
+
+```bash
+# Generate SSL certificates with auto-detected host IP
+./scripts/generate-ssl-cert.sh
+
+# Or specify host IP manually
+SSL_HOST_IP=192.168.1.100 ./scripts/generate-ssl-cert.sh
+
+# Install certificate in browsers (follow instructions)
+./ssl/install-cert.sh
+```
+
+The script generates:
+- **Self-signed certificate** with proper SAN entries for host IP
+- **Docker Compose SSL override** (`docker-compose.ssl.yml`)
+- **Nginx SSL configuration** with security headers
+- **Browser installation instructions**
+
+### 3. Deploy Production Stack
 
 ```bash
 # Copy environment
 cp .env.production .env
 
-# Deploy with production configuration
-docker compose -f docker-compose.yml up -d
+# Deploy without SSL (HTTP only)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# Or deploy with HTTPS (recommended)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ssl.yml up -d
 
 # Verify all services are healthy
 docker compose ps
 docker compose logs backend | grep "Starting"
 ```
 
-### 3. Production Verification
+### 4. Production Verification
 
 ```bash
 # Check service health
