@@ -76,3 +76,4 @@ data/previews/
 ssl/*.crt
 ssl/*.key
 ssl/*.pem
+.claude/
