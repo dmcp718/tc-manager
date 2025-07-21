@@ -55,6 +55,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
       # Use host.docker.internal to access host machine from container
       LUCIDLINK_API_HOST: ${LUCIDLINK_API_HOST:-host.docker.internal}
+      # Configure S3 proxy for Varnish cache
+      LUCID_S3_PROXY: ${LUCID_S3_PROXY}
     volumes:
       # Application logs
       - backend_logs:/app/logs

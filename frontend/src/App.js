@@ -2758,7 +2758,7 @@ function App() {
               lineHeight: 0,
               fontSize: 0
             }}
-            onClick={() => window.open(process.env.REACT_APP_GRAFANA_URL || 'http://192.168.8.28:3000', '_blank')}
+            onClick={() => window.open(process.env.REACT_APP_GRAFANA_URL || 'http://168.119.133.122:3000', '_blank')}
             title="Open Grafana Dashboard"
           >
             <img 

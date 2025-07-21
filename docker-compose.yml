@@ -86,6 +86,8 @@ services:
       # Use host.docker.internal to access host machine from container
       LUCIDLINK_API_HOST: ${LUCIDLINK_API_HOST:-host.docker.internal}
       LUCIDLINK_API_PORT: ${LUCIDLINK_API_PORT:-9780}
+      # Configure S3 proxy for Varnish cache  
+      LUCID_S3_PROXY: ${LUCID_S3_PROXY}
       # RUI Configuration
       ENABLE_RUI: ${ENABLE_RUI:-true}
       RUI_SCAN_INTERVAL: ${RUI_SCAN_INTERVAL:-30000}

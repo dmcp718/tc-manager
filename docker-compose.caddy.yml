@@ -10,6 +10,7 @@ services:
         REACT_APP_API_URL: ${REACT_APP_API_URL:-http://192.168.8.28:3001/api}
         REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://192.168.8.28:3002}
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
+        REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-http://168.119.133.122:3000}
     image: sc-manager-frontend-caddy
     container_name: sc-mgr-frontend-caddy
     ports:
