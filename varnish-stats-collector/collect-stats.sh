@@ -18,11 +18,11 @@ collect_stats() {
     VARNISH_OUTPUT=$(docker exec $CONTAINER_NAME varnishstat -1 -f '*.g_bytes_used*' -f '*.g_bytes_unused*' 2>/dev/null)
     
     if [ $? -eq 0 ]; then
-        # Parse the output for storage statistics
-        BYTES_USED=$(echo "$VARNISH_OUTPUT" | grep "MSE4_STORE.*\.g_bytes_used[[:space:]]" | awk '{print $2}')
-        BYTES_UNUSED=$(echo "$VARNISH_OUTPUT" | grep "MSE4_STORE.*\.g_bytes_unused[[:space:]]" | awk '{print $2}')
+        # Parse the output for storage statistics and sum all storage devices
+        BYTES_USED=$(echo "$VARNISH_OUTPUT" | grep "MSE4_STORE.*\.g_bytes_used[[:space:]]" | awk '{sum += $2} END {print sum}')
+        BYTES_UNUSED=$(echo "$VARNISH_OUTPUT" | grep "MSE4_STORE.*\.g_bytes_unused[[:space:]]" | awk '{sum += $2} END {print sum}')
         
-        if [ ! -z "$BYTES_USED" ] && [ ! -z "$BYTES_UNUSED" ]; then
+        if [ ! -z "$BYTES_USED" ] && [ ! -z "$BYTES_UNUSED" ] && [ "$BYTES_USED" != "" ] && [ "$BYTES_UNUSED" != "" ]; then
             TOTAL_SPACE=$((BYTES_USED + BYTES_UNUSED))
             # Calculate percentage using shell arithmetic (multiplied by 100 for precision)
             USAGE_PERCENTAGE_INT=$((BYTES_USED * 10000 / TOTAL_SPACE))

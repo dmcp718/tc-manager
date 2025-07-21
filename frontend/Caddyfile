@@ -7,18 +7,22 @@
 
 # HTTP site (for development/testing with existing certs)
 :80 {
-    # Serve React build files
-    root * /usr/share/caddy
-    file_server
+    # API routes - highest priority
+    route /api/* {
+        reverse_proxy backend:3001
+    }
     
-    # Handle React Router (SPA)
-    try_files {path} /index.html
+    # WebSocket routes
+    route /ws {
+        reverse_proxy backend:3002
+    }
     
-    # API proxy to backend
-    reverse_proxy /api/* backend:3001
-    
-    # WebSocket proxy
-    reverse_proxy /ws backend:3002
+    # Static files and SPA fallback
+    route {
+        root * /usr/share/caddy
+        try_files {path} /index.html
+        file_server
+    }
 }
 
 # HTTPS site (when SSL certs are available)
@@ -26,18 +30,22 @@
     # Use existing certificates
     tls /etc/ssl/certs/sc-mgr.crt /etc/ssl/certs/sc-mgr.key
     
-    # Serve React build files
-    root * /usr/share/caddy
-    file_server
+    # API routes - highest priority
+    route /api/* {
+        reverse_proxy backend:3001
+    }
     
-    # Handle React Router (SPA)
-    try_files {path} /index.html
+    # WebSocket routes
+    route /ws {
+        reverse_proxy backend:3002
+    }
     
-    # API proxy to backend
-    reverse_proxy /api/* backend:3001
-    
-    # WebSocket proxy  
-    reverse_proxy /ws backend:3002
+    # Static files and SPA fallback
+    route {
+        root * /usr/share/caddy
+        try_files {path} /index.html
+        file_server
+    }
     
     # Security headers
     header {
