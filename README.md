@@ -251,8 +251,20 @@ For HTTPS access, generate self-signed certificates:
 
 # Or specify host IP manually
 SSL_HOST_IP=192.168.1.100 ./scripts/generate-ssl-cert.sh
+```
 
-# Install certificate in browsers (follow instructions)
+**After running the script, update your `.env` file with the generated certificate paths:**
+
+```bash
+# Update these lines in your .env file
+SSL_CERT_PATH=./ssl/sc-mgr.crt
+SSL_KEY_PATH=./ssl/sc-mgr.key
+DOMAIN_NAME=YOUR_SERVER_IP
+```
+
+**Install certificate in browsers to avoid security warnings:**
+```bash
+# Follow browser installation instructions
 ./ssl/install-cert.sh
 ```
 

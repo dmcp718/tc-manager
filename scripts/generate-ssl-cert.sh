@@ -372,6 +372,12 @@ main() {
     echo -e "• Install Helper: $CERT_DIR/install-cert.sh"
     echo ""
     
+    echo -e "${YELLOW}⚙️  Update your .env file with SSL certificate paths:${NC}"
+    echo -e "SSL_CERT_PATH=./ssl/sc-mgr.crt"
+    echo -e "SSL_KEY_PATH=./ssl/sc-mgr.key"
+    echo -e "DOMAIN_NAME=$host_ip"
+    echo ""
+    
     echo -e "${YELLOW}🚀 To use HTTPS in production:${NC}"
     echo -e "docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ssl.yml up"
     echo ""
