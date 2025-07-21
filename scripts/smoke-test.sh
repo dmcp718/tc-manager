@@ -40,8 +40,9 @@ run_test() {
 test_http() {
     local url="$1"
     local expected_status="${2:-200}"
+    local extra_args="${3:-}"
     
-    local status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time $TIMEOUT "$url" || echo "000")
+    local status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time $TIMEOUT $extra_args "$url" || echo "000")
     [ "$status_code" = "$expected_status" ]
 }
 
@@ -62,16 +63,48 @@ run_test "Health endpoint" "test_http '$API_URL/health'"
 # Metrics endpoint removed - this is a management tool
 
 echo ""
-echo "🔍 API Functionality Tests"
-run_test "Get API roots" "test_http '$API_URL/api/roots'"
-run_test "Get job profiles" "test_http '$API_URL/api/profiles'"
-run_test "Get cache jobs" "test_http '$API_URL/api/jobs'"
-run_test "Get indexing status" "test_http '$API_URL/api/index/status'"
-
-echo ""
 echo "🔍 Health Check Details"
 run_test "Database health" "test_http_json '$API_URL/health' 'database' 'true'"
 run_test "Filesystem health" "test_http_json '$API_URL/health' 'filesystem' 'true'"
+run_test "LucidLink health" "test_http '$API_URL/api/health/lucidlink' '200'"
+run_test "Elasticsearch availability" "test_http '$API_URL/api/search/elasticsearch/availability'"
+
+echo ""
+echo "🔍 Authentication Tests"
+# Load credentials from .env if available
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD="admin123"
+if [[ -f .env ]]; then
+    source .env 2>/dev/null || true
+    ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+    ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
+fi
+
+# Test authentication
+echo -n "   Testing login credentials... "
+LOGIN_RESPONSE=$(curl -s -X POST "$API_URL/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}" \
+    --max-time 10 || echo "{}")
+
+TOKEN=$(echo "$LOGIN_RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4 2>/dev/null || echo "")
+if [[ -n "$TOKEN" ]]; then
+    echo "✅ PASS"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    
+    # Test protected endpoints with authentication
+    echo ""
+    echo "🔍 Protected API Endpoints"
+    run_test "Get API roots (auth)" "test_http '$API_URL/api/roots' '200' '-H \"Authorization: Bearer $TOKEN\"'"
+    run_test "Get job profiles (auth)" "test_http '$API_URL/api/profiles' '200' '-H \"Authorization: Bearer $TOKEN\"'"
+    run_test "Get cache jobs (auth)" "test_http '$API_URL/api/jobs' '200' '-H \"Authorization: Bearer $TOKEN\"'"
+    run_test "Get indexing status (auth)" "test_http '$API_URL/api/index/status' '200' '-H \"Authorization: Bearer $TOKEN\"'"
+else
+    echo "❌ FAIL"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo "   Skipping protected endpoint tests (no auth token)"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
 
 echo ""
 echo "🔍 Frontend Asset Tests"
