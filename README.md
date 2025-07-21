@@ -103,14 +103,17 @@ cp .env.development .env
 The LucidLink client binary is required but not included in the repository due to file size limits. Download and place it manually:
 
 ```bash
-# Download LucidLink client from official source
-wget https://www.lucidlink.com/download/lucidlink_3.2.6817_amd64.deb -O backend/lucidlink_3.2.6817_amd64.deb
+# Create the required directory (in parent directory due to Docker build context)
+mkdir -p ../lucidlink-builds
 
-# Or if you have the file locally, copy it to the backend directory:
-cp /path/to/lucidlink_3.2.6817_amd64.deb backend/
+# Download LucidLink client from official source
+wget https://www.lucidlink.com/download/lucidlink_3.2.6817_amd64.deb -O ../lucidlink-builds/lucidlink_3.2.6817_amd64.deb
+
+# Or if you have the file locally, copy it to the correct directory:
+cp /path/to/lucidlink_3.2.6817_amd64.deb ../lucidlink-builds/
 ```
 
-**Important**: The Docker container expects this specific file at `backend/lucidlink_3.2.6817_amd64.deb`. The Dockerfile will install it during the build process.
+**Important**: Due to the Docker build context configuration, place the file in `../lucidlink-builds/` (parent directory of the cloned repository). The Dockerfile will find it there during the build process.
 
 ### 3. Configure Environment
 
@@ -148,8 +151,10 @@ REACT_APP_WS_URL=ws://YOUR_DOCKER_HOST_IP:3002
 # Start development environment with hot reload
 npm run dev
 
-# Or start production environment  
+# Or start production environment
 npm run prod:build
+# This is equivalent to:
+# docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
 
 # Verify deployment
 docker compose ps
@@ -249,6 +254,7 @@ For HTTPS access, generate self-signed certificates:
 # Generate SSL certificates with auto-detected host IP
 ./scripts/generate-ssl-cert.sh
 
+<<<<<<< HEAD
 # Or specify host IP manually
 SSL_HOST_IP=192.168.1.100 ./scripts/generate-ssl-cert.sh
 ```
@@ -285,7 +291,10 @@ The script generates:
 # Deploy without SSL (HTTP only)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-# Or deploy with HTTPS (recommended)
+# Or deploy with HTTPS (recommended for production)
+# First, place SSL certificates in ./ssl/ directory:
+# - sc-mgr.crt (certificate file)
+# - sc-mgr.key (private key file)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ssl.yml up -d
 
 # Verify all services are healthy

@@ -33,10 +33,14 @@ Thumbs.db
 logs/
 *.log
 
-# Database backups
+# Database backups (but allow schema files)
 backups/
-*.sql
+backup*.sql
+dump*.sql
 *.sql.gz
+
+# Allow essential schema files
+!backend/schema*.sql
 
 # Testing
 coverage/
