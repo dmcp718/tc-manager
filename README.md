@@ -265,9 +265,6 @@ The script generates:
 ### 3. Deploy Production Stack
 
 ```bash
-# Copy environment
-cp .env.production .env
-
 # Deploy without SSL (HTTP only)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
