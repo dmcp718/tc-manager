@@ -89,7 +89,7 @@ A production-ready file system browser and cache management system for LucidLink
 ### 1. Clone and Setup
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/dmcp718/sc-manager.git
 cd sc-manager
 cp .env.example .env
 ```
