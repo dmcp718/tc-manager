@@ -741,7 +741,7 @@ ELASTICSEARCH_SYNC_DELETIONS=true # Keep ES and PostgreSQL synchronized
 INDEX_ROOT_PATH=/media/lucidlink-1 # Ensure correct root path
 
 # Monitor indexing memory usage
-docker stats sc-browser-backend-1
+docker stats sc-mgr-backend-prod
 
 # Check indexing throughput
 curl http://localhost:3001/api/index/status
@@ -839,7 +839,7 @@ docker compose exec -i postgres psql -U sitecache_user -d sitecache_db < backup_
 tar -czf sitecache_backup_$(date +%Y%m%d).tar.gz \
   .env \
   docker-compose.yml \
-  $(docker volume inspect sc-browser_postgres_data --format '{{.Mountpoint}}')
+  $(docker volume inspect sc-manager_postgres_data --format '{{.Mountpoint}}')
 ```
 
 ## 🚀 API Reference
@@ -1158,7 +1158,7 @@ Connect to `ws://localhost:3002` for real-time updates:
    ```bash
    git fork <repository>
    git clone <your-fork>
-   cd sc-browser
+   cd sc-manager
    ```
 
 2. **Setup Development Environment**
