@@ -56,7 +56,7 @@ const WEBSOCKET_PORT = process.env.WEBSOCKET_PORT || 3002;
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increase limit for large file arrays
 
-// Request logging middleware
+// Request logging middleware - only log important endpoints
 app.use((req, res, next) => {
   const start = Date.now();
   const originalSend = res.send;
@@ -65,14 +65,28 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     const statusCode = res.statusCode;
     
-    logger.info('HTTP Request', {
-      method: req.method,
-      url: req.url,
-      statusCode,
-      duration: `${duration}ms`,
-      userAgent: req.get('User-Agent'),
-      ip: req.ip || req.connection.remoteAddress
-    });
+    // Only log specific important endpoints, not routine API calls
+    const importantEndpoints = [
+      '/api/auth/login',
+      '/api/jobs/cache',
+      '/api/index/start',
+      '/api/index/stop',
+      '/api/admin/users'
+    ];
+    
+    const shouldLog = importantEndpoints.some(endpoint => req.url.includes(endpoint)) ||
+                     statusCode >= 400; // Always log errors
+    
+    if (shouldLog) {
+      logger.info('HTTP Request', {
+        method: req.method,
+        url: req.url,
+        statusCode,
+        duration: `${duration}ms`,
+        userAgent: req.get('User-Agent'),
+        ip: req.ip || req.connection.remoteAddress
+      });
+    }
     
     originalSend.call(this, data);
   };
@@ -258,7 +272,11 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password required' });
     }
     
-    const userInfo = await authService.validateCredentials(username, password);
+    // Get client IP address
+    const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 
+                     (req.connection.socket ? req.connection.socket.remoteAddress : 'unknown');
+    
+    const userInfo = await authService.validateCredentials(username, password, clientIP);
     
     if (!userInfo) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -992,6 +1010,179 @@ app.get('/api/admin/system-info', authService.requireAuth, async (req, res) => {
   }
 });
 
+// Log viewing endpoints
+app.get('/api/admin/logs', authService.requireAuth, async (req, res) => {
+  try {
+    const { level = 'all', limit = 100, offset = 0, search = '', startDate, endDate } = req.query;
+    
+    const logDir = process.env.LOG_DIR || './logs';
+    const logFile = level === 'all' ? 'sitecache-all.log' : `sitecache-${level}.log`;
+    const logPath = path.join(logDir, logFile);
+    
+    if (!fsSync.existsSync(logPath)) {
+      return res.json({ logs: [], total: 0, hasMore: false });
+    }
+    
+    // Read log file
+    const logContent = fsSync.readFileSync(logPath, 'utf8');
+    const allLines = logContent.split('\n').filter(line => line.trim());
+    
+    // Parse and filter logs
+    let logs = [];
+    for (const line of allLines) {
+      try {
+        // Try to parse as JSON first
+        if (line.startsWith('{')) {
+          const logEntry = JSON.parse(line);
+          logs.push({
+            timestamp: logEntry.timestamp,
+            level: logEntry.level,
+            message: logEntry.message,
+            event: logEntry.event || 'general',
+            details: JSON.stringify(logEntry, null, 2),
+            raw: line
+          });
+        } else {
+          // Parse text format: timestamp [LEVEL] [PID:xxx] message
+          const match = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z) \[(\w+)\] \[PID:\d+\] (.+)$/);
+          if (match) {
+            const [, timestamp, level, message] = match;
+            logs.push({
+              timestamp,
+              level,
+              message,
+              event: 'general',
+              details: message,
+              raw: line
+            });
+          }
+        }
+      } catch (e) {
+        // Skip malformed log entries
+        continue;
+      }
+    }
+    
+    // Apply filters
+    if (search) {
+      const searchLower = search.toLowerCase();
+      logs = logs.filter(log => 
+        log.message.toLowerCase().includes(searchLower) ||
+        log.details.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    // Filter by log level or event category
+    if (level !== 'all') {
+      if (level === 'cache_jobs') {
+        // Filter for cache job related events
+        logs = logs.filter(log => 
+          log.event && (
+            log.event.includes('cache_job') ||
+            log.event.includes('cache-job')
+          )
+        );
+      } else if (level === 'index_jobs') {
+        // Filter for index job related events
+        logs = logs.filter(log => 
+          log.event && (
+            log.event.includes('index_job') ||
+            log.event.includes('index-job')
+          )
+        );
+      } else {
+        // Filter by standard log levels (info, warn, error)
+        logs = logs.filter(log => log.level.toLowerCase() === level.toLowerCase());
+      }
+    }
+    
+    if (startDate) {
+      logs = logs.filter(log => new Date(log.timestamp) >= new Date(startDate));
+    }
+    
+    if (endDate) {
+      logs = logs.filter(log => new Date(log.timestamp) <= new Date(endDate));
+    }
+    
+    // Sort by timestamp (newest first)
+    logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    
+    // Apply pagination
+    const total = logs.length;
+    const startIndex = parseInt(offset);
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedLogs = logs.slice(startIndex, endIndex);
+    
+    res.json({
+      logs: paginatedLogs,
+      total,
+      hasMore: endIndex < total,
+      level,
+      filters: { search, startDate, endDate, limit, offset }
+    });
+    
+  } catch (error) {
+    logger.error('Error reading logs', { error: error.message });
+    res.status(500).json({ error: 'Failed to read logs' });
+  }
+});
+
+app.get('/api/admin/logs/files', authService.requireAuth, async (req, res) => {
+  try {
+    const logDir = process.env.LOG_DIR || './logs';
+    
+    if (!fsSync.existsSync(logDir)) {
+      return res.json({ files: [] });
+    }
+    
+    const files = fsSync.readdirSync(logDir)
+      .filter(file => file.startsWith('sitecache-') && file.endsWith('.log'))
+      .map(file => {
+        const filePath = path.join(logDir, file);
+        const stats = fsSync.statSync(filePath);
+        return {
+          name: file,
+          size: stats.size,
+          modified: stats.mtime,
+          level: file.replace('sitecache-', '').replace('.log', '')
+        };
+      })
+      .sort((a, b) => b.modified - a.modified);
+    
+    res.json({ files });
+  } catch (error) {
+    logger.error('Error listing log files', { error: error.message });
+    res.status(500).json({ error: 'Failed to list log files' });
+  }
+});
+
+app.get('/api/admin/logs/export', authService.requireAuth, async (req, res) => {
+  try {
+    const { level = 'all', startDate, endDate } = req.query;
+    
+    const logDir = process.env.LOG_DIR || './logs';
+    const logFile = level === 'all' ? 'sitecache-all.log' : `sitecache-${level}.log`;
+    const logPath = path.join(logDir, logFile);
+    
+    if (!fsSync.existsSync(logPath)) {
+      return res.status(404).json({ error: 'Log file not found' });
+    }
+    
+    const fileName = `sitecache-logs-${level}-${new Date().toISOString().split('T')[0]}.log`;
+    
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    
+    // Stream the file to response
+    const readStream = fsSync.createReadStream(logPath);
+    readStream.pipe(res);
+    
+  } catch (error) {
+    logger.error('Error exporting logs', { error: error.message });
+    res.status(500).json({ error: 'Failed to export logs' });
+  }
+});
+
 // Admin system status endpoint
 app.get('/api/admin/system-status', authService.requireAuth, async (req, res) => {
   try {
@@ -1188,6 +1379,10 @@ app.post('/api/index/start', authService.requireAuth, async (req, res) => {
     const { path: indexPath } = req.body;
     const rootPath = indexPath || process.env.INDEX_ROOT_PATH || '/media/lucidlink-1';
     
+    // Get client IP and user info
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    const username = req.user?.username || 'unknown';
+    
     // Security check - only allow LucidLink mount
     const allowedPaths = (process.env.ALLOWED_PATHS || '/media/lucidlink-1').split(',');
     const isAllowed = allowedPaths.some(allowed => rootPath.startsWith(allowed.trim()));
@@ -1203,21 +1398,59 @@ app.post('/api/index/start', authService.requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Indexing is already in progress' });
     }
     
+    // Log index job creation
+    logger.info('Index files job created', {
+      event: 'index_job_created',
+      username,
+      clientIP,
+      rootPath,
+      timestamp: new Date().toISOString()
+    });
+    
     // Start indexing in background
     indexer.start(rootPath).catch(err => {
-      console.error('Indexing failed:', err);
+      logger.error('Index files job failed to start', {
+        event: 'index_job_failed',
+        username,
+        rootPath,
+        error: err.message,
+        timestamp: new Date().toISOString()
+      });
     });
     
     // Set up progress listeners
     indexer.on('progress', (data) => {
+      // Only log periodic progress updates (every 100 files or so)
+      if (data.processedFiles && data.processedFiles % 100 === 0) {
+        logger.info('Index files job progress', {
+          event: 'index_job_progress',
+          processedFiles: data.processedFiles,
+          totalFiles: data.totalFiles,
+          currentPath: data.currentPath,
+          timestamp: new Date().toISOString()
+        });
+      }
       broadcast({ type: 'index-progress', ...data });
     });
     
     indexer.on('complete', (data) => {
+      logger.info('Index files job completed', {
+        event: 'index_job_completed',
+        totalFiles: data.totalFiles,
+        processedFiles: data.processedFiles,
+        duration: data.duration,
+        timestamp: new Date().toISOString()
+      });
       broadcast({ type: 'index-complete', ...data });
     });
     
     indexer.on('error', (data) => {
+      logger.error('Index files job error', {
+        event: 'index_job_error',
+        error: data.error,
+        currentPath: data.currentPath,
+        timestamp: new Date().toISOString()
+      });
       broadcast({ type: 'index-error', ...data });
     });
     
@@ -1256,11 +1489,28 @@ app.get('/api/index/status', authService.requireAuth, async (req, res) => {
 
 app.post('/api/index/stop', authService.requireAuth, async (req, res) => {
   try {
+    // Get client IP and user info
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    const username = req.user?.username || 'unknown';
+    
     const indexer = getIndexer();
     await indexer.stop();
+    
+    // Log index job stop
+    logger.info('Index files job stopped', {
+      event: 'index_job_stopped',
+      username,
+      clientIP,
+      timestamp: new Date().toISOString()
+    });
+    
     res.json({ status: 'stopping' });
   } catch (error) {
-    console.error('Error stopping indexing:', error);
+    logger.error('Error stopping indexing', {
+      event: 'index_job_stop_error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
     res.status(500).json({ error: 'Failed to stop indexing' });
   }
 });
@@ -1592,30 +1842,60 @@ app.post('/api/jobs/cache', authService.requireAuth, async (req, res) => {
     const { filePaths, directories = [], profileName, profileId } = req.body;
     
     if (!filePaths || !Array.isArray(filePaths) || filePaths.length === 0) {
+      logger.warn('Cache job creation failed - no files provided', {
+        event: 'cache_job_invalid',
+        username: req.user?.username || 'unknown',
+        clientIP: req.ip || 'unknown',
+        timestamp: new Date().toISOString()
+      });
       return res.status(400).json({ error: 'File paths array required' });
     }
+    
+    // Get client IP and user info
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    const username = req.user?.username || 'unknown';
     
     // Get profile - by ID, by name, auto-match, or default
     let profile;
     if (profileId) {
       profile = await CacheJobProfileModel.findById(profileId);
-      console.log(`Using profile by ID: ${profile?.name}`);
+      logger.info(`Using profile by ID: ${profile?.name}`);
     } else if (profileName) {
       profile = await CacheJobProfileModel.findByName(profileName);
-      console.log(`Using profile by name: ${profile?.name}`);
+      logger.info(`Using profile by name: ${profile?.name}`);
     } else {
       // Auto-select best matching profile based on files
       profile = await CacheJobProfileModel.findBestMatch(filePaths);
-      console.log(`Auto-selected profile: ${profile?.name} for ${filePaths.length} files`);
+      logger.info(`Auto-selected profile: ${profile?.name} for ${filePaths.length} files`);
     }
     
     if (!profile) {
       profile = await CacheJobProfileModel.findDefault();
-      console.log(`Fallback to default profile: ${profile?.name}`);
+      logger.warn('No suitable cache profile found, using default', {
+        event: 'cache_job_profile_fallback',
+        username,
+        fileCount: filePaths.length,
+        profileRequested: profileName || profileId,
+        defaultProfile: profile?.name,
+        timestamp: new Date().toISOString()
+      });
     }
     
     // Create job in database with profile
     const job = await CacheJobModel.create(filePaths, directories, profile.id);
+    
+    // Log cache job creation
+    logger.info('Cache job created', {
+      event: 'cache_job_created',
+      jobId: job.id,
+      username,
+      clientIP,
+      fileCount: filePaths.length,
+      directoryCount: directories.length,
+      profileName: profile.name,
+      profileId: profile.id,
+      timestamp: new Date().toISOString()
+    });
     
     // Configure workers based on profile
     const cacheManager = getCacheWorkerManager();
@@ -2555,17 +2835,33 @@ async function startServer() {
     console.log('Setting up cache manager event listeners for WebSocket broadcasting');
     
     cacheManager.on('job-started', (data) => {
-      console.log('Cache manager job-started event received:', data);
+      logger.info('Cache job started', {
+        event: 'cache_job_started',
+        jobId: data.jobId,
+        timestamp: new Date().toISOString()
+      });
       broadcast({ type: 'cache-job-started', ...data });
     });
     
     cacheManager.on('job-completed', (data) => {
-      console.log('Cache manager job-completed event received:', data);
+      logger.info('Cache job completed', {
+        event: 'cache_job_completed',
+        jobId: data.jobId,
+        duration: data.duration,
+        totalFiles: data.totalFiles,
+        processedFiles: data.processedFiles,
+        timestamp: new Date().toISOString()
+      });
       broadcast({ type: 'cache-job-completed', ...data });
     });
     
     cacheManager.on('job-failed', (data) => {
-      console.log('Cache manager job-failed event received:', data);
+      logger.error('Cache job failed', {
+        event: 'cache_job_failed',
+        jobId: data.jobId,
+        error: data.error,
+        timestamp: new Date().toISOString()
+      });
       broadcast({ type: 'cache-job-failed', ...data });
     });
     

@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
+const logger = require('./logger');
 
 class AuthService {
   constructor() {
@@ -27,7 +28,7 @@ class AuthService {
     console.log(`Admin user initialized: ${this.adminUsername}`);
   }
 
-  async validateCredentials(username, password) {
+  async validateCredentials(username, password, clientIP = 'unknown') {
     try {
       // Try database first
       const result = await this.pool.query(
@@ -44,6 +45,16 @@ class AuthService {
             'UPDATE users SET last_login = NOW() WHERE username = $1',
             [username]
           );
+          
+          // Log successful login
+          logger.info('User login successful', {
+            event: 'auth_login_success',
+            username,
+            role: user.role,
+            clientIP,
+            timestamp: new Date().toISOString()
+          });
+          
           return { username, role: user.role };
         }
       }
@@ -56,13 +67,36 @@ class AuthService {
         
         const isValid = await bcrypt.compare(password, this.adminPasswordHash);
         if (isValid) {
+          // Log successful admin login
+          logger.info('Admin login successful', {
+            event: 'auth_login_success',
+            username,
+            role: 'admin',
+            clientIP,
+            timestamp: new Date().toISOString()
+          });
+          
           return { username, role: 'admin' };
         }
       }
       
+      // Log failed login attempt
+      logger.warn('Login attempt failed', {
+        event: 'auth_login_failed',
+        username,
+        clientIP,
+        timestamp: new Date().toISOString()
+      });
+      
       return false;
     } catch (error) {
-      console.error('Error validating credentials:', error);
+      logger.error('Error validating credentials', {
+        event: 'auth_error',
+        username,
+        clientIP,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
       return false;
     }
   }
@@ -144,7 +178,19 @@ class AuthService {
         RETURNING id, username, email, role, created_at
       `, [username, passwordHash, email, role]);
       
-      return result.rows[0];
+      const newUser = result.rows[0];
+      
+      // Log user creation
+      logger.info('User created', {
+        event: 'user_created',
+        userId: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        role: newUser.role,
+        timestamp: new Date().toISOString()
+      });
+      
+      return newUser;
     } catch (error) {
       console.error('Error creating user:', error);
       throw error;
@@ -165,7 +211,17 @@ class AuthService {
         throw new Error('User not found or already deleted');
       }
       
-      return result.rows[0];
+      const deletedUser = result.rows[0];
+      
+      // Log user deletion
+      logger.info('User deleted', {
+        event: 'user_deleted',
+        userId: deletedUser.id,
+        username: deletedUser.username,
+        timestamp: new Date().toISOString()
+      });
+      
+      return deletedUser;
     } catch (error) {
       console.error('Error deleting user:', error);
       throw error;

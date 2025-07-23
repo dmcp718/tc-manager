@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import TabNavigation from '../components/TabNavigation';
 import AdminTabNavigation from '../components/AdminTabNavigation';
 import Terminal from '../components/Terminal';
@@ -166,10 +166,113 @@ const styles = {
     fontSize: '14px',
     cursor: 'default',
   },
+  filterContainer: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'center',
+  },
+  searchInput: {
+    backgroundColor: '#2a2a2a',
+    color: '#e4e4e7',
+    border: '1px solid #3a3a3a',
+    borderRadius: '6px',
+    padding: '8px 12px',
+    fontSize: '14px',
+    minWidth: '200px',
+    outline: 'none',
+  },
+  filterSelect: {
+    backgroundColor: '#2a2a2a',
+    color: '#e4e4e7',
+    border: '1px solid #3a3a3a',
+    borderRadius: '6px',
+    padding: '8px 12px',
+    fontSize: '14px',
+    cursor: 'pointer',
+  },
+  logContainer: {
+    backgroundColor: '#111111',
+    border: '1px solid #2a2a2a',
+    borderRadius: '8px',
+    overflow: 'hidden',
+  },
+  logHeader: {
+    display: 'grid',
+    gridTemplateColumns: '150px 80px 120px 1fr',
+    gap: '16px',
+    padding: '12px 16px',
+    backgroundColor: '#2a2a2a',
+    borderBottom: '1px solid #3a3a3a',
+    fontSize: '12px',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    color: '#a1a1aa',
+  },
+  logHeaderItem: {
+    display: 'flex',
+    alignItems: 'center',
+  },
+  logEntries: {
+    maxHeight: '400px',
+    overflowY: 'auto',
+  },
+  logEntry: {
+    display: 'grid',
+    gridTemplateColumns: '150px 80px 120px 1fr',
+    gap: '16px',
+    padding: '12px 16px',
+    borderBottom: '1px solid #2a2a2a',
+    fontSize: '14px',
+    alignItems: 'center',
+  },
+  logTime: {
+    color: '#a1a1aa',
+    fontFamily: 'monospace',
+    fontSize: '13px',
+  },
+  logLevel: {
+    padding: '2px 8px',
+    borderRadius: '12px',
+    fontSize: '11px',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  logLevelInfo: {
+    backgroundColor: '#1e40af',
+    color: '#ffffff',
+  },
+  logLevelWarn: {
+    backgroundColor: '#d97706',
+    color: '#ffffff',
+  },
+  logLevelError: {
+    backgroundColor: '#dc2626',
+    color: '#ffffff',
+  },
+  logEvent: {
+    color: '#e4e4e7',
+    fontWeight: '500',
+  },
+  logDetails: {
+    color: '#a1a1aa',
+    fontSize: '13px',
+  },
 };
 
 const AdminView = ({ user, onLogout }) => {
   const [activeAdminTab, setActiveAdminTab] = useState('sitecache');
+  
+  // Logs state
+  const [logs, setLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState(null);
+  const [logFilters, setLogFilters] = useState({
+    level: 'all',
+    timeRange: '24h',
+    search: '',
+    limit: 50,
+    offset: 0
+  });
   const [systemStatus, setSystemStatus] = useState({
     lucidSiteCache: {
       status: 'checking...',
@@ -199,6 +302,9 @@ const AdminView = ({ user, onLogout }) => {
     email: '',
     role: 'user'
   });
+  
+  // Debounce timer for search
+  const searchTimeoutRef = useRef(null);
 
   const fetchSystemStatus = async () => {
     try {
@@ -287,7 +393,13 @@ const AdminView = ({ user, onLogout }) => {
     fetchSystemStatus();
     // Refresh status every 30 seconds
     const interval = setInterval(fetchSystemStatus, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      // Cleanup search timeout
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -298,6 +410,10 @@ const AdminView = ({ user, onLogout }) => {
     // Fetch users when Users tab is active
     if (activeAdminTab === 'users') {
       fetchUsers();
+    }
+    // Fetch logs when Logs tab is active
+    if (activeAdminTab === 'logs') {
+      fetchLogs();
     }
   }, [activeAdminTab]);
 
@@ -321,6 +437,74 @@ const AdminView = ({ user, onLogout }) => {
       console.error('Error fetching users:', error);
     } finally {
       setUsersLoading(false);
+    }
+  };
+
+  // Fetch logs from API
+  const fetchLogs = async (filters = logFilters) => {
+    setLogsLoading(true);
+    setLogsError(null);
+    
+    try {
+      const apiURL = process.env.REACT_APP_API_URL || '/api';
+      const params = new URLSearchParams({
+        level: filters.level,
+        limit: filters.limit.toString(),
+        offset: filters.offset.toString()
+      });
+      
+      // Convert timeRange to startDate
+      if (filters.timeRange !== 'all') {
+        const now = new Date();
+        let hoursBack = 24;
+        if (filters.timeRange === '7d') hoursBack = 24 * 7;
+        else if (filters.timeRange === '30d') hoursBack = 24 * 30;
+        
+        const startDate = new Date(now - hoursBack * 60 * 60 * 1000);
+        params.append('startDate', startDate.toISOString());
+      }
+      
+      if (filters.search) {
+        params.append('search', filters.search);
+      }
+      
+      const response = await fetch(`${apiURL}/admin/logs?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch logs: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setLogs(data.logs || []);
+    } catch (error) {
+      console.error('Error fetching logs:', error);
+      setLogsError(error.message);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  // Handle log filter changes
+  const handleLogFilterChange = (key, value) => {
+    const newFilters = { ...logFilters, [key]: value, offset: 0 };
+    setLogFilters(newFilters);
+    
+    // For search, debounce the API call to avoid excessive requests
+    if (key === 'search') {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+      searchTimeoutRef.current = setTimeout(() => {
+        fetchLogs(newFilters);
+      }, 500); // Wait 500ms after user stops typing
+    } else {
+      // For other filters, fetch immediately
+      fetchLogs(newFilters);
     }
   };
 
@@ -795,6 +979,132 @@ const AdminView = ({ user, onLogout }) => {
               </div>
             </div>
           </>
+        );
+      
+      case 'logs':
+        return (
+          <div style={styles.statusCard}>
+            <div style={styles.statusTitle}>
+              <InfoIcon size={18} color="#ffffff" />
+              Application Logs
+            </div>
+            <div style={styles.statusContent}>
+              <div style={{ marginBottom: '20px' }}>
+                <div style={styles.filterContainer}>
+                  <input
+                    type="text"
+                    placeholder="Search logs..."
+                    style={styles.searchInput}
+                    value={logFilters.search}
+                    onChange={(e) => handleLogFilterChange('search', e.target.value)}
+                  />
+                  <select 
+                    style={styles.filterSelect}
+                    value={logFilters.level}
+                    onChange={(e) => handleLogFilterChange('level', e.target.value)}
+                  >
+                    <option value="all">All Logs</option>
+                    <option value="info">Info</option>
+                    <option value="warn">Warnings</option>
+                    <option value="error">Errors</option>
+                    <option value="cache_jobs">Cache Jobs</option>
+                    <option value="index_jobs">Index Jobs</option>
+                  </select>
+                  <select 
+                    style={styles.filterSelect}
+                    value={logFilters.timeRange}
+                    onChange={(e) => handleLogFilterChange('timeRange', e.target.value)}
+                  >
+                    <option value="24h">Last 24 hours</option>
+                    <option value="7d">Last 7 days</option>
+                    <option value="30d">Last 30 days</option>
+                  </select>
+                  <button 
+                    style={styles.refreshButton}
+                    onClick={() => fetchLogs()}
+                    disabled={logsLoading}
+                  >
+                    {logsLoading ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+              </div>
+              
+              {logsError && (
+                <div style={{ 
+                  color: '#ef4444', 
+                  marginBottom: '16px', 
+                  padding: '12px',
+                  backgroundColor: '#1f1f1f',
+                  borderRadius: '6px',
+                  border: '1px solid #dc2626'
+                }}>
+                  Error loading logs: {logsError}
+                </div>
+              )}
+              
+              <div style={styles.logContainer}>
+                <div style={styles.logHeader}>
+                  <span style={styles.logHeaderItem}>Time</span>
+                  <span style={styles.logHeaderItem}>Level</span>
+                  <span style={styles.logHeaderItem}>Event</span>
+                  <span style={styles.logHeaderItem}>Details</span>
+                </div>
+                
+                <div style={styles.logEntries}>
+                  {logsLoading ? (
+                    <div style={{ 
+                      padding: '40px', 
+                      textAlign: 'center', 
+                      color: '#a1a1aa' 
+                    }}>
+                      Loading logs...
+                    </div>
+                  ) : logs.length === 0 ? (
+                    <div style={{ 
+                      padding: '40px', 
+                      textAlign: 'center', 
+                      color: '#a1a1aa' 
+                    }}>
+                      No logs found for the selected filters.
+                    </div>
+                  ) : (
+                    logs.map((log, index) => (
+                      <div key={index} style={styles.logEntry}>
+                        <span style={styles.logTime}>
+                          {new Date(log.timestamp).toLocaleString()}
+                        </span>
+                        <span style={{
+                          ...styles.logLevel,
+                          ...(log.level === 'INFO' ? styles.logLevelInfo :
+                              log.level === 'WARN' ? styles.logLevelWarn :
+                              log.level === 'ERROR' ? styles.logLevelError : styles.logLevelInfo)
+                        }}>
+                          {log.level}
+                        </span>
+                        <span style={styles.logEvent}>
+                          {log.event === 'auth_login_success' ? 'User Login' :
+                           log.event === 'auth_login_failed' ? 'Auth Failed' :
+                           log.event === 'cache_job_created' ? 'Cache Job' :
+                           log.event === 'cache_job_started' ? 'Job Started' :
+                           log.event === 'cache_job_completed' ? 'Job Complete' :
+                           log.event === 'index_job_created' ? 'Index Files' :
+                           log.event === 'index_job_completed' ? 'Index Complete' :
+                           log.event === 'index_job_stopped' ? 'Index Stopped' :
+                           log.event === 'index_job_progress' ? 'Index Progress' :
+                           log.event === 'user_created' ? 'User Created' :
+                           log.event === 'user_deleted' ? 'User Deleted' :
+                           'System'}
+                        </span>
+                        <span style={styles.logDetails} title={log.details}>
+                          {log.message}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         );
       
       case 'terminal':
