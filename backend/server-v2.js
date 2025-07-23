@@ -257,18 +257,18 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password required' });
     }
     
-    const isValid = await authService.validateCredentials(username, password);
+    const userInfo = await authService.validateCredentials(username, password);
     
-    if (!isValid) {
+    if (!userInfo) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
-    const token = authService.generateToken(username);
+    const token = authService.generateToken(userInfo.username, userInfo.role);
     
     res.json({
       success: true,
       token,
-      user: { username, role: 'admin' }
+      user: { username: userInfo.username, role: userInfo.role }
     });
     
   } catch (error) {
@@ -1076,6 +1076,108 @@ app.get('/api/admin/system-status', authService.requireAuth, async (req, res) =>
   } catch (error) {
     console.error('Error getting system status:', error);
     res.status(500).json({ error: 'Failed to get system status' });
+  }
+});
+
+// User Management endpoints
+app.get('/api/admin/users', authService.requireAuth, async (req, res) => {
+  try {
+    // Only admin users can manage users
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const users = await authService.getAllUsers();
+    res.json(users);
+  } catch (error) {
+    console.error('Error getting users:', error);
+    res.status(500).json({ error: 'Failed to retrieve users' });
+  }
+});
+
+app.post('/api/admin/users', authService.requireAuth, async (req, res) => {
+  try {
+    // Only admin users can create users
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { username, password, email, role } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+    
+    if (role && !['admin', 'user'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role. Must be admin or user' });
+    }
+    
+    const newUser = await authService.createUser(username, password, email, role || 'user');
+    res.status(201).json(newUser);
+  } catch (error) {
+    console.error('Error creating user:', error);
+    if (error.message === 'Username already exists') {
+      return res.status(409).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+app.delete('/api/admin/users/:id', authService.requireAuth, async (req, res) => {
+  try {
+    // Only admin users can delete users
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+    
+    // Prevent admin from deleting themselves
+    const currentUser = await authService.getUserById(userId);
+    if (currentUser && currentUser.username === req.user.username) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+    
+    const deletedUser = await authService.deleteUser(userId);
+    res.json({ message: 'User deleted successfully', user: deletedUser });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    if (error.message === 'User not found or already deleted') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+app.put('/api/admin/users/:id/password', authService.requireAuth, async (req, res) => {
+  try {
+    // Only admin users can change passwords
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const userId = parseInt(req.params.id);
+    const { password } = req.body;
+    
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+    
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+    
+    const updatedUser = await authService.updateUserPassword(userId, password);
+    res.json({ message: 'Password updated successfully', user: updatedUser });
+  } catch (error) {
+    console.error('Error updating user password:', error);
+    if (error.message === 'User not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Failed to update password' });
   }
 });
 

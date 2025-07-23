@@ -187,6 +187,17 @@ const AdminView = ({ user, onLogout }) => {
     storage: [],
     loading: true,
   });
+  
+  // User management state
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [newUser, setNewUser] = useState({
+    username: '',
+    password: '',
+    email: '',
+    role: 'user'
+  });
 
   const fetchSystemStatus = async () => {
     try {
@@ -283,7 +294,91 @@ const AdminView = ({ user, onLogout }) => {
     if (activeAdminTab === 'system') {
       fetchSystemInfo();
     }
+    // Fetch users when Users tab is active
+    if (activeAdminTab === 'users') {
+      fetchUsers();
+    }
   }, [activeAdminTab]);
+
+  const fetchUsers = async () => {
+    try {
+      setUsersLoading(true);
+      const apiURL = process.env.REACT_APP_API_URL || '/api';
+      const response = await fetch(`${apiURL}/admin/users`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+      });
+
+      if (response.ok) {
+        const usersData = await response.json();
+        setUsers(usersData);
+      } else {
+        throw new Error('Failed to fetch users');
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    
+    if (!newUser.username || !newUser.password) {
+      alert('Username and password are required');
+      return;
+    }
+
+    try {
+      const apiURL = process.env.REACT_APP_API_URL || '/api';
+      const response = await fetch(`${apiURL}/admin/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+        body: JSON.stringify(newUser),
+      });
+
+      if (response.ok) {
+        await fetchUsers(); // Refresh user list
+        setShowCreateUser(false);
+        setNewUser({ username: '', password: '', email: '', role: 'user' });
+      } else {
+        const error = await response.json();
+        alert(`Error creating user: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error creating user:', error);
+      alert('Error creating user');
+    }
+  };
+
+  const handleDeleteUser = async (userId, username) => {
+    if (window.confirm(`Are you sure you want to delete user "${username}"?`)) {
+      try {
+        const apiURL = process.env.REACT_APP_API_URL || '/api';
+        const response = await fetch(`${apiURL}/admin/users/${userId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          },
+        });
+
+        if (response.ok) {
+          await fetchUsers(); // Refresh user list
+        } else {
+          const error = await response.json();
+          alert(`Error deleting user: ${error.error}`);
+        }
+      } catch (error) {
+        console.error('Error deleting user:', error);
+        alert('Error deleting user');
+      }
+    }
+  };
 
   const formatSince = (since) => {
     if (!since) return 'unknown';
@@ -393,17 +488,235 @@ const AdminView = ({ user, onLogout }) => {
       
       case 'users':
         return (
-          <div style={styles.statusCard}>
-            <div style={styles.statusTitle}>
-              <InfoIcon size={18} color="#ffffff" />
-              User Management
+          <>
+            <div style={styles.statusCard}>
+              <div style={styles.statusTitle}>
+                <InfoIcon size={18} color="#ffffff" />
+                User Management
+                <button 
+                  style={{
+                    ...styles.refreshButton,
+                    marginLeft: 'auto',
+                    opacity: usersLoading ? 0.7 : 1,
+                  }}
+                  onClick={() => setShowCreateUser(true)}
+                  disabled={usersLoading}
+                >
+                  + Add User
+                </button>
+              </div>
+              <div style={styles.statusContent}>
+                {usersLoading ? (
+                  <p style={{ color: '#a1a1aa', fontSize: '14px' }}>Loading users...</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #3a3a3a' }}>
+                        <th style={{ textAlign: 'left', padding: '8px', color: '#a1a1aa' }}>Username</th>
+                        <th style={{ textAlign: 'left', padding: '8px', color: '#a1a1aa' }}>Email</th>
+                        <th style={{ textAlign: 'left', padding: '8px', color: '#a1a1aa' }}>Role</th>
+                        <th style={{ textAlign: 'left', padding: '8px', color: '#a1a1aa' }}>Created</th>
+                        <th style={{ textAlign: 'left', padding: '8px', color: '#a1a1aa' }}>Last Login</th>
+                        <th style={{ textAlign: 'left', padding: '8px', color: '#a1a1aa' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map((userItem) => (
+                        <tr key={userItem.id} style={{ borderBottom: '1px solid #2a2a2a' }}>
+                          <td style={{ padding: '8px', color: '#e4e4e7', fontFamily: 'monospace', fontWeight: userItem.username === user?.username ? 'bold' : 'normal' }}>
+                            {userItem.username}
+                            {userItem.username === user?.username && ' (you)'}
+                          </td>
+                          <td style={{ padding: '8px', color: '#e4e4e7' }}>{userItem.email || '-'}</td>
+                          <td style={{ padding: '8px', color: userItem.role === 'admin' ? '#f59e0b' : '#6b7280' }}>
+                            {userItem.role}
+                          </td>
+                          <td style={{ padding: '8px', color: '#a1a1aa', fontSize: '12px' }}>
+                            {userItem.created_at ? new Date(userItem.created_at).toLocaleDateString() : '-'}
+                          </td>
+                          <td style={{ padding: '8px', color: '#a1a1aa', fontSize: '12px' }}>
+                            {userItem.last_login ? new Date(userItem.last_login).toLocaleDateString() : 'Never'}
+                          </td>
+                          <td style={{ padding: '8px' }}>
+                            {userItem.username !== user?.username && (
+                              <button
+                                onClick={() => handleDeleteUser(userItem.id, userItem.username)}
+                                style={{
+                                  backgroundColor: '#dc2626',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  padding: '4px 8px',
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                
+                {users.length === 0 && !usersLoading && (
+                  <p style={{ color: '#a1a1aa', fontSize: '14px', textAlign: 'center', marginTop: '20px' }}>
+                    No users found
+                  </p>
+                )}
+              </div>
             </div>
-            <div style={styles.statusContent}>
-              <p style={{ color: '#a1a1aa', fontSize: '14px' }}>
-                User management features coming soon...
-              </p>
-            </div>
-          </div>
+
+            {/* Create User Modal */}
+            {showCreateUser && (
+              <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+              }}>
+                <div style={{
+                  backgroundColor: '#1a1a1a',
+                  border: '1px solid #3a3a3a',
+                  borderRadius: '8px',
+                  padding: '24px',
+                  width: '400px',
+                  maxWidth: '90vw',
+                }}>
+                  <h3 style={{ color: '#ffffff', marginTop: 0, marginBottom: '20px' }}>Create New User</h3>
+                  
+                  <form onSubmit={handleCreateUser}>
+                    <div style={{ marginBottom: '16px' }}>
+                      <label style={{ display: 'block', color: '#a1a1aa', marginBottom: '4px', fontSize: '14px' }}>
+                        Username *
+                      </label>
+                      <input
+                        type="text"
+                        value={newUser.username}
+                        onChange={(e) => setNewUser(prev => ({ ...prev, username: e.target.value }))}
+                        style={{
+                          width: '100%',
+                          padding: '8px',
+                          backgroundColor: '#2a2a2a',
+                          border: '1px solid #3a3a3a',
+                          borderRadius: '4px',
+                          color: '#e4e4e7',
+                          fontSize: '14px',
+                        }}
+                        required
+                      />
+                    </div>
+                    
+                    <div style={{ marginBottom: '16px' }}>
+                      <label style={{ display: 'block', color: '#a1a1aa', marginBottom: '4px', fontSize: '14px' }}>
+                        Password *
+                      </label>
+                      <input
+                        type="password"
+                        value={newUser.password}
+                        onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))}
+                        style={{
+                          width: '100%',
+                          padding: '8px',
+                          backgroundColor: '#2a2a2a',
+                          border: '1px solid #3a3a3a',
+                          borderRadius: '4px',
+                          color: '#e4e4e7',
+                          fontSize: '14px',
+                        }}
+                        required
+                      />
+                    </div>
+                    
+                    <div style={{ marginBottom: '16px' }}>
+                      <label style={{ display: 'block', color: '#a1a1aa', marginBottom: '4px', fontSize: '14px' }}>
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={newUser.email}
+                        onChange={(e) => setNewUser(prev => ({ ...prev, email: e.target.value }))}
+                        style={{
+                          width: '100%',
+                          padding: '8px',
+                          backgroundColor: '#2a2a2a',
+                          border: '1px solid #3a3a3a',
+                          borderRadius: '4px',
+                          color: '#e4e4e7',
+                          fontSize: '14px',
+                        }}
+                      />
+                    </div>
+                    
+                    <div style={{ marginBottom: '24px' }}>
+                      <label style={{ display: 'block', color: '#a1a1aa', marginBottom: '4px', fontSize: '14px' }}>
+                        Role
+                      </label>
+                      <select
+                        value={newUser.role}
+                        onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value }))}
+                        style={{
+                          width: '100%',
+                          padding: '8px',
+                          backgroundColor: '#2a2a2a',
+                          border: '1px solid #3a3a3a',
+                          borderRadius: '4px',
+                          color: '#e4e4e7',
+                          fontSize: '14px',
+                        }}
+                      >
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+                    
+                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateUser(false);
+                          setNewUser({ username: '', password: '', email: '', role: 'user' });
+                        }}
+                        style={{
+                          backgroundColor: '#374151',
+                          color: '#e4e4e7',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '8px 16px',
+                          fontSize: '14px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        style={{
+                          backgroundColor: '#3b82f6',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '8px 16px',
+                          fontSize: '14px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Create User
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+          </>
         );
       
       case 'sitecache':
