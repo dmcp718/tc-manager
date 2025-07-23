@@ -136,9 +136,11 @@ services:
     # Add host machine access (for LucidLink API)
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # LucidLink FUSE filesystem requirements
+    # LucidLink FUSE filesystem requirements and host system access
     cap_add:
       - SYS_ADMIN
+    pid: host
+    privileged: true
     devices:
       - "/dev/fuse"
     security_opt:

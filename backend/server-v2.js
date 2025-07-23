@@ -9,6 +9,7 @@ const fsSync = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
+const pty = require('node-pty');
 
 // Import logger
 const logger = require('./logger');
@@ -2375,16 +2376,152 @@ app.get('/api/video/stream/:cacheKey', authService.requireAuth, async (req, res)
 });
 
 // WebSocket connection handling
-wss.on('connection', (ws) => {
+// Terminal session management
+const terminalSessions = new Map();
+
+wss.on('connection', (ws, req) => {
   console.log('Client connected to WebSocket');
   
-  ws.on('close', () => {
-    console.log('Client disconnected from WebSocket');
-  });
+  // Check if this is a terminal connection
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const isTerminalConnection = url.pathname === '/terminal';
   
-  // Send current jobs on connection
-  ws.send(JSON.stringify({ type: 'connection-established' }));
+  if (isTerminalConnection) {
+    handleTerminalConnection(ws);
+  } else {
+    // Regular WebSocket connection
+    ws.on('close', () => {
+      console.log('Client disconnected from WebSocket');
+    });
+    
+    // Send current jobs on connection
+    ws.send(JSON.stringify({ type: 'connection-established' }));
+  }
 });
+
+function handleTerminalConnection(ws) {
+  console.log('Terminal connection established');
+  
+  let ptyProcess = null;
+  const sessionId = uuidv4();
+  
+  try {
+    // With privileged container, we can use nsenter to access host
+    const hostIP = process.env.SERVER_HOST || 'host.docker.internal';
+    
+    // Try nsenter first, fallback to container shell if it fails
+    command = 'bash';
+    args = [
+      '-c',
+      `# Try to enter host namespace with nsenter
+if nsenter --target 1 --mount --uts --ipc --net --pid -- /bin/bash -c 'echo "Successfully connected to host system" && hostname && exec /bin/bash'; then
+  # Success - we're in the host namespace
+  exit 0
+else
+  # Fallback to container shell with instructions
+  echo "==================================================================="
+  echo "Could not access host namespace directly."
+  echo "Terminal connected to Docker container instead."
+  echo ""
+  echo "Container hostname: $(hostname)"
+  echo ""
+  echo "To access the host system, you can:"
+  echo "1. SSH to host: ssh root@${hostIP}"
+  echo "2. Run: docker exec -it <host-container> bash"
+  echo ""
+  echo "For full host access, ensure container is running with:"
+  echo "  - privileged: true"
+  echo "  - pid: host"
+  echo "==================================================================="
+  echo ""
+  exec bash --rcfile <(echo 'PS1="[CONTAINER] \\u@\\h:\\w# "')
+fi`
+    ];
+    options = {
+      name: 'xterm-color',
+      cols: 80,
+      rows: 24,
+      cwd: '/root',
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color',
+        HOST_IP: hostIP
+      }
+    };
+    
+    ptyProcess = pty.spawn(command, args, options);
+    
+    terminalSessions.set(sessionId, {
+      ptyProcess,
+      ws,
+      created: new Date()
+    });
+    
+    console.log(`Terminal session ${sessionId} created with PID ${ptyProcess.pid}`);
+    
+    // Handle terminal output - send to client
+    ptyProcess.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'terminal-output',
+          data: data
+        }));
+      }
+    });
+    
+    // Handle terminal exit
+    ptyProcess.onExit((exitCode, signal) => {
+      console.log(`Terminal session ${sessionId} exited with code ${exitCode}, signal ${signal}`);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'terminal-exit',
+          exitCode,
+          signal
+        }));
+      }
+      terminalSessions.delete(sessionId);
+    });
+    
+    // Handle client messages (terminal input)
+    ws.on('message', (message) => {
+      try {
+        const data = JSON.parse(message);
+        
+        if (data.type === 'terminal-input' && ptyProcess) {
+          ptyProcess.write(data.data);
+        } else if (data.type === 'terminal-resize' && ptyProcess) {
+          ptyProcess.resize(data.cols || 80, data.rows || 24);
+        }
+      } catch (error) {
+        console.error('Error handling terminal message:', error);
+      }
+    });
+    
+    // Handle client disconnect
+    ws.on('close', () => {
+      console.log(`Terminal session ${sessionId} client disconnected`);
+      if (ptyProcess) {
+        ptyProcess.kill();
+      }
+      terminalSessions.delete(sessionId);
+    });
+    
+    // Send initial connection confirmation
+    ws.send(JSON.stringify({
+      type: 'terminal-ready',
+      sessionId: sessionId
+    }));
+    
+  } catch (error) {
+    console.error('Error creating terminal session:', error);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'terminal-error',
+        error: error.message
+      }));
+    }
+  }
+}
 
 // Initialize database connection and start server
 async function startServer() {

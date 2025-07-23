@@ -74,9 +74,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # LucidLink FUSE filesystem requirements
+    # LucidLink FUSE filesystem requirements and host system access
     cap_add:
       - SYS_ADMIN
+    pid: host
+    privileged: true
 
   # Frontend with volume mount for hot reload
   frontend:

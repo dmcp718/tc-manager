@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TabNavigation from '../components/TabNavigation';
 import AdminTabNavigation from '../components/AdminTabNavigation';
+import Terminal from '../components/Terminal';
 
 // Outline icons matching the app's design style
 const WrenchIcon = ({ size = 16, color = 'currentColor' }) => (
@@ -797,19 +798,7 @@ const AdminView = ({ user, onLogout }) => {
         );
       
       case 'terminal':
-        return (
-          <div style={styles.statusCard}>
-            <div style={styles.statusTitle}>
-              <InfoIcon size={18} color="#ffffff" />
-              Terminal
-            </div>
-            <div style={styles.statusContent}>
-              <p style={{ color: '#a1a1aa', fontSize: '14px' }}>
-                Terminal interface coming soon...
-              </p>
-            </div>
-          </div>
-        );
+        return <Terminal user={user} />;
       
       default:
         return null;
