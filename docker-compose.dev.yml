@@ -10,20 +10,21 @@ services:
       target: development
     container_name: sc-mgr-backend-dev
     user: root
-    network_mode: host  # Use host networking to access LucidLink API
+    env_file:
+      - ./.env.development.local
     volumes:
       # Mount source code for live reload
       - ./backend:/app
       - /app/node_modules  # Anonymous volume for node_modules
       - backend_logs:/app/logs
-      - ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}:/media/lucidlink-1
+      # LucidLink mount point will be created by container daemon
       - varnish_stats:/data
       - ${PREVIEW_CACHE_HOST_PATH:-./data/previews}:/app/preview-cache  # Persistent preview cache
     environment:
       NODE_ENV: development
       PREVIEW_CACHE_DIR: /app/preview-cache
       PORT: 3001
-      DB_HOST: localhost  # Use localhost with host networking
+      DB_HOST: postgres  # Use service name with bridge networking
       DB_PORT: 5432
       DB_NAME: sitecache_db
       DB_USER: sitecache_user
@@ -35,23 +36,25 @@ services:
       ENABLE_NETWORK_STATS: "false"
       ENABLE_LUCIDLINK_STATS: "true"
       LUCIDLINK_COMMAND: /usr/local/bin/lucid
-      LUCIDLINK_FILESPACE: ${LUCIDLINK_FILESPACE:-}
-      LUCIDLINK_USER: ${LUCIDLINK_USER:-}
-      LUCIDLINK_PASSWORD: ${LUCIDLINK_PASSWORD:-}
       LUCIDLINK_MOUNT_POINT: /media/lucidlink-1
       UV_THREADPOOL_SIZE: 16
       NODE_OPTIONS: "--max-old-space-size=1536"
       CACHE_WORKER_COUNT: 2
       MAX_CONCURRENT_FILES: 5
       WORKER_POLL_INTERVAL: 2000
-      ELASTICSEARCH_HOST: localhost  # Use localhost with host networking
+      ELASTICSEARCH_HOST: elasticsearch  # Use service name with bridge networking
       ELASTICSEARCH_PORT: 9200
       ELASTICSEARCH_INDEX: sitecache-files
       JWT_SECRET: dev-secret-key-change-in-production
       JWT_EXPIRY: 8h
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: admin123
-      LUCIDLINK_API_HOST: host.docker.internal
+      # LucidLink Configuration - Same as production
+      LUCIDLINK_API_HOST: 127.0.0.1
+      LUCIDLINK_FILESPACE: ${LUCIDLINK_FILESPACE:-}
+      LUCIDLINK_USER: ${LUCIDLINK_USER:-}
+      LUCIDLINK_PASSWORD: ${LUCIDLINK_PASSWORD:-}
+      LUCID_S3_PROXY: ${LUCID_S3_PROXY:-}
       # RUI Configuration
       ENABLE_RUI: "true"
       RUI_SCAN_INTERVAL: 30000
@@ -60,12 +63,17 @@ services:
       RUI_MAX_CONCURRENT_MONITORS: 10
       LUCIDLINK_API_PORT: 9780
       # Redis connection for media preview service
-      REDIS_URL: redis://127.0.0.1:6379
-    command: npm run dev  # We'll add this script
-    # Ports not needed with host networking - uses host ports directly
+      REDIS_URL: redis://redis:6379
+    command: ["./start-lucidlink.sh", "npm", "run", "dev"]
+    ports:
+      - "3001:3001"  # Backend API port
+      - "3002:3002"  # WebSocket port
     depends_on:
       postgres:
         condition: service_healthy
+    # LucidLink FUSE filesystem requirements
+    cap_add:
+      - SYS_ADMIN
 
   # Frontend with volume mount for hot reload
   frontend:
@@ -82,8 +90,9 @@ services:
       - ./frontend/package.json:/app/package.json
       - /app/node_modules  # Anonymous volume for node_modules
     environment:
-      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:3001/api}
-      REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:3002}
+      REACT_APP_API_URL: /api
+      # WebSocket URL uses SERVER_HOST - set in .env.development.local to your machine's IP
+      REACT_APP_WS_URL: ws://${SERVER_HOST:-localhost}:3002
       REACT_APP_LUCIDLINK_MOUNT_POINT: /media/lucidlink-1
       CHOKIDAR_USEPOLLING: "true"  # For file watching in Docker
       FAST_REFRESH: "true"
