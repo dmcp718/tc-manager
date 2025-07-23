@@ -6,6 +6,8 @@ class LucidLinkStatsWorker extends EventEmitter {
     super();
     this.lucidCommand = options.lucidCommand || '/usr/local/bin/lucid';
     this.pollInterval = options.pollInterval || 1000; // Default 1 second
+    this.includeGetTime = options.includeGetTime !== false; // Default to true
+    this.restEndpoint = options.restEndpoint || null; // Optional REST endpoint for remote daemon
     this.isRunning = false;
     this.childProcess = null;
     this.lastValue = 0;
@@ -17,7 +19,11 @@ class LucidLinkStatsWorker extends EventEmitter {
     }
 
     this.isRunning = true;
-    console.log(`Starting LucidLink stats monitoring with command: ${this.lucidCommand} perf --seconds 1 --objectstore getBytes`);
+    const metrics = this.includeGetTime ? 'getBytes,getTime' : 'getBytes';
+    const commandStr = this.restEndpoint 
+      ? `${this.lucidCommand} --rest-endpoint ${this.restEndpoint} perf --objectstore ${metrics} --seconds 1`
+      : `${this.lucidCommand} perf --objectstore ${metrics} --seconds 1`;
+    console.log(`Starting LucidLink stats monitoring with command: ${commandStr}`);
     this.startStreamingStats();
   }
 
@@ -47,9 +53,15 @@ class LucidLinkStatsWorker extends EventEmitter {
       }
       
       // Spawn continuous lucid perf command
-      this.childProcess = spawn(this.lucidCommand, [
-        'perf', '--seconds', '1', '--objectstore', 'getBytes'
-      ]);
+      const metrics = this.includeGetTime ? 'getBytes,getTime' : 'getBytes';
+      const args = ['perf', '--objectstore', metrics, '--seconds', '1'];
+      
+      // Add REST endpoint if specified (for connecting to remote daemon)
+      if (this.restEndpoint) {
+        args.unshift('--rest-endpoint', this.restEndpoint);
+      }
+      
+      this.childProcess = spawn(this.lucidCommand, args);
 
       let buffer = '';
 
@@ -108,23 +120,28 @@ class LucidLinkStatsWorker extends EventEmitter {
   processLine(line) {
     try {
       // Skip header lines and empty lines
-      if (!line || line.includes('--') || line.includes('currentDateAndTimeUTC') || line.includes('getBytes')) {
+      if (!line || line.includes('--') || line.includes('currentDateAndTimeUTC') || line.includes('getBytes') || line.includes('getTime')) {
         return;
       }
       
-      // Parse the table format: "2025-07-13T02:14:12Z   0B/s"
-      // Split by whitespace and get the last column
+      // Parse the objectstore-specific format:
+      // currentDateAndTimeUTC  getBytes    getTime     
+      // Index:                 0          1           2
       const columns = line.trim().split(/\s+/);
       if (columns.length >= 2) {
-        const valueStr = columns[columns.length - 1]; // Last column contains the value
+        const timestamp = columns[0];
+        const getBytesStr = columns[1]; // getBytes column (objectstore throughput)
+        const getTimeStr = this.includeGetTime && columns.length >= 3 ? columns[2] : null;  // getTime column (objectstore latency)
         
-        // Parse different formats: "0B/s", "1.5MB/s", "500KB/s", "2.3GB/s", "44.90MiB/s"
-        const match = valueStr.match(/^([\d.]+)\s*([KMGT]?)(i?)B\/s$/i);
+        let getMibps = 0;
+        let getTimeMs = 0;
         
-        if (match) {
-          const value = parseFloat(match[1]);
-          const unit = match[2].toUpperCase();
-          const isBinary = match[3].toLowerCase() === 'i'; // MiB vs MB
+        // Parse getBytes (throughput)
+        const bytesMatch = getBytesStr.match(/^([\d.]+)\s*([KMGT]?)(i?)B\/s$/i);
+        if (bytesMatch) {
+          const value = parseFloat(bytesMatch[1]);
+          const unit = bytesMatch[2].toUpperCase();
+          const isBinary = bytesMatch[3].toLowerCase() === 'i'; // MiB vs MB
           
           // Convert to bytes/second based on unit
           let bytesPerSecond = value;
@@ -140,36 +157,58 @@ class LucidLinkStatsWorker extends EventEmitter {
           
           // Special case: if the input is already in MiB/s, we can use it directly
           if (unit === 'M' && isBinary) {
-            // Input is already in MiB/s, use directly
-            const stats = {
-              getMibps: Math.round(value * 100) / 100, // Round to 2 decimal places
-              timestamp: Date.now()
-            };
-            
-            // Debug logging
-            console.log(`LucidLink stats: ${valueStr} -> ${stats.getMibps} MiB/s`);
-            this.emit('stats', stats);
-            this.lastValue = bytesPerSecond;
-            return;
+            getMibps = Math.round(value * 100) / 100; // Round to 2 decimal places
+          } else {
+            // Convert to MiB/s (1 MiB = 1024 * 1024 bytes)
+            const mibPerSecond = bytesPerSecond / (1024 * 1024);
+            getMibps = Math.round(mibPerSecond * 100) / 100; // Round to 2 decimal places
           }
-          
-          // Convert to MiB/s (1 MiB = 1024 * 1024 bytes)
-          const mibPerSecond = bytesPerSecond / (1024 * 1024);
-          
-          // Always emit stats, even if 0 (to show "0.00 MiB/s")
-          const stats = {
-            getMibps: Math.round(mibPerSecond * 100) / 100, // Round to 2 decimal places
-            timestamp: Date.now()
-          };
-          
-          // Debug logging for first few values or when value changes significantly
-          if (this.lastValue === 0 || Math.abs(bytesPerSecond - this.lastValue) > 1024) {
-            console.log(`LucidLink stats: ${valueStr} -> ${stats.getMibps} MiB/s`);
-          }
-          
-          this.emit('stats', stats);
-          this.lastValue = bytesPerSecond;
         }
+        
+        // Parse getTime (latency) - only if getTime is included
+        if (getTimeStr) {
+          const timeMatch = getTimeStr.match(/^([\d.]+)\s*(ms|μs|s)?$/i);
+          if (timeMatch) {
+            const value = parseFloat(timeMatch[1]);
+            const unit = timeMatch[2] ? timeMatch[2].toLowerCase() : 'ms'; // Default to ms if no unit
+            
+            // Convert to milliseconds
+            switch (unit) {
+              case 'μs':
+              case 'us': 
+                getTimeMs = value / 1000; // microseconds to milliseconds
+                break;
+              case 's':
+                getTimeMs = value * 1000; // seconds to milliseconds
+                break;
+              case 'ms':
+              default:
+                getTimeMs = value; // already in milliseconds
+                break;
+            }
+            
+            getTimeMs = Math.round(getTimeMs * 100) / 100; // Round to 2 decimal places
+          }
+        }
+        
+        // Always emit stats - include getTimeMs only if getTime collection is enabled
+        const stats = {
+          getMibps: getMibps,
+          timestamp: Date.now()
+        };
+        
+        if (this.includeGetTime) {
+          stats.getTimeMs = getTimeMs;
+        }
+        
+        // Debug logging for significant changes or first values
+        if (this.lastValue === 0 || Math.abs((getMibps * 1024 * 1024) - this.lastValue) > 1024 || getTimeMs > 0) {
+          const latencyLog = this.includeGetTime ? `, latency=${getTimeStr || 'N/A'} -> ${stats.getTimeMs || 0} ms` : '';
+          console.log(`LucidLink stats: throughput=${getBytesStr} -> ${stats.getMibps} MiB/s${latencyLog}`);
+        }
+        
+        this.emit('stats', stats);
+        this.lastValue = getMibps * 1024 * 1024; // Store as bytes for comparison
       }
     } catch (error) {
       console.error('Error parsing LucidLink perf output:', error, 'Line:', line);

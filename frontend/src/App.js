@@ -430,6 +430,9 @@ class FileSystemAPI {
     const response = await fetch(`${this.baseURL}/jobs`, {
       headers: this.getAuthHeaders()
     });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
     return response.json();
   }
 
@@ -1381,6 +1384,15 @@ function App() {
     
     // Enhanced WebSocket connection with auto-reconnect and fallback polling
     const wsUrl = process.env.REACT_APP_WS_URL || 'ws://localhost:3002';
+    // Handle relative WebSocket URLs
+    const getWebSocketUrl = () => {
+      if (wsUrl.startsWith('/')) {
+        // Convert relative path to absolute WebSocket URL
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}${wsUrl}`;
+      }
+      return wsUrl;
+    };
     let ws = null;
     let reconnectTimer = null;
     let fallbackPollingTimer = null;
@@ -1398,17 +1410,30 @@ function App() {
       } else if (data.type === 'cache-job-started' || 
                  data.type === 'cache-job-completed' || 
                  data.type === 'cache-job-failed' ||
-                 data.type === 'cache-job-progress' ||
                  data.type === 'cache-file-started' ||
                  data.type === 'cache-file-completed' ||
                  data.type === 'cache-file-failed') {
-        // Real-time cache job updates
+        // Real-time cache job updates (except progress - handled separately)
         console.log('Loading jobs due to cache event:', data.type);
         loadJobs();
         // Also refresh current directory to update cache status indicators
         if (currentPath && files.length > 0 && data.type === 'cache-file-completed') {
           loadDirectory(currentPath);
         }
+      } else if (data.type === 'cache-job-progress') {
+        // Handle progress updates separately without calling loadJobs()
+        console.log('Cache job progress update:', data);
+        setJobs(prevJobs => prevJobs.map(job => {
+          if (job.id === data.jobId) {
+            return {
+              ...job,
+              completed_files: data.completedFiles || job.completed_files || 0,
+              failed_files: data.failedFiles || job.failed_files || 0,
+              status: data.status || job.status
+            };
+          }
+          return job;
+        }));
       } else if (data.type === 'index-progress') {
         // Refresh jobs to show progress
         loadJobs();
@@ -1455,6 +1480,7 @@ function App() {
         // Also update the standalone network stats for the header (legacy)
         setNetworkStats({
           getMibps: data.getMibps,
+          getTimeMs: data.getTimeMs,
           timestamp: Date.now()
         });
         
@@ -1479,19 +1505,6 @@ function App() {
           totalSpace: data.totalSpace || 0,
           loading: false
         });
-      } else if (data.type === 'cache-job-progress') {
-        // Update cache job progress
-        setJobs(prevJobs => prevJobs.map(job => {
-          if (job.id === data.jobId) {
-            return {
-              ...job,
-              completedFiles: data.completedFiles || job.completedFiles || 0,
-              failedFiles: data.failedFiles || job.failedFiles || 0,
-              status: data.status || job.status
-            };
-          }
-          return job;
-        }));
       } else if (data.type === 'cache-job-started') {
         // Update job when it starts and initialize download speed
         setJobs(prevJobs => prevJobs.map(job => {
@@ -1612,7 +1625,7 @@ function App() {
     
     const connectWebSocket = () => {
       try {
-        ws = new WebSocket(wsUrl);
+        ws = new WebSocket(getWebSocketUrl());
         
         ws.onopen = () => {
           console.log('WebSocket connected');
@@ -2666,7 +2679,7 @@ function App() {
             </svg>
             <span style={{
               display: 'inline-block',
-              width: '168px',
+              width: '275px',
               fontFamily: 'monospace',
               whiteSpace: 'nowrap',
               position: 'relative'
@@ -2675,15 +2688,33 @@ function App() {
               <span style={{
                 position: 'absolute',
                 right: '0',
-                textAlign: 'right',
+                top: '0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
                 color: '#ffffff',
                 fontWeight: '500'
               }}>
-                {networkStats ? (
-                  networkStats.getMibps !== undefined ? 
-                    `${networkStats.getMibps.toFixed(2)} MiB/s` :
-                    `${networkStats.rxMbps.toFixed(1)}↓ ${networkStats.txMbps.toFixed(1)}↑ MB/s`
-                ) : '00.00 MiB/s'}
+                <span style={{
+                  textAlign: 'right',
+                  minWidth: '95px'
+                }}>
+                  {networkStats ? (
+                    networkStats.getMibps !== undefined ? 
+                      `${networkStats.getMibps.toFixed(2)} MiB/s` :
+                      `${networkStats.rxMbps.toFixed(1)}↓ ${networkStats.txMbps.toFixed(1)}↑ MB/s`
+                  ) : '00.00 MiB/s'}
+                </span>
+                {networkStats && networkStats.getTimeMs !== undefined && (
+                  <span style={{
+                    textAlign: 'right',
+                    minWidth: '85px',
+                    color: '#a1a1aa',
+                    fontSize: '11px'
+                  }}>
+                    {networkStats.getTimeMs.toFixed(1)}ms
+                  </span>
+                )}
               </span>
             </span>
           </div>

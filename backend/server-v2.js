@@ -94,8 +94,11 @@ let elasticsearchClient = null;
 // Global RUI service instance
 let ruiService = null;
 
-// WebSocket server
-const wss = new WebSocket.Server({ port: WEBSOCKET_PORT });
+// WebSocket server - bind to all interfaces for external access
+const wss = new WebSocket.Server({ 
+  port: WEBSOCKET_PORT,
+  host: '0.0.0.0'  // Allow connections from outside container
+});
 
 // Broadcast to all connected clients
 function broadcast(data) {
@@ -2020,7 +2023,9 @@ async function startServer() {
       console.log('Initializing LucidLinkStatsWorker');
       const lucidStatsWorker = new LucidLinkStatsWorker({
         lucidCommand: process.env.LUCIDLINK_COMMAND || '/usr/local/bin/lucid',
-        pollInterval: parseInt(process.env.LUCIDLINK_STATS_INTERVAL) || 1000
+        pollInterval: parseInt(process.env.LUCIDLINK_STATS_INTERVAL) || 1000,
+        includeGetTime: process.env.LUCIDLINK_INCLUDE_GET_TIME !== 'false',
+        restEndpoint: process.env.LUCIDLINK_REST_ENDPOINT || null
       });
       
       lucidStatsWorker.on('stats', (stats) => {
