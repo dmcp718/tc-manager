@@ -20,10 +20,13 @@ services:
       # LucidLink mount point will be created by container daemon
       - varnish_stats:/data
       - ${PREVIEW_CACHE_HOST_PATH:-./data/previews}:/app/preview-cache  # Persistent preview cache
+      # Mount host system info file if it exists
+      - ./host-info.json:/app/host-info.json:ro
     environment:
       NODE_ENV: development
       PREVIEW_CACHE_DIR: /app/preview-cache
       PORT: 3001
+      SERVER_HOST: ${SERVER_HOST:-localhost}
       DB_HOST: postgres  # Use service name with bridge networking
       DB_PORT: 5432
       DB_NAME: sitecache_db
@@ -90,7 +93,7 @@ services:
       - ./frontend/package.json:/app/package.json
       - /app/node_modules  # Anonymous volume for node_modules
     environment:
-      REACT_APP_API_URL: /api
+      REACT_APP_API_URL: http://${SERVER_HOST:-localhost}:3001/api
       # WebSocket URL uses SERVER_HOST - set in .env.development.local to your machine's IP
       REACT_APP_WS_URL: ws://${SERVER_HOST:-localhost}:3002
       REACT_APP_LUCIDLINK_MOUNT_POINT: /media/lucidlink-1

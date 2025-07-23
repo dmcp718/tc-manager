@@ -742,6 +742,343 @@ app.get('/api/cache-stats', authService.requireAuth, async (req, res) => {
   }
 });
 
+// Admin system information endpoint
+app.get('/api/admin/system-info', authService.requireAuth, async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+    
+    // Try to load host info from file first
+    const hostInfoPath = path.join(__dirname, 'host-info.json');
+    let hostInfo = null;
+    
+    try {
+      if (fs.existsSync(hostInfoPath)) {
+        const hostInfoData = fs.readFileSync(hostInfoPath, 'utf8');
+        hostInfo = JSON.parse(hostInfoData);
+        console.log('Loaded host info from file');
+      }
+    } catch (error) {
+      console.warn('Could not load host-info.json:', error.message);
+    }
+    
+    // Start with host info if available, otherwise gather container info
+    const systemInfo = {};
+    
+    try {
+      // Get hostname - prefer SERVER_HOST env var, then host info, then fallbacks
+      if (process.env.SERVER_HOST) {
+        systemInfo.hostname = process.env.SERVER_HOST;
+      } else if (hostInfo?.hostname) {
+        systemInfo.hostname = hostInfo.hostname;
+      } else {
+        systemInfo.hostname = process.env.HOSTNAME || 'Unknown';
+      }
+    } catch (error) {
+      systemInfo.hostname = 'Unknown';
+    }
+    
+    try {
+      // Linux release info
+      const { stdout: release } = await execAsync('cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d \'"\'');
+      systemInfo.release = release.trim() || 'Unknown';
+    } catch (error) {
+      systemInfo.release = 'Unknown';
+    }
+    
+    try {
+      // CPU info
+      const { stdout: cpuCount } = await execAsync('nproc');
+      const { stdout: cpuModel } = await execAsync('cat /proc/cpuinfo | grep "model name" | head -1 | cut -d: -f2');
+      systemInfo.cpu = {
+        cores: parseInt(cpuCount.trim()),
+        model: cpuModel.trim() || 'Unknown'
+      };
+    } catch (error) {
+      systemInfo.cpu = { cores: 0, model: 'Unknown' };
+    }
+    
+    try {
+      // Network info - use hostname -I for IP and parse /proc/net/route for interface
+      const { stdout: ipList } = await execAsync('hostname -I 2>/dev/null || echo ""');
+      const ips = ipList.trim().split(' ').filter(ip => ip && !ip.startsWith('127.'));
+      const primaryIP = ips[0] || 'Unknown';
+      
+      // Try to get the default interface from /proc/net/route
+      let interfaceName = 'Unknown';
+      try {
+        const { stdout: routeData } = await execAsync('cat /proc/net/route | grep "00000000" | head -1 | awk \'{print $1}\'');
+        if (routeData.trim()) {
+          interfaceName = routeData.trim();
+        }
+      } catch {
+        // If that fails, try to get from /sys/class/net
+        try {
+          const { stdout: netDevices } = await execAsync('ls /sys/class/net | grep -v lo | head -1');
+          if (netDevices.trim()) {
+            interfaceName = netDevices.trim();
+          }
+        } catch {
+          interfaceName = 'eth0'; // Common default
+        }
+      }
+      
+      systemInfo.network = {
+        interface: interfaceName,
+        ip: primaryIP
+      };
+    } catch (error) {
+      systemInfo.network = { interface: 'Unknown', ip: 'Unknown' };
+    }
+    
+    try {
+      // Use host memory info if available, otherwise get current memory stats
+      if (hostInfo?.memory) {
+        // Get current memory usage from /proc/meminfo for real-time data
+        try {
+          const { stdout: meminfo } = await execAsync('cat /proc/meminfo');
+          const memTotal = meminfo.match(/MemTotal:\s+(\d+)\s+kB/);
+          const memAvailable = meminfo.match(/MemAvailable:\s+(\d+)\s+kB/);
+          
+          if (memTotal && memAvailable) {
+            const totalKB = parseInt(memTotal[1]);
+            const availableKB = parseInt(memAvailable[1]);
+            const usedKB = totalKB - availableKB;
+            
+            const totalGB = (totalKB / 1024 / 1024).toFixed(1);
+            const availableGB = (availableKB / 1024 / 1024).toFixed(1);
+            const usedGB = (usedKB / 1024 / 1024).toFixed(1);
+            systemInfo.memory = `${totalGB}G total, ${usedGB}G used, ${availableGB}G available`;
+          } else {
+            // Fallback to host info static data
+            systemInfo.memory = `${hostInfo.memory.total_gb}G total (from host info)`;
+          }
+        } catch {
+          systemInfo.memory = `${hostInfo.memory.total_gb}G total (from host info)`;
+        }
+      } else {
+        // Container memory detection fallback
+        const { stdout: meminfo } = await execAsync('cat /proc/meminfo');
+        const memTotal = meminfo.match(/MemTotal:\s+(\d+)\s+kB/);
+        const memAvailable = meminfo.match(/MemAvailable:\s+(\d+)\s+kB/);
+        
+        if (memTotal && memAvailable) {
+          const totalKB = parseInt(memTotal[1]);
+          const availableKB = parseInt(memAvailable[1]);
+          const usedKB = totalKB - availableKB;
+          
+          const totalGB = (totalKB / 1024 / 1024).toFixed(1);
+          const availableGB = (availableKB / 1024 / 1024).toFixed(1);
+          const usedGB = (usedKB / 1024 / 1024).toFixed(1);
+          systemInfo.memory = `${totalGB}G total, ${usedGB}G used, ${availableGB}G available`;
+        } else {
+          systemInfo.memory = 'Unable to read memory info';
+        }
+      }
+    } catch (error) {
+      systemInfo.memory = 'Unknown';
+    }
+    
+    try {
+      // Use host storage info if available
+      if (hostInfo?.storage) {
+        systemInfo.storage = hostInfo.storage;
+      } else {
+        // Fallback to container storage detection
+        // Get mounted filesystems info from df first
+      const { stdout: dfOutput } = await execAsync('df -h -t ext4 -t xfs -t btrfs -t ntfs 2>/dev/null || df -h');
+      const dfLines = dfOutput.trim().split('\n').slice(1); // Skip header
+      const mountMap = {};
+      
+      dfLines.forEach(line => {
+        const parts = line.split(/\s+/);
+        if (parts.length >= 6) {
+          const device = parts[0];
+          const size = parts[1];
+          const used = parts[2];
+          const avail = parts[3];
+          const usage = parts[4];
+          const mount = parts.slice(5).join(' '); // Handle spaces in mount paths
+          
+          if (device.startsWith('/dev/')) {
+            const deviceName = device.replace('/dev/', '');
+            mountMap[deviceName] = {
+              size,
+              used,
+              avail,
+              usage,
+              mountpoint: mount
+            };
+          }
+        }
+      });
+      
+      // Get block devices using lsblk
+      const { stdout: lsblkOutput } = await execAsync('lsblk -o NAME,SIZE,TYPE,FSTYPE -n 2>/dev/null || echo ""');
+      const devices = [];
+      
+      if (lsblkOutput) {
+        const lines = lsblkOutput.trim().split('\n');
+        lines.forEach(line => {
+          const parts = line.match(/^(\S+)\s+(\S+)\s+(\S+)\s*(.*)?$/);
+          if (parts) {
+            const name = parts[1];
+            const size = parts[2];
+            const type = parts[3];
+            const fstype = parts[4] || '-';
+            
+            // Skip loop devices
+            if (name.includes('loop') || type === 'loop') {
+              return;
+            }
+            
+            // Check if we have mount info from df
+            const dfInfo = mountMap[name];
+            
+            // Known host mount mappings for SiteCache server
+            const hostMountMap = {
+              'sdb1': '/media/disk1',
+              'sdc1': '/media/disk2', 
+              'sdd1': '/media/disk3',
+              'sde1': '/media/disk4',
+              'nvme0n1p1': '/',
+              'nvme0n1p2': '/boot/efi'
+            };
+            
+            const cleanName = name.replace(/[`|-]+-/, '');
+            const mountpoint = hostMountMap[cleanName] || dfInfo?.mountpoint || '-';
+            
+            devices.push({
+              name: name.includes('└─') ? name : name,
+              size: dfInfo?.size || size,
+              type: type,
+              fstype: fstype || 'ext4',
+              mountpoint: mountpoint,
+              usage: dfInfo?.usage || '-'
+            });
+          }
+        });
+      }
+      
+      // If we couldn't get lsblk info, just use df output
+      if (devices.length === 0 && Object.keys(mountMap).length > 0) {
+        Object.entries(mountMap).forEach(([device, info]) => {
+          devices.push({
+            name: device,
+            size: info.size,
+            type: 'partition',
+            fstype: 'ext4',
+            mountpoint: info.mountpoint,
+            usage: info.usage
+          });
+        });
+      }
+      
+      systemInfo.storage = devices.length > 0 ? devices : [{ name: 'No devices found' }];
+      }
+    } catch (error) {
+      console.error('Error getting storage info:', error);
+      systemInfo.storage = [{ name: 'Error loading storage info' }];
+    }
+    
+    res.json(systemInfo);
+  } catch (error) {
+    console.error('Error getting system info:', error);
+    res.status(500).json({ error: 'Failed to get system information' });
+  }
+});
+
+// Admin system status endpoint
+app.get('/api/admin/system-status', authService.requireAuth, async (req, res) => {
+  try {
+    // Check SiteCache status by testing Varnish cache service connectivity
+    // This is more reliable than trying to access Docker from within container
+    let varnishStatus = 'unknown';
+    let dbStatus = 'unknown';
+    let esStatus = 'unknown';
+    let active = false;
+    let startTime = new Date().toISOString();
+    
+    try {
+      // Test Varnish cache connectivity (main SiteCache service)
+      const varnishResponse = await fetch('http://192.168.8.28:80/', {
+        method: 'HEAD',
+        timeout: 5000
+      });
+      
+      // Varnish is healthy if we get any response (including 503 Backend fetch failed)
+      // A 503 means Varnish is running but backend (LucidLink) is unavailable
+      if (varnishResponse.status === 503) {
+        const server = varnishResponse.headers.get('server');
+        if (server && server.toLowerCase().includes('varnish')) {
+          varnishStatus = 'connected (backend unavailable)';
+        } else {
+          varnishStatus = 'connected';
+        }
+      } else if (varnishResponse.ok) {
+        varnishStatus = 'connected';
+      } else {
+        varnishStatus = 'error';
+      }
+    } catch (varnishError) {
+      varnishStatus = 'unreachable';
+      console.error('Varnish connection error:', varnishError.message);
+    }
+    
+    try {
+      // Test database connection
+      const dbResult = await db.query('SELECT 1');
+      dbStatus = 'connected';
+    } catch (dbError) {
+      dbStatus = 'disconnected';
+      console.error('Database connection error:', dbError);
+    }
+    
+    try {
+      // Test Elasticsearch connection
+      const esResponse = await fetch(`http://${process.env.ELASTICSEARCH_HOST}:${process.env.ELASTICSEARCH_PORT}/_cluster/health`, {
+        timeout: 5000
+      });
+      if (esResponse.ok) {
+        esStatus = 'connected';
+      } else {
+        esStatus = 'disconnected';
+      }
+    } catch (esError) {
+      esStatus = 'disconnected';
+      console.error('Elasticsearch connection error:', esError);
+    }
+    
+    // SiteCache is active if Varnish cache is running (main service indicator)
+    active = varnishStatus.startsWith('connected');
+    const status = active ? 'active (running)' : 'degraded - Varnish cache unavailable';
+    
+    // Try to get service start time from environment or use current time
+    if (process.env.SERVICE_START_TIME) {
+      startTime = process.env.SERVICE_START_TIME;
+    }
+    
+    res.json({
+      lucidSiteCache: {
+        status: status,
+        since: startTime,
+        active: active,
+        services: {
+          varnish: varnishStatus,
+          database: dbStatus,
+          elasticsearch: esStatus
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting system status:', error);
+    res.status(500).json({ error: 'Failed to get system status' });
+  }
+});
+
 // Indexing endpoints
 app.post('/api/index/start', authService.requireAuth, async (req, res) => {
   try {
