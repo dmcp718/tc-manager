@@ -37,7 +37,7 @@ services:
   backend:
     build:
       context: ..
-      dockerfile: ./sc-manager/backend/Dockerfile
+      dockerfile: ./sc-manager-greenfield/backend/Dockerfile
     container_name: sc-mgr-backend
     # Performance optimizations
     mem_limit: 4g
@@ -49,6 +49,7 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: ${PORT:-3001}
+      SERVER_HOST: ${SERVER_HOST:-localhost}
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME:-sitecache_db}
@@ -91,12 +92,12 @@ services:
       # Configure S3 proxy for Varnish cache  
       LUCID_S3_PROXY: ${LUCID_S3_PROXY}
       # RUI Configuration
-      ENABLE_RUI: ${ENABLE_RUI:-true}
+      ENABLE_RUI: ${ENABLE_RUI:-false}
       RUI_SCAN_INTERVAL: ${RUI_SCAN_INTERVAL:-30000}
       RUI_MONITOR_INTERVAL: ${RUI_MONITOR_INTERVAL:-2000}
       RUI_BATCH_SIZE: ${RUI_BATCH_SIZE:-100}
       RUI_MAX_CONCURRENT_MONITORS: ${RUI_MAX_CONCURRENT_MONITORS:-10}
-      ENABLE_RUI_FILESYSTEM_SCANNER: ${ENABLE_RUI_FILESYSTEM_SCANNER:-true}
+      ENABLE_RUI_FILESYSTEM_SCANNER: ${ENABLE_RUI_FILESYSTEM_SCANNER:-false}
       RUI_FS_SCAN_INTERVAL: ${RUI_FS_SCAN_INTERVAL:-60000}
       RUI_HOT_DIR_INTERVAL: ${RUI_HOT_DIR_INTERVAL:-15000}
       RUI_MAX_CONCURRENT: ${RUI_MAX_CONCURRENT:-10}
@@ -136,11 +137,9 @@ services:
     # Add host machine access (for LucidLink API)
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # LucidLink FUSE filesystem requirements and host system access
+    # LucidLink FUSE filesystem requirements
     cap_add:
       - SYS_ADMIN
-    pid: host
-    privileged: true
     devices:
       - "/dev/fuse"
     security_opt:
@@ -231,7 +230,6 @@ services:
       - varnish_stats:/data
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
-
 
 volumes:
   postgres_data:

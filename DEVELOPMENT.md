@@ -211,13 +211,92 @@ git push origin feature/my-feature
 
 #### Committed Files
 - `.env.development` - Safe development defaults
-- `.env.production.example` - Production template
+- `.env.production` - Production template (no secrets)
+- `.env.example` - Complete template with all options
 - `docker-compose.*.yml` - All Docker configurations
 
-#### Ignored Files
-- `.env` - Local overrides and secrets
-- `.env.local` - Local development overrides
+#### Ignored Files (Never commit these!)
+- `.env` - Active configuration with credentials
+- `.env.local` - Local overrides
+- `.env.development.local` - Development overrides
+- `.env.production.local` - Production secrets
 - `build/` - Built artifacts
+- `host-info.json` - Generated system information
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. Frontend shows "Network error. Please try again."
+**Cause**: Frontend cannot connect to backend API
+**Solutions**:
+- Check `SERVER_HOST` is set correctly in `.env`
+- Verify backend is running: `docker compose ps`
+- Check backend logs: `docker compose logs backend`
+- Ensure authentication token exists (login required)
+
+#### 2. Empty file tree in BROWSER tab
+**Cause**: LucidLink not mounted or authentication issue
+**Solutions**:
+- Verify LucidLink credentials in `.env`
+- Check backend logs for mount errors
+- Ensure you're logged in (admin/admin123 default)
+- Verify filesystem mount: `docker exec sc-mgr-backend ls /media/lucidlink-1`
+
+#### 3. Terminal shows "pty is not defined"
+**Cause**: node-pty module not installed
+**Solutions**:
+- Rebuild backend with no-cache: `docker compose build --no-cache backend`
+- Ensure python3 and build-essential are in Dockerfile
+
+#### 4. host-info.json is empty (0 bytes)
+**Cause**: Volume mount issue in development
+**Solutions**:
+- Run `./scripts/collect-host-info.sh` to generate file
+- Restart backend: `docker compose restart backend`
+- As workaround: `docker cp host-info.json sc-mgr-backend:/app/`
+
+#### 5. Admin panel shows container hostname instead of SERVER_HOST
+**Cause**: SERVER_HOST not passed to container
+**Solutions**:
+- Ensure SERVER_HOST is in `.env` or `.env.development.local`
+- Recreate container: `docker compose up -d --force-recreate backend`
+
+#### 6. Terminal cannot connect to host
+**Cause**: SSH not configured
+**Solutions**:
+- Get container's SSH key: `docker exec sc-mgr-backend cat /root/.ssh/id_rsa.pub`
+- Add to host's authorized_keys: `echo '<key>' >> ~/.ssh/authorized_keys`
+- Set SSH_HOST, SSH_USER in `.env`
+
+### Development Tips
+
+1. **Always use SERVER_HOST**:
+   - Set to `localhost` for local development
+   - Set to your machine's IP for LAN access
+   - Frontend URLs are automatically constructed
+
+2. **Environment variable precedence**:
+   - `.env.development.local` overrides `.env.development`
+   - `.env.local` overrides `.env`
+   - Docker Compose uses first file it finds
+
+3. **Debugging frontend connection issues**:
+   - Open browser console (F12)
+   - Check Network tab for failed requests
+   - Verify REACT_APP_* variables in container:
+     ```bash
+     docker exec sc-mgr-frontend env | grep REACT_APP
+     ```
+
+4. **Force rebuild when needed**:
+   ```bash
+   # After Dockerfile changes
+   docker compose build --no-cache
+   
+   # After environment changes
+   docker compose up -d --force-recreate
+   ```
 
 ## Production Deployment
 

@@ -31,8 +31,16 @@ A production-ready file system browser and cache management system for LucidLink
 - **Health Checks**: Comprehensive system status monitoring
 - **Structured Logging**: JSON logging with rotation and level controls
 
+### 👨‍💼 Admin Dashboard (NEW)
+- **System Status**: Real-time monitoring of server resources and services
+- **User Management**: Create, edit, and manage user accounts with role-based access
+- **Terminal Access**: Secure web-based terminal for system administration
+- **Application Logs**: View and search through application logs in real-time
+- **Service Monitoring**: Track SiteCache jobs, indexing status, and worker health
+
 ### 🔒 Production Security
-- **Authentication**: JWT-based admin authentication system
+- **Authentication**: JWT-based authentication with user management
+- **Role-Based Access**: Admin and user roles with different permission levels
 - **Container Security**: Non-root users, read-only filesystems, AppArmor profiles
 - **FUSE Integration**: Secure filesystem mounting with proper permissions
 - **Environment Configuration**: Secure credential management
@@ -84,15 +92,49 @@ A production-ready file system browser and cache management system for LucidLink
 - **Varnish Cache** (optional): For cache statistics integration
 - **Grafana** (optional): For advanced monitoring and dashboards
 
-## 🚀 Quick Start (Development)
+## 🚀 Quick Start
 
-### 1. Clone and Setup
+### 1. Clone and Initial Setup
 
 ```bash
 git clone https://github.com/dmcp718/sc-manager.git
 cd sc-manager
-cp .env.development .env
+
+# Run the development setup script
+./scripts/setup-development.sh
 ```
+
+The setup script will:
+- Create required directories
+- Generate host system information file
+- Create .env from template
+- Set up development overrides file
+- Provide SSH setup instructions for terminal feature
+
+### 2. Configure Environment
+
+Edit the `.env` file with your specific configuration:
+
+```bash
+# REQUIRED: Set your server IP or domain
+SERVER_HOST=your-server-ip-or-localhost
+
+# REQUIRED: Add your LucidLink credentials
+LUCIDLINK_FILESPACE=your_filespace_name
+LUCIDLINK_USER=your_email@example.com
+LUCIDLINK_PASSWORD=your_password
+
+# OPTIONAL: Change default passwords (recommended)
+DB_PASSWORD=your_secure_password
+POSTGRES_PASSWORD=your_secure_password
+ADMIN_PASSWORD=your_admin_password
+```
+
+**Important Environment Notes:**
+- `SERVER_HOST`: Set to `localhost` for local development or your server's IP/domain for remote access
+- Frontend URLs are automatically constructed using SERVER_HOST
+- For production, use strong passwords and generate a secure JWT_SECRET
+- See `.env.example` for all available configuration options
 
 **Development vs Production:**
 - **Development**: Uses port 3010 for frontend with hot reload and volume mounts
