@@ -30,7 +30,7 @@ class RUIClient {
     
     // Cache port for 5 minutes to avoid frequent `lucid list` calls
     if (this.apiPort && (now - this.lastPortCheck) < this.portCheckInterval) {
-      console.log(`Using cached LucidLink API port: ${this.apiPort}`);
+      // console.log(`Using cached LucidLink API port: ${this.apiPort}`);
       return this.apiPort;
     }
 
@@ -120,7 +120,7 @@ class RUIClient {
       const url = `http://${apiHost}:${port}/v1/${this.filespace}/files`;
       const params = { path: lucidPath };
       
-      console.log(`Checking RUI status for: ${filePath} -> ${lucidPath}`);
+      // console.log(`Checking RUI status for: ${filePath} -> ${lucidPath}`);
       
       const response = await axios.get(url, { 
         params,
@@ -163,7 +163,7 @@ class RUIClient {
   async checkBatchStatus(filePaths, batchSize = 10) {
     const results = [];
     
-    console.log(`Checking RUI status for ${filePaths.length} files in batches of ${batchSize}`);
+    // console.log(`Checking RUI status for ${filePaths.length} files in batches of ${batchSize}`);
     
     // Process in batches to avoid overwhelming the API
     for (let i = 0; i < filePaths.length; i += batchSize) {

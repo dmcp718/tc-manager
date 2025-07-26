@@ -1014,6 +1014,12 @@ const BrowserView = ({ user, onLogout }) => {
   const [toastMessage, setToastMessage] = useState(null);
   const treeRef = useRef();
   const searchTimeoutRef = useRef(null);
+  const currentPathRef = useRef(currentPath);
+  
+  // Update the ref whenever currentPath changes
+  useEffect(() => {
+    currentPathRef.current = currentPath;
+  }, [currentPath]);
 
   // Add CSS keyframes for spinner animation
   useEffect(() => {
@@ -1094,6 +1100,14 @@ const BrowserView = ({ user, onLogout }) => {
               } else if (data.jobId) {
                 // For cache-job-* events, refresh the job list
                 loadJobs();
+              }
+              
+              // When a cache job completes, refresh the current directory to update CACHED status
+              if (data.type === 'cache-job-completed') {
+                console.log('Cache job completed, refreshing current directory:', currentPathRef.current);
+                loadDirectory(currentPathRef.current);
+                // Also refresh cache stats to update usage
+                loadCacheStats();
               }
             } else if (data.type === 'index-progress') {
               setJobs(prevJobs => {
@@ -1387,7 +1401,7 @@ const BrowserView = ({ user, onLogout }) => {
         const result = await response.json();
         console.log('Cache job created:', result);
         loadJobs(); // Refresh jobs list
-        showToast(`Cache job created with ${allFilePaths.length} files`);
+        showToast(`Cache job created with ${result.totalFiles || allFilePaths.length} files`);
       } else {
         const errorData = await response.json();
         console.error('Failed to create cache job:', errorData);

@@ -31,7 +31,7 @@ services:
       DB_PORT: 5432
       DB_NAME: sitecache_db
       DB_USER: sitecache_user
-      DB_PASSWORD: sitecache_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}  # Use env var or default to admin123 for dev
       INDEX_ROOT_PATH: /media/lucidlink-1
       ALLOWED_PATHS: /media/lucidlink-1
       NETWORK_INTERFACE: eth0
@@ -42,8 +42,8 @@ services:
       LUCIDLINK_MOUNT_POINT: /media/lucidlink-1
       UV_THREADPOOL_SIZE: 16
       NODE_OPTIONS: "--max-old-space-size=1536"
-      CACHE_WORKER_COUNT: 2
-      MAX_CONCURRENT_FILES: 5
+      CACHE_WORKER_COUNT: 4
+      MAX_CONCURRENT_FILES: 40
       WORKER_POLL_INTERVAL: 2000
       ELASTICSEARCH_HOST: elasticsearch  # Use service name with bridge networking
       ELASTICSEARCH_PORT: 9200
@@ -59,7 +59,7 @@ services:
       LUCIDLINK_PASSWORD: ${LUCIDLINK_PASSWORD:-}
       LUCID_S3_PROXY: ${LUCID_S3_PROXY:-}
       # RUI Configuration
-      ENABLE_RUI: "true"
+      ENABLE_RUI: "false"
       RUI_SCAN_INTERVAL: 30000
       RUI_MONITOR_INTERVAL: 2000
       RUI_BATCH_SIZE: 100
@@ -67,7 +67,7 @@ services:
       LUCIDLINK_API_PORT: 9780
       # Redis connection for media preview service
       REDIS_URL: redis://redis:6379
-    command: ["./start-lucidlink.sh", "npm", "run", "dev"]
+    command: ["./start-lucidlink.sh", "node", "server-v2.js"]
     ports:
       - "3001:3001"  # Backend API port
       - "3002:3002"  # WebSocket port

@@ -1839,7 +1839,36 @@ app.get('/api/profiles', authService.requireAuth, async (req, res) => {
 // Create cache job from selected files
 app.post('/api/jobs/cache', authService.requireAuth, async (req, res) => {
   try {
-    const { filePaths, directories = [], profileName, profileId } = req.body;
+    let { filePaths, directories = [], profileName, profileId } = req.body;
+    
+    // If no filePaths but directories provided, expand directories to get files
+    if ((!filePaths || filePaths.length === 0) && directories && directories.length > 0) {
+      console.log(`Expanding ${directories.length} directories to collect files for cache job`);
+      filePaths = [];
+      
+      for (const dir of directories) {
+        try {
+          // Get all files recursively from the directory
+          const dirFiles = await FileModel.findFilesRecursively(dir);
+          filePaths.push(...dirFiles.map(f => f.path));
+          console.log(`Collected ${dirFiles.length} files from directory: ${dir}`);
+        } catch (error) {
+          console.error(`Error collecting files from directory ${dir}:`, error);
+        }
+      }
+      
+      if (filePaths.length === 0) {
+        logger.warn('No files found in provided directories', {
+          event: 'cache_job_no_files',
+          directories,
+          username: req.user?.username || 'unknown',
+          timestamp: new Date().toISOString()
+        });
+        return res.status(400).json({ error: 'No files found in provided directories' });
+      }
+      
+      console.log(`Total files collected from directories: ${filePaths.length}`);
+    }
     
     if (!filePaths || !Array.isArray(filePaths) || filePaths.length === 0) {
       logger.warn('Cache job creation failed - no files provided', {
@@ -2352,6 +2381,14 @@ app.post('/api/jobs/clear', authService.requireAuth, async (req, res) => {
     
     const deletedCacheJobs = result.rowCount;
     
+    // Delete completed and failed index jobs from database
+    const indexResult = await pool.query(`
+      DELETE FROM index_progress
+      WHERE status IN ('completed', 'failed', 'cancelled')
+    `);
+    
+    const deletedIndexJobs = indexResult.rowCount;
+    
     // Clear completed script jobs from memory
     let deletedScriptJobs = 0;
     for (const [jobId, job] of jobs.entries()) {
@@ -2361,16 +2398,17 @@ app.post('/api/jobs/clear', authService.requireAuth, async (req, res) => {
       }
     }
     
-    const totalDeleted = deletedCacheJobs + deletedScriptJobs;
+    const totalDeleted = deletedCacheJobs + deletedIndexJobs + deletedScriptJobs;
     
     res.json({ 
-      message: `Cleared ${totalDeleted} completed jobs (${deletedCacheJobs} cache, ${deletedScriptJobs} script)`,
+      message: `Cleared ${totalDeleted} completed jobs (${deletedCacheJobs} cache, ${deletedIndexJobs} index, ${deletedScriptJobs} script)`,
       deletedCount: totalDeleted,
       cacheJobs: deletedCacheJobs,
+      indexJobs: deletedIndexJobs,
       scriptJobs: deletedScriptJobs
     });
     
-    console.log(`Cleared ${totalDeleted} completed jobs: ${deletedCacheJobs} cache jobs, ${deletedScriptJobs} script jobs`);
+    console.log(`Cleared ${totalDeleted} completed jobs: ${deletedCacheJobs} cache jobs, ${deletedIndexJobs} index jobs, ${deletedScriptJobs} script jobs`);
     
   } catch (error) {
     console.error('Error clearing jobs:', error);

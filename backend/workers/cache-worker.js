@@ -156,58 +156,123 @@ class CacheWorker extends EventEmitter {
   }
 
   async processJobItems(jobId) {
-    const batchSize = this.maxConcurrentFiles;
+    const maxConcurrent = this.maxConcurrentFiles;
+    const activePromises = new Map(); // Track active file operations
+    let completedCount = 0;
+    let lastProgressUpdate = Date.now();
+    let lastJobCheck = Date.now();
+    let jobStatus = 'running'; // Cache job status to reduce queries
+    const pendingCacheUpdates = []; // Batch cache status updates
+    let lastBatchUpdate = Date.now();
+    
+    console.log(`Worker ${this.workerId} starting continuous processing for job ${jobId} with ${maxConcurrent} concurrent slots`);
     
     while (!this.shouldStop) {
-      // Check if job has been paused or cancelled - check more frequently
-      const currentJob = await CacheJobModel.findById(jobId);
-      if (!currentJob || ['paused', 'cancelled'].includes(currentJob.status)) {
-        console.log(`Job ${jobId} is ${currentJob?.status || 'not found'}, stopping processing immediately`);
+      // Check job status periodically (every 5 seconds) instead of every iteration
+      if (Date.now() - lastJobCheck > 5000) {
+        const currentJob = await CacheJobModel.findById(jobId);
+        if (!currentJob || ['paused', 'cancelled'].includes(currentJob.status)) {
+          console.log(`Job ${jobId} is ${currentJob?.status || 'not found'}, stopping processing`);
+          jobStatus = currentJob?.status || 'cancelled';
+          break;
+        }
+        lastJobCheck = Date.now();
+      }
+      
+      // Fill up available slots
+      const slotsToFill = maxConcurrent - activePromises.size;
+      
+      if (slotsToFill > 0) {
+        // Claim items to fill available slots
+        const claimedItems = await CacheJobItemModel.claimPendingItems(jobId, this.workerId, slotsToFill);
         
-        // Cancel any active operations for this job
-        for (const operationKey of this.activeOperations) {
-          if (operationKey.startsWith(`${jobId}:`)) {
-            console.log(`Cancelling active operation: ${operationKey}`);
-            this.activeOperations.delete(operationKey);
-          }
+        if (claimedItems.length === 0 && activePromises.size === 0) {
+          console.log(`Worker ${this.workerId}: No more items and no active operations, job complete`);
+          break;
         }
         
-        break;
+        // Start processing new items
+        for (const item of claimedItems) {
+          const operationId = `${jobId}-${item.file_path}`;
+          const promise = this.processJobItem(jobId, item)
+            .then(() => {
+              activePromises.delete(operationId);
+              completedCount++;
+              // Queue cache status update for batch processing
+              pendingCacheUpdates.push({
+                path: item.file_path,
+                cached: true,
+                cacheJobId: jobId
+              });
+            })
+            .catch(error => {
+              console.error(`Error processing ${item.file_path}:`, error);
+              activePromises.delete(operationId);
+            });
+          
+          activePromises.set(operationId, promise);
+        }
+        
+        if (claimedItems.length > 0) {
+          console.log(`Worker ${this.workerId}: Claimed ${claimedItems.length} items, ${activePromises.size} operations active`);
+        }
       }
       
-      // Get next batch of pending items
-      const pendingItems = await CacheJobItemModel.findPendingByJob(jobId, batchSize);
-      
-      console.log(`Job ${jobId}: Found ${pendingItems.length} pending items to process`);
-      
-      if (pendingItems.length === 0) {
-        console.log(`Job ${jobId}: No more pending items, finishing`);
-        break; // No more items to process
+      // Wait for at least one operation to complete before checking for more work
+      if (activePromises.size > 0) {
+        await Promise.race(activePromises.values());
       }
-
-      // Process items concurrently
-      const promises = pendingItems.map(item => this.processJobItem(jobId, item));
-      await Promise.all(promises);
       
-      // Update job progress after processing each batch
-      console.log(`Updating progress for job ${jobId} after processing batch`);
-      await CacheJobModel.updateProgress(jobId);
+      // Update progress periodically (every 5 seconds or 50 files)
+      if (completedCount >= 50 || Date.now() - lastProgressUpdate > 5000) {
+        await CacheJobModel.updateProgress(jobId);
+        
+        const updatedJob = await CacheJobModel.findById(jobId);
+        if (updatedJob) {
+          this.emit('job-progress', {
+            workerId: this.workerId,
+            jobId: jobId,
+            completedFiles: updatedJob.completed_files,
+            totalFiles: updatedJob.total_files,
+            failedFiles: updatedJob.failed_files
+          });
+        }
+        
+        completedCount = 0;
+        lastProgressUpdate = Date.now();
+      }
       
-      // Force a progress broadcast
-      const updatedJob = await CacheJobModel.findById(jobId);
-      if (updatedJob) {
-        console.log(`Broadcasting progress: ${updatedJob.completed_files}/${updatedJob.total_files} files completed`);
-        this.emit('job-progress', {
-          workerId: this.workerId,
-          jobId: jobId,
-          completedFiles: updatedJob.completed_files,
-          totalFiles: updatedJob.total_files,
-          failedFiles: updatedJob.failed_files
-        });
-      } else {
-        console.log(`Could not find job ${jobId} for progress update`);
+      // Batch update cache status (every 10 seconds or 100 files)
+      if (pendingCacheUpdates.length >= 100 || (pendingCacheUpdates.length > 0 && Date.now() - lastBatchUpdate > 10000)) {
+        try {
+          await FileModel.batchUpdateCacheStatus(pendingCacheUpdates);
+          console.log(`Batch updated cache status for ${pendingCacheUpdates.length} files`);
+          pendingCacheUpdates.length = 0; // Clear the array
+          lastBatchUpdate = Date.now();
+        } catch (error) {
+          console.error('Error batch updating cache status:', error);
+        }
       }
     }
+    
+    // Wait for remaining operations to complete
+    if (activePromises.size > 0) {
+      console.log(`Worker ${this.workerId}: Waiting for ${activePromises.size} remaining operations`);
+      await Promise.all(activePromises.values());
+    }
+    
+    // Process any remaining cache updates
+    if (pendingCacheUpdates.length > 0) {
+      try {
+        await FileModel.batchUpdateCacheStatus(pendingCacheUpdates);
+        console.log(`Final batch updated cache status for ${pendingCacheUpdates.length} files`);
+      } catch (error) {
+        console.error('Error in final batch update:', error);
+      }
+    }
+    
+    // Final progress update
+    await CacheJobModel.updateProgress(jobId);
   }
 
   async processJobItem(jobId, item) {
@@ -215,15 +280,9 @@ class CacheWorker extends EventEmitter {
     this.activeOperations.add(operationId);
 
     try {
-      console.log(`Caching file: ${item.file_path}`);
+      // console.log(`Caching file: ${item.file_path}`);
       
-      // Update item status to running
-      await CacheJobItemModel.updateStatus(
-        jobId, 
-        item.file_path, 
-        'running', 
-        this.workerId
-      );
+      // Item is already marked as 'running' by claimPendingItems, no need to update
 
       this.emit('file-started', {
         workerId: this.workerId,
@@ -231,13 +290,7 @@ class CacheWorker extends EventEmitter {
         filePath: item.file_path
       });
 
-      // Check if job was cancelled before executing cache command
-      const jobCheck = await CacheJobModel.findById(jobId);
-      if (!jobCheck || ['cancelled', 'paused'].includes(jobCheck.status)) {
-        console.log(`Job ${jobId} was cancelled/paused, skipping file ${item.file_path}`);
-        await CacheJobItemModel.updateStatus(jobId, item.file_path, 'cancelled', this.workerId);
-        return;
-      }
+      // Skip job check here - it's done periodically in processJobItems
 
       // Execute cache command
       await this.executeCacheCommand(item.file_path);
@@ -250,53 +303,17 @@ class CacheWorker extends EventEmitter {
         this.workerId
       );
 
-      // Check if file exists in database, if not add it with metadata
-      const fileExists = await FileModel.findByPath(item.file_path);
-      if (!fileExists) {
-        try {
-          console.log(`File not in database, collecting metadata: ${item.file_path}`);
-          
-          // Collect file metadata
-          const stats = await fs.stat(item.file_path);
-          const fileData = {
-            path: item.file_path,
-            name: path.basename(item.file_path),
-            parent_path: path.dirname(item.file_path),
-            is_directory: false, // Cache jobs only process files, not directories
-            size: stats.size,
-            modified_at: stats.mtime,
-            permissions: stats.mode,
-            metadata: {
-              auto_indexed_by_cache: true,
-              cache_job_id: jobId
-            }
-          };
-          
-          // Ensure parent directories exist in database
-          await this.ensureParentDirectoriesExist(item.file_path);
-          
-          // Insert file record
-          await FileModel.upsert(fileData);
-          console.log(`Auto-indexed file during cache operation: ${item.file_path}`);
-          
-        } catch (metadataError) {
-          console.error(`Failed to collect metadata for ${item.file_path}:`, metadataError);
-          // Continue with cache operation even if metadata collection fails
-        }
-      }
+      // Defer file database operations - they'll be handled in batch
+      // This significantly reduces database load
 
-      // Update file cache status
-      await FileModel.updateCacheStatus(item.file_path, true, jobId);
-
-      console.log(`File completed: ${item.file_path} for job ${jobId}`);
+      // console.log(`File completed: ${item.file_path} for job ${jobId}`);
       this.emit('file-completed', {
         workerId: this.workerId,
         jobId: jobId,
         filePath: item.file_path
       });
 
-      // Update job progress immediately after each file completion
-      await this.updateJobProgress(jobId);
+      // Progress updates are handled periodically in processJobItems, not per-file
 
     } catch (error) {
       console.error(`Error caching file ${item.file_path}:`, error);

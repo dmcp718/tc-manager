@@ -1,6 +1,15 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+// Calculate optimal pool size based on worker configuration
+const workerCount = parseInt(process.env.CACHE_WORKER_COUNT) || 2;
+const maxConcurrentFiles = parseInt(process.env.MAX_CONCURRENT_FILES) || 3;
+const baseConnections = 20; // Base connections for API, WebSocket, etc.
+const workerConnections = workerCount * maxConcurrentFiles * 2; // 2 connections per file operation
+const totalConnections = Math.min(baseConnections + workerConnections, 200); // PostgreSQL default max
+
+console.log(`Database pool configuration: ${totalConnections} connections (${workerCount} workers × ${maxConcurrentFiles} files × 2 + ${baseConnections} base)`);
+
 // Database connection pool
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
@@ -8,9 +17,13 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'sitecache_db',
   user: process.env.DB_USER || 'postgres',
   password: process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD || '',
-  max: 50, // Increased for parallel operations
+  max: totalConnections,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000, // Increased timeout
+  // Connection pool optimization
+  statement_timeout: 30000, // 30 second statement timeout
+  query_timeout: 30000,
+  allowExitOnIdle: true,
 });
 
 // Database connection test
@@ -38,6 +51,31 @@ class FileModel {
        WHERE parent_path = $1 
        ORDER BY is_directory DESC, name ASC`,
       [parentPath]
+    );
+    return result.rows;
+  }
+
+  static async findFilesRecursively(directoryPath) {
+    // Recursively find all files (not directories) under a given directory
+    const result = await pool.query(
+      `WITH RECURSIVE file_tree AS (
+        -- Base case: the directory itself
+        SELECT path, is_directory
+        FROM files
+        WHERE path = $1
+        
+        UNION ALL
+        
+        -- Recursive case: all children
+        SELECT f.path, f.is_directory
+        FROM files f
+        INNER JOIN file_tree ft ON f.parent_path = ft.path
+        WHERE ft.is_directory = true
+      )
+      SELECT path FROM file_tree
+      WHERE is_directory = false
+      ORDER BY path`,
+      [directoryPath]
     );
     return result.rows;
   }
@@ -92,6 +130,35 @@ class FileModel {
       [path, cached, cached ? new Date() : null, cacheJobId]
     );
     return result.rows[0];
+  }
+
+  static async batchUpdateCacheStatus(updates) {
+    // Batch update cache status for multiple files to reduce database queries
+    if (!updates || updates.length === 0) return [];
+    
+    const values = [];
+    const params = [];
+    let paramIndex = 1;
+    
+    updates.forEach((update) => {
+      values.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3})`);
+      params.push(update.path, update.cached, update.cached ? new Date() : null, update.cacheJobId);
+      paramIndex += 4;
+    });
+    
+    const query = `
+      UPDATE files AS f
+      SET cached = u.cached,
+          cached_at = u.cached_at,
+          cache_job_id = u.cache_job_id,
+          updated_at = NOW()
+      FROM (VALUES ${values.join(', ')}) AS u(path, cached, cached_at, cache_job_id)
+      WHERE f.path = u.path
+      RETURNING f.*
+    `;
+    
+    const result = await pool.query(query, params);
+    return result.rows;
   }
 
   static async findCachedFiles(limit = 100, offset = 0) {
@@ -775,6 +842,24 @@ class CacheJobItemModel {
     return result.rows;
   }
 
+  // Atomically claim items for a worker to prevent race conditions
+  static async claimPendingItems(jobId, workerId, limit = 10) {
+    const result = await pool.query(
+      `UPDATE cache_job_items 
+       SET status = 'running', worker_id = $3, started_at = NOW()
+       WHERE id IN (
+         SELECT id FROM cache_job_items 
+         WHERE job_id = $1 AND status = 'pending'
+         ORDER BY id ASC
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING *`,
+      [jobId, limit, workerId]
+    );
+    return result.rows;
+  }
+
   static async getCompletedCount(jobId) {
     const result = await pool.query(
       `SELECT COUNT(*) FROM cache_job_items 
@@ -922,18 +1007,33 @@ class CacheJobProfileModel {
       // Quick pattern matching without heavy database queries
       const quickAnalysis = this.quickAnalyzeFiles(filePaths);
       
-      // Simple rule-based selection (no database query needed)
-      if (quickAnalysis.fileCount > 100 && quickAnalysis.avgPathLength < 100) {
-        // Many files with short paths = likely small files
-        return await this.findByName('small-files');
+      console.log('Profile analysis:', {
+        fileCount: quickAnalysis.fileCount,
+        dominantExt: quickAnalysis.dominantExtension,
+        isLikelyImageSequence: quickAnalysis.isLikelyImageSequence,
+        hasImageSequenceExtensions: quickAnalysis.hasImageSequenceExtensions
+      });
+      
+      // Priority 1: Image sequences (high volume, need max performance)
+      if (quickAnalysis.isLikelyImageSequence && quickAnalysis.fileCount > 100) {
+        console.log(`Detected image sequence: ${quickAnalysis.fileCount} files, ${quickAnalysis.dominantExtension}`);
+        // Use dedicated image-sequences profile for maximum performance
+        return await this.findByName('image-sequences');
       }
       
+      // Priority 2: Large video files
       if (quickAnalysis.hasVideoExtensions) {
         return await this.findByName('large-videos');
       }
       
+      // Priority 3: Mixed proxy media
       if (quickAnalysis.hasProxyExtensions) {
         return await this.findByName('proxy-media');
+      }
+      
+      // Priority 4: Many small files (but not image sequences)
+      if (quickAnalysis.fileCount > 100 && quickAnalysis.avgPathLength < 100) {
+        return await this.findByName('small-files');
       }
       
       // Check if analysis is taking too long
@@ -960,12 +1060,27 @@ class CacheJobProfileModel {
     
     const videoExts = ['.mov', '.mp4', '.mxf', '.avi', '.mkv'];
     const proxyExts = ['.jpg', '.jpeg', '.png', '.webp'];
+    const imageSequenceExts = ['.tif', '.tiff', '.dpx', '.exr'];
+    
+    // Count occurrences of each extension
+    const extCounts = {};
+    extensions.forEach(ext => {
+      extCounts[ext] = (extCounts[ext] || 0) + 1;
+    });
+    
+    // Check if this looks like an image sequence (many files of same type)
+    const dominantExt = Object.keys(extCounts).reduce((a, b) => 
+      extCounts[a] > extCounts[b] ? a : b, '');
+    const dominantExtPercentage = (extCounts[dominantExt] || 0) / filePaths.length;
     
     return {
       fileCount: filePaths.length,
       avgPathLength: filePaths.reduce((sum, path) => sum + path.length, 0) / filePaths.length,
       hasVideoExtensions: extensions.some(ext => videoExts.includes(ext)),
       hasProxyExtensions: extensions.some(ext => proxyExts.includes(ext)),
+      hasImageSequenceExtensions: extensions.some(ext => imageSequenceExts.includes(ext)),
+      isLikelyImageSequence: dominantExtPercentage > 0.8 && imageSequenceExts.includes(dominantExt),
+      dominantExtension: dominantExt,
       uniqueExtensions: [...new Set(extensions)].length
     };
   }
