@@ -1128,6 +1128,42 @@ const BrowserView = ({ user, onLogout }) => {
               console.log('Index complete event received:', data);
               loadRoots(); // Reload tree to show indexed status
               loadJobs(); // Reload jobs to get final status
+              
+              // Show completion toast with summary and duration
+              const totalFiles = data.totalFiles || 0;
+              const indexedFiles = data.indexedFiles || 0;
+              const skippedFiles = data.skippedFiles || 0;
+              const deletedFiles = data.deletedFiles || 0;
+              const duration = data.duration || 5000;
+              
+              // Format duration
+              const formatDuration = (ms) => {
+                const seconds = Math.floor(ms / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const hours = Math.floor(minutes / 60);
+                
+                if (hours > 0) {
+                  return `${hours}h ${minutes % 60}m`;
+                } else if (minutes > 0) {
+                  return `${minutes}m ${seconds % 60}s`;
+                } else {
+                  return `${seconds}s`;
+                }
+              };
+              
+              // Build message with deletion info if applicable
+              let message = `Indexing complete: ${indexedFiles.toLocaleString()} files indexed, ${skippedFiles.toLocaleString()} skipped`;
+              if (deletedFiles > 0) {
+                message += `, ${deletedFiles.toLocaleString()} deleted`;
+              }
+              message += `. Duration: ${formatDuration(duration)}`;
+              
+              showToast(message, 'success', 5000); // 5 seconds for stats readability
+              
+              // Refresh the current directory to show updated data
+              if (currentPath && currentPath !== '/') {
+                loadDirectory(currentPath);
+              }
             } else if (data.type === 'lucidlink-stats') {
               console.log('Setting network stats:', data);
               // The stats are in the data object directly, not in data.stats
