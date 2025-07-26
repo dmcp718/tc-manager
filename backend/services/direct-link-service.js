@@ -21,26 +21,42 @@ class DirectLinkService {
    */
   initializePort() {
     try {
-      // Try environment variable first
-      if (process.env.LUCIDLINK_API_PORT) {
-        this.port = parseInt(process.env.LUCIDLINK_API_PORT);
-        console.log(`Using LUCIDLINK_API_PORT from environment: ${this.port}`);
-        return;
-      }
-      
-      // In production, try to get port from lucid list
+      // In production, always try to get port from lucid list first
       if (process.env.NODE_ENV === 'production') {
         const command = `${this.lucidCommand} --instance ${this.instance} list`;
         const output = execSync(command, { encoding: 'utf8' });
         
         // Parse the output to find the REST port
-        // Example output: "Filespace ... REST: 20010 ..."
+        // Example output: "2001               production.dmpfs        9779        live"
+        // Format: INSTANCE_ID       FILESPACE               PORT        MODE
+        const lines = output.split('\n');
+        for (const line of lines) {
+          // Look for lines that start with our instance number
+          if (line.trim().startsWith(this.instance.toString())) {
+            const columns = line.trim().split(/\s+/);
+            // PORT is typically the third column (index 2)
+            if (columns.length >= 3 && /^\d+$/.test(columns[2])) {
+              this.port = parseInt(columns[2]);
+              console.log(`Detected LucidLink REST API port from 'lucid list': ${this.port}`);
+              return;
+            }
+          }
+        }
+        
+        // Also try the old format in case it changes
         const restMatch = output.match(/REST:\s*(\d+)/);
         if (restMatch && restMatch[1]) {
           this.port = parseInt(restMatch[1]);
           console.log(`Detected LucidLink REST API port from 'lucid list': ${this.port}`);
           return;
         }
+      }
+      
+      // Try environment variable as fallback
+      if (process.env.LUCIDLINK_API_PORT) {
+        this.port = parseInt(process.env.LUCIDLINK_API_PORT);
+        console.log(`Using LUCIDLINK_API_PORT from environment: ${this.port}`);
+        return;
       }
       
       // Fallback to default ports

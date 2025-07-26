@@ -410,7 +410,7 @@ if [ -n "$SAMPLE_FILE" ]; then
     DIRECT_LINK_RESPONSE=$(curl -s -X POST "$API_URL/direct-link" \
         -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
-        -d "{\"path\":\"$SAMPLE_FILE\"}" \
+        -d "{\"filePath\":\"$SAMPLE_FILE\"}" \
         --max-time $TIMEOUT || echo "{}")
     
     if echo "$DIRECT_LINK_RESPONSE" | grep -q '"url":\|"direct_link":\|"directLink":'; then
