@@ -1471,11 +1471,12 @@ const BrowserView = ({ user, onLogout }) => {
 
       const result = await response.json();
       
-      if (result.directUrl) {
+      if (result.directLink || result.directUrl) {
         // Copy to clipboard
-        await navigator.clipboard.writeText(result.directUrl);
+        const url = result.directLink || result.directUrl;
+        await navigator.clipboard.writeText(url);
         showToast('Direct link copied to clipboard!');
-        console.log('Direct link generated:', result.directUrl);
+        console.log('Direct link generated:', url);
       } else {
         throw new Error('No direct URL received from server');
       }
