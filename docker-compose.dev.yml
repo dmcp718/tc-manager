@@ -6,7 +6,7 @@ services:
   backend:
     build:
       context: ..
-      dockerfile: ./sc-manager/backend/Dockerfile
+      dockerfile: ./sc-manager-greenfield/backend/Dockerfile
       target: development
     container_name: sc-mgr-backend-dev
     user: root

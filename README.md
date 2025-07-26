@@ -100,8 +100,11 @@ A production-ready file system browser and cache management system for LucidLink
 git clone https://github.com/dmcp718/sc-manager.git
 cd sc-manager
 
-# Run the development setup script
+# For a fresh setup (recommended for first time)
 ./scripts/setup-development.sh
+
+# For a completely clean setup (removes all Docker resources)
+./scripts/setup-development.sh --clean
 ```
 
 The setup script will:
@@ -110,6 +113,7 @@ The setup script will:
 - Create .env from template
 - Set up development overrides file
 - Provide SSH setup instructions for terminal feature
+- Optional: Clean existing Docker resources with `--clean` flag
 
 ### 2. Configure Environment
 
@@ -1355,10 +1359,80 @@ sc-manager/
 │   └── ...
 │
 └── scripts/                  # Deployment and maintenance
+    ├── setup-development.sh # Development environment setup
+    ├── clean-deploy-test.sh # Clean deployment testing
     ├── deploy.sh            # Automated deployment
     ├── backup-database.sh   # Database backup
     ├── restore-database.sh  # Database restore
     └── smoke-test.sh        # Health verification
 ```
+
+## 🧪 Deployment Testing
+
+### Clean Deployment Testing
+
+To test a completely clean deployment (recommended before production):
+
+```bash
+# Complete cleanup and fresh deployment test
+./scripts/clean-deploy-test.sh
+
+# This script will:
+# - Remove ALL Docker containers, volumes, and images
+# - Clean local directories
+# - Backup and remove environment files
+# - Run the setup script automatically
+```
+
+### Development Setup Options
+
+```bash
+# Standard setup (preserves existing Docker resources)
+./scripts/setup-development.sh
+
+# Clean setup (removes Docker resources first)
+./scripts/setup-development.sh --clean
+
+# Show help
+./scripts/setup-development.sh --help
+```
+
+## 🔧 Troubleshooting
+
+### Common Development Issues
+
+#### Frontend shows "Network error"
+- Check `SERVER_HOST` is set correctly in `.env`
+- Verify backend is running: `docker compose ps`
+- Check logs: `docker compose logs backend`
+
+#### Empty file tree in BROWSER tab
+- Verify LucidLink credentials in `.env`
+- Check mount: `docker exec sc-mgr-backend ls /media/lucidlink-1`
+- Ensure you're logged in with admin credentials
+
+#### Terminal feature not working
+- Generate SSH key: `docker exec sc-mgr-backend cat /root/.ssh/id_rsa.pub`
+- Add to host: `echo '<public_key>' >> ~/.ssh/authorized_keys`
+- Set SSH_HOST, SSH_USER in `.env`
+
+#### Disk usage shows container values
+- Run: `./scripts/collect-host-info.sh`
+- Restart backend: `docker compose restart backend`
+
+### Clean State Testing
+
+If you encounter persistent issues:
+
+1. **Full cleanup**: `./scripts/clean-deploy-test.sh`
+2. **Configure**: Edit `.env` with your values
+3. **Deploy**: `npm run dev`
+4. **Verify**: Check all features work correctly
+
+### Getting Help
+
+- Check logs: `docker compose logs -f [service]`
+- Health check: `curl http://localhost:3001/health`
+- Documentation: See `DEVELOPMENT.md` for detailed troubleshooting
 
 This README provides complete instructions for successful greenfield deployment of the SiteCache Manager system, including all necessary configuration, security considerations, and troubleshooting guidance.

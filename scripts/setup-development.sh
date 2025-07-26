@@ -3,6 +3,23 @@
 
 set -e
 
+# Parse command line arguments
+CLEAN_MODE=false
+if [ "$1" = "--clean" ] || [ "$1" = "-c" ]; then
+    CLEAN_MODE=true
+fi
+
+# Show usage
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --clean, -c    Clean Docker resources before setup"
+    echo "  --help, -h     Show this help message"
+    echo ""
+    exit 0
+fi
+
 echo "=== SiteCache Manager Development Setup ==="
 echo ""
 
@@ -10,6 +27,36 @@ echo ""
 if [ ! -f "docker-compose.yml" ]; then
     echo "Error: This script must be run from the project root directory"
     exit 1
+fi
+
+# If clean mode, run cleanup first
+if [ "$CLEAN_MODE" = true ]; then
+    echo "🧹 Running in CLEAN mode - removing Docker resources first..."
+    echo ""
+    
+    # Stop any running containers
+    echo "  - Stopping containers..."
+    docker compose down 2>/dev/null || true
+    
+    # Remove volumes
+    echo "  - Removing volumes..."
+    docker compose down -v 2>/dev/null || true
+    docker volume ls | grep sc-mgr | awk '{print $2}' | xargs -r docker volume rm 2>/dev/null || true
+    
+    # Remove project images
+    echo "  - Removing project images..."
+    docker images | grep -E "sc-manager-greenfield|sc-mgr" | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+    
+    # Clean local directories
+    echo "  - Cleaning local directories..."
+    rm -rf data/previews backend/logs backend/node_modules frontend/node_modules
+    
+    # Remove old host-info.json
+    rm -f host-info.json
+    
+    echo ""
+    echo "✓ Cleanup complete"
+    echo ""
 fi
 
 # Create necessary directories
@@ -97,4 +144,7 @@ echo ""
 echo "5. Login with:"
 echo "   Username: admin"
 echo "   Password: admin123 (change immediately!)"
+echo ""
+echo "💡 TIP: To test a completely clean deployment, run:"
+echo "   $0 --clean"
 echo ""

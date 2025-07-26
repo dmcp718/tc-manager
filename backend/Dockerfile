@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     ffmpeg \
+    python3 \
+    build-essential \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install custom LucidLink build (if available)
@@ -35,19 +38,31 @@ WORKDIR /app
 ENV NODE_ENV=development
 
 # Copy package files
-COPY sc-manager/backend/package*.json ./
+COPY ./sc-manager-greenfield/backend/package*.json ./
 
 # Install all dependencies (including dev dependencies)
 RUN npm ci
 
+# Generate SSH key for host access
+RUN mkdir -p /root/.ssh && \
+    ssh-keygen -t rsa -b 2048 -f /root/.ssh/id_rsa -N "" && \
+    chmod 600 /root/.ssh/id_rsa
+
 # Copy source code (for development, this will be overridden by volume mount)
-COPY sc-manager/backend/ .
+COPY ./sc-manager-greenfield/backend/ .
 
 # Make startup script executable
 RUN chmod +x start-lucidlink.sh
 
+# Copy and use development entrypoint
+COPY ./sc-manager-greenfield/backend/docker-entrypoint-dev.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-dev.sh
+
 # Expose ports (including debugger port)
 EXPOSE 3001 3002 9229
+
+# Use entrypoint that ensures npm packages are installed
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-dev.sh"]
 
 # Development command with nodemon
 CMD ["dumb-init", "./start-lucidlink.sh", "npm", "run", "dev"]
@@ -63,6 +78,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     ffmpeg \
+    python3 \
+    build-essential \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install custom LucidLink build (if available)
@@ -88,13 +106,18 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Copy package files
-COPY sc-manager/backend/package*.json ./
+COPY ./sc-manager-greenfield/backend/package*.json ./
 
 # Install dependencies with optimization flags
 RUN npm ci --only=production --no-audit --no-fund
 
+# Generate SSH key for host access
+RUN mkdir -p /root/.ssh && \
+    ssh-keygen -t rsa -b 2048 -f /root/.ssh/id_rsa -N "" && \
+    chmod 600 /root/.ssh/id_rsa
+
 # Copy source code
-COPY sc-manager/backend/ .
+COPY ./sc-manager-greenfield/backend/ .
 
 # Make startup script executable
 RUN chmod +x start-lucidlink.sh
