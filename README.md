@@ -129,7 +129,6 @@ LUCIDLINK_USER=your_email@example.com
 LUCIDLINK_PASSWORD=your_password
 
 # OPTIONAL: Change default passwords (recommended)
-DB_PASSWORD=your_secure_password
 POSTGRES_PASSWORD=your_secure_password
 ADMIN_PASSWORD=your_admin_password
 ```
@@ -381,7 +380,7 @@ ADMIN_PASSWORD=your_secure_password      # Admin password
 
 #### Database Configuration
 ```bash
-POSTGRES_PASSWORD=your_secure_password     # PostgreSQL root password
+POSTGRES_PASSWORD=your_secure_password     # PostgreSQL database password
 DB_HOST=postgres                          # Database hostname (container name)
 DB_PORT=5432                             # PostgreSQL port
 DB_NAME=sitecache_db                     # Database name

@@ -79,7 +79,7 @@ if [ ! -f ".env" ]; then
     echo ""
     echo "⚠️  IMPORTANT: Edit .env file and configure:"
     echo "   - SERVER_HOST (your server IP or domain)"
-    echo "   - Database passwords"
+    echo "   - POSTGRES_PASSWORD (database password)"
     echo "   - LucidLink credentials"
     echo "   - JWT secret for production"
     echo ""
