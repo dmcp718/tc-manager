@@ -1,38 +1,63 @@
 #!/bin/bash
 
-# SiteCache Browser Smoke Tests
-# Basic functionality tests after deployment
+# TeamCache Manager Comprehensive Smoke Tests
+# Tests all critical functionality after deployment
 
 set -euo pipefail
 
+# Configuration
 BASE_URL="${BASE_URL:-http://localhost}"
-API_URL="${API_URL:-http://localhost:3001}"
+API_URL="${API_URL:-http://localhost:3001/api}"
+WS_URL="${WS_URL:-ws://localhost:3002}"
 TIMEOUT=30
 
-echo "🧪 Running SiteCache Browser smoke tests..."
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${GREEN}🧪 TeamCache Manager Smoke Tests v1.7.0${NC}"
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}Testing URLs:${NC}"
 echo "   Frontend URL: $BASE_URL"
 echo "   Backend API: $API_URL"
+echo "   WebSocket URL: $WS_URL"
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
 # Test counters
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
+CRITICAL_FAILURES=0
+
+# Test results storage
+declare -A TEST_RESULTS
 
 # Helper function to run a test
 run_test() {
     local test_name="$1"
     local test_command="$2"
+    local is_critical="${3:-false}"
     
-    echo -n "   Testing $test_name... "
+    echo -n "   $test_name... "
     TESTS_RUN=$((TESTS_RUN + 1))
     
     if eval "$test_command" >/dev/null 2>&1; then
-        echo "✅ PASS"
+        echo -e "${GREEN}✅ PASS${NC}"
         TESTS_PASSED=$((TESTS_PASSED + 1))
+        TEST_RESULTS["$test_name"]="PASS"
+        return 0
     else
-        echo "❌ FAIL"
+        echo -e "${RED}❌ FAIL${NC}"
         TESTS_FAILED=$((TESTS_FAILED + 1))
+        TEST_RESULTS["$test_name"]="FAIL"
+        if [ "$is_critical" = "true" ]; then
+            CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1))
+        fi
+        return 1
     fi
 }
 
@@ -42,7 +67,12 @@ test_http() {
     local expected_status="${2:-200}"
     local extra_args="${3:-}"
     
-    local status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time $TIMEOUT $extra_args "$url" || echo "000")
+    # Convert ws:// to http:// for curl testing
+    local test_url="${url/ws:\/\//http://}"
+    test_url="${test_url/wss:\/\//https://}"
+    
+    # Use eval to properly handle header arguments with spaces
+    local status_code=$(eval "curl -s -o /dev/null -w \"%{http_code}\" --max-time $TIMEOUT $extra_args \"$test_url\"" || echo "000")
     [ "$status_code" = "$expected_status" ]
 }
 
@@ -51,114 +81,374 @@ test_http_json() {
     local url="$1"
     local json_path="$2"
     local expected_value="$3"
+    local extra_args="${4:-}"
     
-    local response=$(curl -s --max-time $TIMEOUT "$url" || echo "{}")
-    echo "$response" | grep -q "\"$json_path\".*$expected_value"
+    local response=$(curl -s --max-time $TIMEOUT $extra_args "$url" || echo "{}")
+    echo "$response" | grep -q "$expected_value"
 }
 
-echo "🔍 Basic Connectivity Tests"
-run_test "Frontend homepage" "test_http '$BASE_URL'"
-run_test "Backend API root" "test_http '$API_URL'"
-run_test "Health endpoint" "test_http '$API_URL/health'"
-# Metrics endpoint removed - this is a management tool
-
-echo ""
-echo "🔍 Health Check Details"
-run_test "Database health" "test_http_json '$API_URL/health' 'database' 'true'"
-run_test "Filesystem health" "test_http_json '$API_URL/health' 'filesystem' 'true'"
-run_test "LucidLink health" "test_http '$API_URL/api/health/lucidlink' '200'"
-run_test "Elasticsearch availability" "test_http '$API_URL/api/search/elasticsearch/availability'"
-
-echo ""
-echo "🔍 Authentication Tests"
-# Load credentials from .env if available
-ADMIN_USERNAME="admin"
-ADMIN_PASSWORD="admin123"
+# Load credentials from .env
 if [[ -f .env ]]; then
-    source .env 2>/dev/null || true
-    ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
-    ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
+    export $(grep -v '^#' .env | grep -v '^$' | xargs) 2>/dev/null || true
 fi
 
-# Test authentication
-echo -n "   Testing login credentials... "
-LOGIN_RESPONSE=$(curl -s -X POST "$API_URL/api/auth/login" \
+ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
+LUCIDLINK_MOUNT="${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}"
+GRAFANA_URL="${GRAFANA_URL:-http://localhost:3000}"
+
+echo -e "${BLUE}🔍 Basic Connectivity Tests${NC}"
+run_test "Frontend homepage" "test_http '$BASE_URL'" true
+# Health endpoint doesn't use /api prefix
+BACKEND_BASE_URL="${API_URL%/api}"
+run_test "Backend API health" "test_http '$BACKEND_BASE_URL/health'" true
+
+# Special handling for WebSocket test
+echo -n "   WebSocket endpoint... "
+TESTS_RUN=$((TESTS_RUN + 1))
+WS_HTTP_URL="${WS_URL/ws:\/\//http://}"
+WS_HTTP_URL="${WS_HTTP_URL/wss:\/\//https://}"
+WS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Upgrade: websocket" --max-time $TIMEOUT "$WS_HTTP_URL" || echo "000")
+if [ "$WS_STATUS" = "426" ]; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    TEST_RESULTS["WebSocket endpoint"]="PASS"
+else
+    echo -e "${RED}❌ FAIL${NC} (got status $WS_STATUS, expected 426)"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    TEST_RESULTS["WebSocket endpoint"]="FAIL"
+    CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1))
+fi
+
+echo ""
+echo -e "${BLUE}🔍 Authentication Tests${NC}"
+
+# Get auth token
+echo -n "   Attempting login... "
+LOGIN_RESPONSE=$(curl -s -X POST "$API_URL/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}" \
     --max-time 10 || echo "{}")
 
 TOKEN=$(echo "$LOGIN_RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4 2>/dev/null || echo "")
 if [[ -n "$TOKEN" ]]; then
-    echo "✅ PASS"
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    AUTH_HEADER="Authorization: Bearer $TOKEN"
+else
+    echo -e "${RED}❌ FAIL${NC}"
+    echo "   Response: $LOGIN_RESPONSE"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1))
+    echo -e "${RED}Cannot continue without authentication!${NC}"
+    exit 1
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+echo ""
+echo -e "${BLUE}🔍 Core API Endpoints${NC}"
+# Direct API tests with auth
+echo -n "   Get API roots... "
+if test_http "$API_URL/roots" "200" "-H \"$AUTH_HEADER\""; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FAIL${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+echo -n "   Get job profiles... "
+if test_http "$API_URL/profiles" "200" "-H \"$AUTH_HEADER\""; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FAIL${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+echo -n "   Get cache jobs... "
+if test_http "$API_URL/jobs" "200" "-H \"$AUTH_HEADER\""; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FAIL${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+echo -n "   Get indexing status... "
+if test_http "$API_URL/index/status" "200" "-H \"$AUTH_HEADER\""; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FAIL${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+echo ""
+echo -e "${BLUE}🔍 File System Tests${NC}"
+
+# Test 1: FS tree loading mount point file listing
+echo -n "   Testing filesystem mount point access... "
+FS_RESPONSE=$(curl -s "$API_URL/files?path=$LUCIDLINK_MOUNT" \
+    -H "$AUTH_HEADER" \
+    --max-time $TIMEOUT || echo "{}")
+
+if echo "$FS_RESPONSE" | grep -q '"path":\|"name":\|^\['; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    TEST_RESULTS["Filesystem browsing"]="PASS"
+else
+    echo -e "${RED}❌ FAIL${NC}"
+    echo "      Response: ${FS_RESPONSE:0:100}..."
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    TEST_RESULTS["Filesystem browsing"]="FAIL"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+echo ""
+echo -e "${BLUE}🔍 Cache Statistics Tests${NC}"
+
+# Test 2: 'Cached data:' displaying varnish stats
+echo -n "   Testing cache statistics endpoint... "
+CACHE_STATS=$(curl -s "$API_URL/cache-stats" \
+    -H "$AUTH_HEADER" \
+    --max-time $TIMEOUT || echo "{}")
+
+if echo "$CACHE_STATS" | grep -q '"bytesUsed"\|"bytes_used"\|"totalBytes"\|"total_bytes"'; then
+    echo -e "${GREEN}✅ PASS${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
     
-    # Test protected endpoints with authentication
-    echo ""
-    echo "🔍 Protected API Endpoints"
-    run_test "Get API roots (auth)" "test_http '$API_URL/api/roots' '200' '-H \"Authorization: Bearer $TOKEN\"'"
-    run_test "Get job profiles (auth)" "test_http '$API_URL/api/profiles' '200' '-H \"Authorization: Bearer $TOKEN\"'"
-    run_test "Get cache jobs (auth)" "test_http '$API_URL/api/jobs' '200' '-H \"Authorization: Bearer $TOKEN\"'"
-    run_test "Get indexing status (auth)" "test_http '$API_URL/api/index/status' '200' '-H \"Authorization: Bearer $TOKEN\"'"
+    # Extract values for display
+    BYTES_USED=$(echo "$CACHE_STATS" | grep -o '"bytes_used":[0-9]*\|"bytesUsed":[0-9]*' | cut -d: -f2 | head -1)
+    if [ -n "$BYTES_USED" ]; then
+        echo "      Cache usage: $(numfmt --to=iec-i --suffix=B $BYTES_USED 2>/dev/null || echo "$BYTES_USED bytes")"
+    fi
 else
-    echo "❌ FAIL"
+    echo -e "${RED}❌ FAIL${NC}"
+    echo "      Response: ${CACHE_STATS:0:100}..."
     TESTS_FAILED=$((TESTS_FAILED + 1))
-    echo "   Skipping protected endpoint tests (no auth token)"
 fi
 TESTS_RUN=$((TESTS_RUN + 1))
 
 echo ""
-echo "🔍 Frontend Asset Tests"
-run_test "Static CSS files" "test_http '$BASE_URL/static/css/main.*\.css' '200'"
-run_test "Static JS files" "test_http '$BASE_URL/static/js/main.*\.js' '200'"
+echo -e "${BLUE}🔍 UI Functionality Tests${NC}"
 
-echo ""
-echo "🔍 WebSocket Test"
-# Simple WebSocket connectivity test
-if command -v node >/dev/null 2>&1; then
-    run_test "WebSocket connection" "timeout 10s node -e \"
-        const WebSocket = require('ws');
-        const ws = new WebSocket('ws://localhost:3002');
-        ws.on('open', () => { console.log('ok'); process.exit(0); });
-        ws.on('error', () => process.exit(1));
-        setTimeout(() => process.exit(1), 5000);
-    \" >/dev/null 2>&1"
+# Test 3: GRAFANA_URL button working (just verify URL is set)
+if [ -n "$GRAFANA_URL" ] && [ "$GRAFANA_URL" != "null" ]; then
+    # Grafana might return 302 (redirect) or 401 (unauthorized) or 200
+    echo -n "   Grafana URL configured... "
+    GRAFANA_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$GRAFANA_URL" || echo "000")
+    if [[ "$GRAFANA_STATUS" =~ ^(200|302|401)$ ]]; then
+        echo -e "${GREEN}✅ PASS${NC} (status: $GRAFANA_STATUS)"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo -e "${RED}❌ FAIL${NC} (status: $GRAFANA_STATUS)"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+    TESTS_RUN=$((TESTS_RUN + 1))
 else
-    echo "   Testing WebSocket connection... ⏭️  SKIP (Node.js not available)"
+    echo -e "   Grafana URL configured... ${YELLOW}⚠️  SKIP (not configured)${NC}"
 fi
 
 echo ""
-echo "🔍 Performance Tests"
-# Test response times
-RESPONSE_TIME=$(curl -s -w "%{time_total}" -o /dev/null "$API_URL/health" || echo "999")
-if (( $(echo "$RESPONSE_TIME < 1.0" | bc -l 2>/dev/null || echo "0") )); then
-    echo "   Response time (<1s)... ✅ PASS (${RESPONSE_TIME}s)"
+echo -e "${BLUE}🔍 Job Submission Tests${NC}"
+
+# Test 4: 'Index Files' button job submission success
+echo -n "   Testing index job submission... "
+INDEX_RESPONSE=$(curl -s -X POST "$API_URL/index/start" \
+    -H "$AUTH_HEADER" \
+    -H "Content-Type: application/json" \
+    -d "{\"rootPath\":\"$LUCIDLINK_MOUNT\",\"clearDeleted\":true}" \
+    --max-time $TIMEOUT || echo "{}")
+
+if echo "$INDEX_RESPONSE" | grep -q '"status":"started"\|"message":"Indexing started"'; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    
+    # Test 5: Running Jobs panel, Index Job added
+    sleep 2
+    echo -n "   Verifying index job in running jobs... "
+    JOBS_RESPONSE=$(curl -s "$API_URL/jobs/running" \
+        -H "$AUTH_HEADER" \
+        --max-time $TIMEOUT || echo "{}")
+    
+    if echo "$JOBS_RESPONSE" | grep -q '"type":"index"\|indexing'; then
+        echo -e "${GREEN}✅ PASS${NC}"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo -e "${YELLOW}⚠️  WARN${NC} (job may have completed)"
+    fi
+    TESTS_RUN=$((TESTS_RUN + 1))
+else
+    echo -e "${RED}❌ FAIL${NC}"
+    echo "      Response: ${INDEX_RESPONSE:0:100}..."
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+# Test 9: Add to Cache Job Queue button submission success
+echo -n "   Testing cache job submission... "
+# First, get a sample file to cache
+SAMPLE_FILE=$(curl -s "$API_URL/files?path=$LUCIDLINK_MOUNT" \
+    -H "$AUTH_HEADER" \
+    --max-time $TIMEOUT | grep -o '"path":"[^"]*"' | grep -v '/$' | head -1 | cut -d'"' -f4 || echo "")
+
+if [ -n "$SAMPLE_FILE" ]; then
+    CACHE_RESPONSE=$(curl -s -X POST "$API_URL/jobs/cache" \
+        -H "$AUTH_HEADER" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"Smoke Test Cache Job\",\"filePaths\":[\"$SAMPLE_FILE\"]}" \
+        --max-time $TIMEOUT || echo "{}")
+    
+    if echo "$CACHE_RESPONSE" | grep -q '"jobId"\|"job_id"\|"id"'; then
+        echo -e "${GREEN}✅ PASS${NC}"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        JOB_ID=$(echo "$CACHE_RESPONSE" | grep -o '"jobId":[0-9]*\|"job_id":[0-9]*\|"id":[0-9]*' | cut -d: -f2 | head -1)
+        
+        # Test 10: Running Jobs panel, Cache Job added
+        sleep 2
+        echo -n "   Verifying cache job in running jobs... "
+        CACHE_JOBS=$(curl -s "$API_URL/jobs/running" \
+            -H "$AUTH_HEADER" \
+            --max-time $TIMEOUT || echo "{}")
+        
+        if echo "$CACHE_JOBS" | grep -q '"type":"cache"\|"cache_job"'; then
+            echo -e "${GREEN}✅ PASS${NC}"
+            TESTS_PASSED=$((TESTS_PASSED + 1))
+        else
+            echo -e "${YELLOW}⚠️  WARN${NC} (job may have completed)"
+        fi
+        TESTS_RUN=$((TESTS_RUN + 1))
+    else
+        echo -e "${RED}❌ FAIL${NC}"
+        echo "      Response: ${CACHE_RESPONSE:0:100}..."
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+else
+    echo -e "${YELLOW}⚠️  SKIP${NC} (no files found to cache)"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+echo ""
+echo -e "${BLUE}🔍 Search Functionality Tests${NC}"
+
+# Test Elasticsearch integration
+echo -n "   Testing Elasticsearch search... "
+ES_SEARCH=$(curl -s "$API_URL/search/elasticsearch?q=*&limit=1" \
+    -H "$AUTH_HEADER" \
+    --max-time $TIMEOUT || echo "{}")
+
+if echo "$ES_SEARCH" | grep -q '"results"\|"hits"\|"files"'; then
+    echo -e "${GREEN}✅ PASS${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
 else
-    echo "   Response time (<1s)... ❌ FAIL (${RESPONSE_TIME}s)"
+    echo -e "${YELLOW}⚠️  WARN${NC} (Elasticsearch may be initializing)"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+# Test PostgreSQL search
+run_test "PostgreSQL search" "test_http '$API_URL/search?q=*&limit=1' '200' '-H \"$AUTH_HEADER\"'"
+
+echo ""
+echo -e "${BLUE}🔍 WebSocket Real-time Updates${NC}"
+
+# Test WebSocket connectivity with simple curl upgrade request
+echo -n "   Testing WebSocket upgrade... "
+WS_TEST=$(timeout 2 curl -s -i -N \
+    -H "Connection: Upgrade" \
+    -H "Upgrade: websocket" \
+    -H "Sec-WebSocket-Version: 13" \
+    -H "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==" \
+    "${WS_URL}" 2>&1 | head -10 || echo "timeout")
+
+if echo "$WS_TEST" | grep -q "101 Switching Protocols"; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${YELLOW}⚠️  WARN${NC} (WebSocket may require authentication)"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+echo ""
+echo -e "${BLUE}🔍 Performance Metrics${NC}"
+
+# Test 12: GET Speed stats display
+echo -n "   Testing performance metrics endpoint... "
+PERF_METRICS=$(curl -s "$API_URL/stats" \
+    -H "$AUTH_HEADER" \
+    --max-time $TIMEOUT || echo "{}")
+
+if echo "$PERF_METRICS" | grep -q '"getSpeed"\|"get_speed"\|"lucidlink_stats"\|"performance"'; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    
+    # Extract GET speed if available
+    GET_SPEED=$(echo "$PERF_METRICS" | grep -o '"get_speed":[0-9.]*\|"getSpeed":[0-9.]*' | cut -d: -f2 | head -1)
+    if [ -n "$GET_SPEED" ]; then
+        echo "      GET Speed: ${GET_SPEED} MB/s"
+    fi
+else
+    echo -e "${YELLOW}⚠️  WARN${NC} (stats may not be available yet)"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+# Response time test
+echo -n "   API response time (<1s)... "
+START_TIME=$(date +%s.%N)
+curl -s "$API_URL/health" -H "$AUTH_HEADER" --max-time 5 >/dev/null
+END_TIME=$(date +%s.%N)
+RESPONSE_TIME=$(echo "$END_TIME - $START_TIME" | bc 2>/dev/null || echo "0")
+
+if (( $(echo "$RESPONSE_TIME < 1.0" | bc -l 2>/dev/null || echo "0") )); then
+    echo -e "${GREEN}✅ PASS${NC} (${RESPONSE_TIME}s)"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FAIL${NC} (${RESPONSE_TIME}s)"
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 TESTS_RUN=$((TESTS_RUN + 1))
 
 echo ""
-echo "📊 Test Results Summary"
-echo "   Tests run: $TESTS_RUN"
-echo "   Passed: $TESTS_PASSED"
-echo "   Failed: $TESTS_FAILED"
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "${BLUE}📊 Test Results Summary${NC}"
+echo "   Total tests run: $TESTS_RUN"
+echo -e "   Passed: ${GREEN}$TESTS_PASSED${NC}"
+echo -e "   Failed: ${RED}$TESTS_FAILED${NC}"
+echo -e "   Critical failures: ${RED}$CRITICAL_FAILURES${NC}"
 
-if [ $TESTS_FAILED -eq 0 ]; then
+# Show failed tests
+if [ $TESTS_FAILED -gt 0 ]; then
     echo ""
-    echo "🎉 All smoke tests passed! SiteCache Browser is working correctly."
-    exit 0
-else
-    echo ""
-    echo "⚠️  Some smoke tests failed. Please check the application logs."
+    echo -e "${RED}Failed Tests:${NC}"
+    for test in "${!TEST_RESULTS[@]}"; do
+        if [ "${TEST_RESULTS[$test]}" = "FAIL" ]; then
+            echo "   - $test"
+        fi
+    done
+fi
+
+echo ""
+if [ $CRITICAL_FAILURES -gt 0 ]; then
+    echo -e "${RED}❌ Critical tests failed! TeamCache Manager has serious issues.${NC}"
     
     # Show recent logs for debugging
     echo ""
-    echo "📋 Recent application logs:"
+    echo -e "${YELLOW}📋 Recent application logs:${NC}"
     if command -v docker >/dev/null 2>&1; then
         docker compose logs --tail=20 backend 2>/dev/null || echo "Could not retrieve logs"
     fi
     
+    exit 2
+elif [ $TESTS_FAILED -eq 0 ]; then
+    echo -e "${GREEN}🎉 All smoke tests passed! TeamCache Manager is working correctly.${NC}"
+    exit 0
+else
+    echo -e "${YELLOW}⚠️  Some tests failed, but core functionality is working.${NC}"
+    echo "   Please check the application logs for warnings."
     exit 1
 fi

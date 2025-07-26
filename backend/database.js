@@ -14,8 +14,8 @@ console.log(`Database pool configuration: ${totalConnections} connections (${wor
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'sitecache_db',
-  user: process.env.DB_USER || 'postgres',
+  database: process.env.POSTGRES_DB || process.env.DB_NAME || 'teamcache_db',
+  user: process.env.POSTGRES_USER || process.env.DB_USER || 'teamcache_user',
   password: process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD || '',
   max: totalConnections,
   idleTimeoutMillis: 30000,

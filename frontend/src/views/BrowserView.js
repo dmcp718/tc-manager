@@ -1881,8 +1881,8 @@ const BrowserView = ({ user, onLogout }) => {
               <path d="m3 12c0 1.7 4 3 9 3s9-1.3 9-3"/>
             </svg>
             <span>
-              SiteCache Manager
-              <span style={styles.titleVersion}>v1.6.0</span>
+              TeamCache Manager
+              <span style={styles.titleVersion}>v1.7.0</span>
             </span>
           </h1>
         </div>
@@ -2138,7 +2138,11 @@ const BrowserView = ({ user, onLogout }) => {
               lineHeight: 0,
               fontSize: 0
             }}
-            onClick={() => window.open(process.env.REACT_APP_GRAFANA_URL || 'http://localhost:3000', '_blank')}
+            onClick={() => {
+              const grafanaUrl = process.env.REACT_APP_GRAFANA_URL || 
+                `${window.location.protocol}//${window.location.hostname}:3000`;
+              window.open(grafanaUrl, '_blank');
+            }}
             title="Open Grafana Dashboard"
           >
             <img 

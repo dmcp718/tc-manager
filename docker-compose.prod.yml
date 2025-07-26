@@ -57,8 +57,6 @@ services:
       LUCIDLINK_API_HOST: ${LUCIDLINK_API_HOST:-host.docker.internal}
       # Configure S3 proxy for Varnish cache
       LUCID_S3_PROXY: ${LUCID_S3_PROXY}
-      # Media preview service URL
-      MEDIA_PREVIEW_URL: ${MEDIA_PREVIEW_URL:-http://media-preview:3003}
     volumes:
       # Application logs
       - backend_logs:/app/logs
@@ -96,6 +94,7 @@ services:
         REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:3001/api}
         REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:3002}
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
+        REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-}
     container_name: sc-mgr-frontend-prod
     ports:
       - "8090:80"

@@ -89,7 +89,10 @@ function LoginScreen({ onLogin }) {
     setError('');
 
     try {
-      const response = await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/auth/login`, {
+      const apiUrl = FileSystemAPI.baseURL.endsWith('/api') 
+        ? FileSystemAPI.baseURL.slice(0, -4) 
+        : FileSystemAPI.baseURL;
+      const response = await fetch(`${apiUrl}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -116,7 +119,7 @@ function LoginScreen({ onLogin }) {
   return (
     <div style={loginStyles.loginContainer}>
       <div style={loginStyles.loginForm}>
-        <h1 style={loginStyles.loginTitle}>SiteCache Manager</h1>
+        <h1 style={loginStyles.loginTitle}>TeamCache Manager</h1>
         {error && <div style={loginStyles.loginError}>{error}</div>}
         <form onSubmit={handleSubmit}>
           <input
@@ -167,7 +170,10 @@ function App() {
     }
 
     try {
-      const response = await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/auth/verify`, {
+      const apiUrl = FileSystemAPI.baseURL.endsWith('/api') 
+        ? FileSystemAPI.baseURL.slice(0, -4) 
+        : FileSystemAPI.baseURL;
+      const response = await fetch(`${apiUrl}/api/auth/verify`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -198,7 +204,10 @@ function App() {
     try {
       const token = localStorage.getItem('authToken');
       if (token) {
-        await fetch(`${FileSystemAPI.baseURL.replace('/api', '')}/api/auth/logout`, {
+        const apiUrl = FileSystemAPI.baseURL.endsWith('/api') 
+          ? FileSystemAPI.baseURL.slice(0, -4) 
+          : FileSystemAPI.baseURL;
+        await fetch(`${apiUrl}/api/auth/logout`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,

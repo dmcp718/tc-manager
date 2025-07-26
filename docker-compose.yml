@@ -55,6 +55,9 @@ services:
       DB_NAME: ${DB_NAME:-sitecache_db}
       DB_USER: ${DB_USER:-sitecache_user}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      POSTGRES_USER: ${POSTGRES_USER:-teamcache_user}
+      POSTGRES_DB: ${POSTGRES_DB:-teamcache_db}
       PREVIEW_CACHE_DIR: /app/preview-cache
       INDEX_ROOT_PATH: ${INDEX_ROOT_PATH:-/media/lucidlink-1}
       ALLOWED_PATHS: ${ALLOWED_PATHS:-/media/lucidlink-1}
@@ -155,6 +158,7 @@ services:
         REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:3001/api}
         REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:3002}
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
+        REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-}
     container_name: sc-mgr-frontend
     ports:
       - "8080:3000"

@@ -964,7 +964,7 @@ const AdminView = ({ user, onLogout }) => {
               <div style={styles.statusContent}>
                 <div style={styles.statusLine}>
                   <div style={styles.statusLabel}>Application:</div>
-                  <div style={styles.statusValue}>SiteCache Manager v1.6.0</div>
+                  <div style={styles.statusValue}>TeamCache Manager v1.7.0</div>
                 </div>
                 <div style={styles.statusLine}>
                   <div style={styles.statusLabel}>User:</div>
@@ -1126,8 +1126,8 @@ const AdminView = ({ user, onLogout }) => {
               <path d="m3 12c0 1.7 4 3 9 3s9-1.3 9-3"/>
             </svg>
             <span>
-              SiteCache Manager
-              <span style={styles.titleVersion}>v1.6.0</span>
+              TeamCache Manager
+              <span style={styles.titleVersion}>v1.7.0</span>
             </span>
           </h1>
         </div>
