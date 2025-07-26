@@ -13,9 +13,9 @@ class MediaPreviewService {
     // Video transcoding settings from environment
     this.VIDEO_WIDTH = parseInt(process.env.TRANSCODE_VIDEO_WIDTH || '1280');
     this.VIDEO_HEIGHT = parseInt(process.env.TRANSCODE_VIDEO_HEIGHT || '720');
-    this.VIDEO_BITRATE = process.env.TRANSCODE_VIDEO_BITRATE || '2800k';
-    this.VIDEO_MAXRATE = process.env.TRANSCODE_VIDEO_MAXRATE || '3000k';
-    this.VIDEO_BUFSIZE = process.env.TRANSCODE_VIDEO_BUFSIZE || '6000k';
+    this.VIDEO_BITRATE = process.env.TRANSCODE_VIDEO_BITRATE || '1000k';
+    this.VIDEO_MAXRATE = process.env.TRANSCODE_VIDEO_MAXRATE || '1500k';
+    this.VIDEO_BUFSIZE = process.env.TRANSCODE_VIDEO_BUFSIZE || '2000k';
     
     // Audio settings
     this.AUDIO_BITRATE = process.env.TRANSCODE_AUDIO_BITRATE || '128k';

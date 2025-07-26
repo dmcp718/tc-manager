@@ -25,7 +25,6 @@ class AuthService {
   async initializeAdminPassword() {
     const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     this.adminPasswordHash = await bcrypt.hash(adminPassword, 10);
-    console.log(`Admin user initialized: ${this.adminUsername}`);
   }
 
   async validateCredentials(username, password, clientIP = 'unknown') {

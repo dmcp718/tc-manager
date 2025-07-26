@@ -1,4 +1,4 @@
-# SiteCache Manager
+# TeamCache Manager
 
 A production-ready file system browser and cache management system for LucidLink cloud filesystems with advanced search capabilities, intelligent caching, real-time data verification, and Docker deployment.
 
@@ -1450,4 +1450,4 @@ If you encounter persistent issues:
 - Health check: `curl http://localhost:3001/health`
 - Documentation: See `DEVELOPMENT.md` for detailed troubleshooting
 
-This README provides complete instructions for successful greenfield deployment of the SiteCache Manager system, including all necessary configuration, security considerations, and troubleshooting guidance.
+This README provides complete instructions for successful greenfield deployment of the TeamCache Manager system, including all necessary configuration, security considerations, and troubleshooting guidance.

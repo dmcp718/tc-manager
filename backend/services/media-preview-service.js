@@ -11,9 +11,9 @@ class MediaPreviewService {
     this.TEMP_DIR = process.env.TEMP_DIR || '/tmp';
     
     // Video transcoding settings
-    this.VIDEO_BITRATE = process.env.TRANSCODE_VIDEO_BITRATE || '2800k';
-    this.VIDEO_MAXRATE = process.env.TRANSCODE_VIDEO_MAXRATE || '3000k';
-    this.VIDEO_BUFSIZE = process.env.TRANSCODE_VIDEO_BUFSIZE || '6000k';
+    this.VIDEO_BITRATE = process.env.TRANSCODE_VIDEO_BITRATE || '1000k';
+    this.VIDEO_MAXRATE = process.env.TRANSCODE_VIDEO_MAXRATE || '1500k';
+    this.VIDEO_BUFSIZE = process.env.TRANSCODE_VIDEO_BUFSIZE || '2000k';
     this.VIDEO_WIDTH = parseInt(process.env.TRANSCODE_VIDEO_WIDTH || '1280');
     this.VIDEO_HEIGHT = parseInt(process.env.TRANSCODE_VIDEO_HEIGHT || '720');
     
@@ -32,8 +32,8 @@ class MediaPreviewService {
       url: process.env.REDIS_URL || 'redis://redis:6379'
     });
     
-    this.redis.on('error', err => console.log('Redis Client Error', err));
-    this.redis.on('connect', () => console.log('Redis Client Connected'));
+    this.redis.on('error', err => {});
+    this.redis.on('connect', () => {});
     
     this.initializeService();
   }
@@ -43,7 +43,7 @@ class MediaPreviewService {
     try {
       await this.redis.connect();
     } catch (error) {
-      console.error('Failed to connect to Redis:', error);
+      // Failed to connect to Redis
     }
     
     // Create necessary directories
@@ -74,7 +74,7 @@ class MediaPreviewService {
         return JSON.parse(cached);
       }
     } catch (error) {
-      console.error('Error checking cache:', error);
+      // Error checking cache
     }
     return null;
   }
@@ -88,7 +88,7 @@ class MediaPreviewService {
       }
       await this.redis.setEx(`preview:${cacheKey}`, ttl, JSON.stringify(previewData));
     } catch (error) {
-      console.error('Error storing in cache:', error);
+      // Error storing in cache
     }
   }
   
@@ -220,7 +220,7 @@ class MediaPreviewService {
       previewData.directStreamUrl = `/api/video/stream/${cacheKey}`;
       previewData.streamType = 'direct';
       previewData.autoplay = true;
-      console.log(`✅ Direct streaming for web-compatible video: ${filename}`);
+      // Direct streaming for web-compatible video
     } else {
       // For non-web-compatible videos, set up progressive HLS transcoding
       const outputDir = path.join(this.PREVIEW_CACHE_DIR, cacheKey);
@@ -231,7 +231,7 @@ class MediaPreviewService {
       previewData.segmentCount = 0;
       previewData.autoplay = true;
       
-      console.log(`🔄 Progressive HLS transcoding for non-web video: ${filename}`);
+      // Progressive HLS transcoding for non-web video
       
       // Store initial processing state and return immediately for progressive streaming
       await this.storePreviewInCache(cacheKey, previewData);
@@ -363,9 +363,7 @@ class MediaPreviewService {
   // Start background transcoding for progressive streaming
   async startBackgroundTranscoding(filePath, outputDir, cacheKey, previewData) {
     try {
-      console.log(`🔧 DEBUG: Starting background transcoding for ${filePath}`);
-      console.log(`🔧 DEBUG: Output dir: ${outputDir}`);
-      console.log(`🔧 DEBUG: Cache key: ${cacheKey}`);
+      // Starting background transcoding
       
       // Start progressive transcoding with segment monitoring
       await FFmpegTranscoder.transcodeToHLSProgressive(
@@ -386,7 +384,7 @@ class MediaPreviewService {
             const currentData = await this.getPreviewFromCache(cacheKey) || previewData;
             currentData.segmentCount = (currentData.segmentCount || 0) + 1;
             await this.storePreviewInCache(cacheKey, currentData);
-            console.log(`New segment ready: ${segmentInfo} (total: ${currentData.segmentCount})`);
+            // New segment ready
             
             // Check if ready for progressive playback
             await this.checkProgressivePlaybackReady(cacheKey, outputDir, currentData);
@@ -401,10 +399,10 @@ class MediaPreviewService {
       finalData.playlistUrl = `/api/preview/video/${cacheKey}/playlist.m3u8`;
       await this.storePreviewInCache(cacheKey, finalData);
       
-      console.log(`✅ Background transcoding completed for ${cacheKey}`);
+      // Background transcoding completed
       
     } catch (error) {
-      console.error(`❌ Background transcoding failed for ${cacheKey}:`, error);
+      // Background transcoding failed
       const errorData = await this.getPreviewFromCache(cacheKey) || previewData;
       errorData.status = 'failed';
       
@@ -413,7 +411,7 @@ class MediaPreviewService {
       const isUnsupportedFormat = ext === '.r3d' || ext === '.braw';
       
       if (isUnsupportedFormat) {
-        console.log(`${ext.toUpperCase()} format detected - storing user-friendly error message`);
+        // Special format detected - storing user-friendly error message
         // For unsupported formats, only store the simple message
         errorData.error = 'Media format not supported.';
         errorData.userFriendlyError = 'Media format not supported.';
@@ -459,11 +457,7 @@ class MediaPreviewService {
           }
         });
       
-      console.log(`Checking progressive readiness for ${cacheKey}:`);
-      console.log(`  - Master playlist exists: ${fs.existsSync(masterPlaylistPath)}`);
-      console.log(`  - Tracked segment count: ${segmentCount}`);
-      console.log(`  - Actual segment count: ${actualSegmentCount}`);
-      console.log(`  - Quality playlists found: ${qualityPlaylists.length}`);
+      // Checking progressive readiness
       
       // Use the higher of the two segment counts
       const totalSegments = Math.max(segmentCount, actualSegmentCount);
@@ -473,10 +467,10 @@ class MediaPreviewService {
         previewData.status = 'progressive_ready';
         previewData.playlistUrl = `/api/preview/video/${cacheKey}/playlist.m3u8`;
         await this.storePreviewInCache(cacheKey, previewData);
-        console.log(`✅ Progressive playback ready for ${cacheKey} (${totalSegments} segments, ${qualityPlaylists.length} qualities)`);
+        // Progressive playback ready
       }
     } catch (error) {
-      console.error(`Error checking progressive readiness for ${cacheKey}:`, error);
+      // Error checking progressive readiness
     }
   }
   
@@ -512,11 +506,11 @@ class MediaPreviewService {
         
         if (now - stats.mtimeMs > maxAge) {
           fs.rmSync(dirPath, { recursive: true, force: true });
-          console.log(`Cleaned up old preview: ${dir}`);
+          // Cleaned up old preview
         }
       }
     } catch (error) {
-      console.error('Error cleaning up previews:', error);
+      // Error cleaning up previews
     }
   }
 }
@@ -561,13 +555,10 @@ class FFmpegTranscoder {
   }
 
   static async transcodeToHLSProgressive(inputPath, outputDir, videoId, onProgress, onSegmentReady) {
-    console.log(`🔧 DEBUG: FFmpegTranscoder.transcodeToHLSProgressive called`);
-    console.log(`🔧 DEBUG: inputPath: ${inputPath}`);
-    console.log(`🔧 DEBUG: outputDir: ${outputDir}`);
-    console.log(`🔧 DEBUG: videoId: ${videoId}`);
+    // FFmpegTranscoder.transcodeToHLSProgressive called
     
     return new Promise(async (resolve, reject) => {
-      console.log(`🔧 DEBUG: Inside Promise - about to create output directory`);
+      // Inside Promise - about to create output directory
       
       // Ensure output directory exists
       if (!fs.existsSync(outputDir)) {
@@ -575,14 +566,14 @@ class FFmpegTranscoder {
       }
 
       // First, check if the file has audio
-      console.log(`🔧 DEBUG: About to check if file has audio`);
+      // About to check if file has audio
       let hasAudio = false;
       try {
         const videoInfo = await FFmpegTranscoder.getVideoInfo(inputPath);
         hasAudio = videoInfo.streams.some(s => s.codec_type === 'audio');
-        console.log(`Video has audio: ${hasAudio}`);
+        // Video has audio check complete
       } catch (e) {
-        console.warn('Could not get video info, assuming video has audio');
+        // Could not get video info, assuming video has audio
         hasAudio = true;
       }
 
@@ -641,7 +632,7 @@ class FFmpegTranscoder {
         '-nostats'
       );
 
-      console.log('Starting progressive FFmpeg transcoding...');
+      // Starting progressive FFmpeg transcoding
 
       const ffmpeg = spawn('ffmpeg', args);
       let duration = 0;
@@ -652,17 +643,17 @@ class FFmpegTranscoder {
       const watchSegments = () => {
         segmentWatcher = fs.watch(outputDir, { persistent: false }, (eventType, filename) => {
           if (filename) {
-            console.log(`File event: ${eventType} - ${filename}`);
+            // File event detected
             
             if (filename.endsWith('.ts') && eventType === 'rename') {
-              console.log(`New segment created: ${filename}`);
+              // New segment created
               if (onSegmentReady) {
                 onSegmentReady(filename, false); // false indicates segment, not playlist
               }
             }
             
             if (filename.endsWith('.m3u8') && (eventType === 'change' || eventType === 'rename')) {
-              console.log(`Playlist updated: ${filename}`);
+              // Playlist updated
               if (onSegmentReady) {
                 onSegmentReady(filename, true); // true indicates playlist update
               }
@@ -711,7 +702,7 @@ class FFmpegTranscoder {
       ffmpeg.stderr.on('data', (data) => {
         errorOutput += data.toString();
         if (data.toString().toLowerCase().includes('error')) {
-          console.error(`FFmpeg error: ${data}`);
+          // FFmpeg error output
         }
       });
 
@@ -727,12 +718,12 @@ class FFmpegTranscoder {
           resolve();
         } else {
           // Check for specific professional format errors with user-friendly messages
-          console.log(`FFmpeg failed for input: ${inputPath}`);
+          // FFmpeg failed for input
           const userFriendlyError = MediaPreviewService.generateUserFriendlyVideoError(inputPath, errorOutput);
           const finalError = userFriendlyError || `FFmpeg exited with code ${code}: ${errorOutput}`;
           
-          console.log(`User-friendly error: ${userFriendlyError}`);
-          console.log(`Final error: ${finalError}`);
+          // User-friendly error prepared
+          // Final error prepared
           
           reject(new Error(finalError));
         }
@@ -766,9 +757,9 @@ class FFmpegTranscoder {
         fs.writeFileSync(playlistPath, content);
       });
       
-      console.log('Playlists finalized for VOD playback');
+      // Playlists finalized for VOD playback
     } catch (error) {
-      console.error('Error finalizing playlists:', error);
+      // Error finalizing playlists
     }
   }
 }

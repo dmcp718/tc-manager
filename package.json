@@ -1,7 +1,7 @@
 {
-  "name": "sitecache-manager",
-  "version": "1.6.0",
-  "description": "SiteCache Manager - File caching and management for LucidLink",
+  "name": "teamcache-manager",
+  "version": "1.7.0",
+  "description": "TeamCache Manager - File caching and management for LucidLink",
   "private": true,
   "scripts": {
     "dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up",

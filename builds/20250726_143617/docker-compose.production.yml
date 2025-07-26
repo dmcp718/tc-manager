@@ -1,0 +1,62 @@
+# Production Environment - Secure Configuration
+# This file removes development defaults and requires all sensitive values from environment
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml up
+
+services:
+  # PostgreSQL Database - Production overrides
+  postgres:
+    container_name: tc-mgr-postgres
+    environment:
+      # Remove defaults - these MUST be provided via environment
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+
+  # Backend API Service - Production overrides
+  backend:
+    container_name: tc-mgr-backend
+    environment:
+      # Database - no defaults
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      
+      # Authentication - no defaults
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      
+      # LucidLink - required values
+      LUCIDLINK_FILESPACE: ${LUCIDLINK_FILESPACE}
+      LUCIDLINK_USER: ${LUCIDLINK_USER}
+      LUCIDLINK_PASSWORD: ${LUCIDLINK_PASSWORD}
+      
+      # Elasticsearch
+      ELASTICSEARCH_INDEX: ${ELASTICSEARCH_INDEX:-teamcache-files}
+      
+      # Production optimizations
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  # Frontend - Production overrides  
+  frontend:
+    container_name: tc-mgr-frontend
+    build:
+      args:
+        # Frontend URLs require SERVER_HOST to be set
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-https://${SERVER_HOST}/api}
+        REACT_APP_WS_URL: ${REACT_APP_WS_URL:-wss://${SERVER_HOST}}
+        REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-https://${SERVER_HOST}:3000}
+
+  # Elasticsearch - Production naming
+  elasticsearch:
+    container_name: tc-mgr-elasticsearch
+
+  # Varnish Stats Collector - Production naming
+  varnish-stats:
+    container_name: tc-mgr-varnish-stats
+
+networks:
+  default:
+    name: tc-mgr-network

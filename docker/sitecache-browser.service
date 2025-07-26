@@ -1,12 +1,12 @@
 [Unit]
-Description=SiteCache Browser Docker Application
+Description=TeamCache Manager Docker Application
 Requires=docker.service
 After=docker.service lucidlink.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=true
-WorkingDirectory=/opt/sitecache-browser
+WorkingDirectory=/opt/teamcache-manager
 ExecStart=/usr/bin/docker compose -f docker-compose.production.yml up -d
 ExecStop=/usr/bin/docker compose -f docker-compose.production.yml down
 TimeoutStartSec=0

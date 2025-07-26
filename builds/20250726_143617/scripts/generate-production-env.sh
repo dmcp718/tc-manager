@@ -33,7 +33,7 @@ fi
 # Generate secure values
 JWT_SECRET=$(openssl rand -hex 32)
 ADMIN_PASSWORD=$(openssl rand -base64 12 | tr -d "=")
-POSTGRES_PASSWORD=$(openssl rand -base64 18 | tr -d "=")
+DB_PASSWORD=$(openssl rand -base64 18 | tr -d "=")
 
 # Get user input for required values
 echo -e "${YELLOW}Please provide the following information:${NC}"
@@ -66,11 +66,11 @@ cat > "$PROJECT_DIR/.env" << EOF
 # Version: 1.7.0
 
 # Database Configuration
-POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-POSTGRES_USER=teamcache_user
-POSTGRES_DB=teamcache_db
+POSTGRES_PASSWORD=$DB_PASSWORD
 DB_HOST=postgres
 DB_PORT=5432
+DB_NAME=teamcache_db
+DB_USER=teamcache_user
 
 # Application Configuration
 NODE_ENV=production
@@ -138,9 +138,9 @@ PREVIEW_CACHE_HOST_PATH=/var/tc-mgr/previews
 PREVIEW_CACHE_DIR=/app/preview-cache
 
 # Video Transcoding Settings
-TRANSCODE_VIDEO_BITRATE=1000k
-TRANSCODE_VIDEO_MAXRATE=1500k
-TRANSCODE_VIDEO_BUFSIZE=2000k
+TRANSCODE_VIDEO_BITRATE=2800k
+TRANSCODE_VIDEO_MAXRATE=3000k
+TRANSCODE_VIDEO_BUFSIZE=6000k
 TRANSCODE_VIDEO_WIDTH=1280
 TRANSCODE_VIDEO_HEIGHT=720
 TRANSCODE_AUDIO_BITRATE=128k
@@ -178,7 +178,7 @@ echo -e "${YELLOW}📋 Generated credentials:${NC}"
 echo "   Admin Username: admin"
 echo "   Admin Password: $ADMIN_PASSWORD"
 echo "   JWT Secret: ${JWT_SECRET:0:16}..."
-echo "   PostgreSQL Password: ${POSTGRES_PASSWORD:0:8}..."
+echo "   DB Password: ${DB_PASSWORD:0:8}..."
 echo ""
 echo -e "${YELLOW}📝 Configuration summary:${NC}"
 echo "   Server: $SERVER_HOST"

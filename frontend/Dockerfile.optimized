@@ -1,0 +1,78 @@
+# Multi-stage build for optimized TeamCache Manager frontend
+# v1.7.0 - Production optimized
+
+# Stage 1: Build the React application
+FROM node:18-alpine AS builder
+
+# Install dependencies for node-gyp
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies with exact versions
+RUN npm ci --only=production && \
+    npm cache clean --force
+
+# Copy source code
+COPY public/ ./public/
+COPY src/ ./src/
+
+# Build arguments for environment configuration
+ARG REACT_APP_API_URL
+ARG REACT_APP_WS_URL
+ARG REACT_APP_LUCIDLINK_MOUNT_POINT
+ARG REACT_APP_GRAFANA_URL
+
+# Build the application with optimizations
+ENV NODE_OPTIONS="--max-old-space-size=2048"
+ENV GENERATE_SOURCEMAP=false
+ENV INLINE_RUNTIME_CHUNK=false
+
+RUN npm run build && \
+    # Remove unnecessary files
+    find build -name "*.map" -delete && \
+    find build -name "*.LICENSE.txt" -delete
+
+# Stage 2: Create minimal nginx image
+FROM nginx:1.25-alpine
+
+# Install useful tools for debugging (can be removed for ultra-minimal image)
+RUN apk add --no-cache curl
+
+# Remove default nginx config
+RUN rm -rf /etc/nginx/conf.d/*
+
+# Copy optimized nginx configuration
+COPY nginx.production.optimized.conf /etc/nginx/nginx.conf
+
+# Copy built React app
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Add custom error pages
+RUN echo "<h1>404 - Page Not Found</h1>" > /usr/share/nginx/html/404.html && \
+    echo "<h1>500 - Internal Server Error</h1>" > /usr/share/nginx/html/50x.html
+
+# Create cache directories
+RUN mkdir -p /var/cache/nginx/api /var/cache/nginx/static && \
+    chown -R nginx:nginx /var/cache/nginx
+
+# Note: nginx user and group already exist in the nginx:alpine image
+# Just ensure proper permissions are set
+
+# Security: Remove unnecessary files
+RUN find /usr/share/nginx/html -name "*.md" -delete || true
+
+# Add health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Run as non-root user
+USER nginx
+
+EXPOSE 80
+
+# Use exec form to ensure signals are handled properly
+CMD ["nginx", "-g", "daemon off;"]

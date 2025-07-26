@@ -1,7 +1,7 @@
 {
-  "name": "file-explorer-backend",
-  "version": "1.6.0",
-  "description": "Backend server for file explorer with LucidLink filesystem indexing",
+  "name": "teamcache-backend",
+  "version": "1.7.0",
+  "description": "Backend server for TeamCache Manager with LucidLink filesystem indexing",
   "main": "server-v2.js",
   "scripts": {
     "start": "node server-v2.js",
