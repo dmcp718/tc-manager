@@ -445,6 +445,22 @@ VARNISH_CONTAINER_NAME=varnish-1       # Varnish container name
 VARNISH_STATS_INTERVAL=60000          # Stats update interval (ms)
 ```
 
+#### Remote Upload Indicator (RUI)
+```bash
+# RUI tracks files being uploaded across the LucidLink filesystem
+# Three operation modes available:
+# 1. Disabled: ENABLE_RUI=false
+# 2. Database only: ENABLE_RUI=true, ENABLE_RUI_FILESYSTEM_SCANNER=false
+# 3. Full scanning: ENABLE_RUI=true, ENABLE_RUI_FILESYSTEM_SCANNER=true
+
+ENABLE_RUI=true                        # Master switch for RUI feature
+ENABLE_RUI_FILESYSTEM_SCANNER=true     # Enable filesystem scanning
+RUI_SCAN_INTERVAL=30000               # Upload scan interval (ms)
+RUI_MONITOR_INTERVAL=2000             # Progress check interval (ms)
+RUI_BATCH_SIZE=100                    # Files per batch
+RUI_MAX_CONCURRENT_MONITORS=10        # Max concurrent monitors
+```
+
 ### Docker Compose Configuration
 
 The system supports multiple deployment configurations:
