@@ -621,7 +621,7 @@ function VideoPlayer({ preview }) {
       return url;
     };
 
-    const playlistUrl = ensureFullUrl(preview?.playlistUrl || preview?.directUrl);
+    const playlistUrl = ensureFullUrl(preview?.playlistUrl || preview?.directStreamUrl || preview?.directUrl);
     
     if (playlistUrl && (playlistUrl.includes('.m3u8') || preview?.isHLS)) {
       if (Hls.isSupported()) {
@@ -652,6 +652,9 @@ function VideoPlayer({ preview }) {
           playlistUrl;
         video.src = playlistUrlWithToken;
       }
+    } else if (playlistUrl) {
+      // Direct video streaming (MP4, etc.) with auth token
+      video.src = playlistUrl;
     }
   }, [preview]);
 
@@ -1069,18 +1072,29 @@ const BrowserView = ({ user, onLogout }) => {
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            console.log('WebSocket message received:', data.type, data);
             
-            if (data.type === 'job-update') {
-              setJobs(prevJobs => {
-                const jobIndex = prevJobs.findIndex(j => j.id === data.job.id);
-                if (jobIndex >= 0) {
-                  const updatedJobs = [...prevJobs];
-                  updatedJobs[jobIndex] = data.job;
-                  return updatedJobs;
-                } else {
-                  return [...prevJobs, data.job];
-                }
-              });
+            if (data.type === 'job-update' || data.type === 'job-created' || 
+                data.type === 'cache-job-started' || data.type === 'cache-job-progress' || 
+                data.type === 'cache-job-completed') {
+              
+              // For job-created and job-update, the job is in data.job
+              // For cache-job-* events, we need to fetch the updated job
+              if (data.job) {
+                setJobs(prevJobs => {
+                  const jobIndex = prevJobs.findIndex(j => j.id === data.job.id);
+                  if (jobIndex >= 0) {
+                    const updatedJobs = [...prevJobs];
+                    updatedJobs[jobIndex] = data.job;
+                    return updatedJobs;
+                  } else {
+                    return [...prevJobs, data.job];
+                  }
+                });
+              } else if (data.jobId) {
+                // For cache-job-* events, refresh the job list
+                loadJobs();
+              }
             } else if (data.type === 'index-progress') {
               setJobs(prevJobs => {
                 const jobIndex = prevJobs.findIndex(j => j.id === data.jobId);
@@ -1101,7 +1115,9 @@ const BrowserView = ({ user, onLogout }) => {
               loadRoots(); // Reload tree to show indexed status
               loadJobs(); // Reload jobs to get final status
             } else if (data.type === 'lucidlink-stats') {
-              setNetworkStats(data.stats);
+              console.log('Setting network stats:', data);
+              // The stats are in the data object directly, not in data.stats
+              setNetworkStats(data);
             } else if (data.type === 'varnish-stats') {
               const stats = data.stats || {};
               setCacheUsage({
@@ -1319,7 +1335,7 @@ const BrowserView = ({ user, onLogout }) => {
       
       // Flatten files: if a directory is selected, get all files within it
       const allFilePaths = [];
-      const allDirectories = [];
+      let allDirectories = [];
       
       const collectFiles = async (filePath) => {
         const currentFile = getFilteredFiles().find(f => f.path === filePath);
@@ -1849,7 +1865,7 @@ const BrowserView = ({ user, onLogout }) => {
             </svg>
             <span>
               SiteCache Manager
-              <span style={styles.titleVersion}>v1.5.0</span>
+              <span style={styles.titleVersion}>v1.6.0</span>
             </span>
           </h1>
         </div>

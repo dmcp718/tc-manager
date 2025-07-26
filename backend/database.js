@@ -7,7 +7,7 @@ const pool = new Pool({
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'sitecache_db',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '',
+  password: process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD || '',
   max: 50, // Increased for parallel operations
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,

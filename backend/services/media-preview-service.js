@@ -65,6 +65,10 @@ class MediaPreviewService {
   // Check if preview exists in cache
   async getPreviewFromCache(cacheKey) {
     try {
+      // Ensure Redis is connected
+      if (!this.redis.isOpen) {
+        await this.redis.connect();
+      }
       const cached = await this.redis.get(`preview:${cacheKey}`);
       if (cached) {
         return JSON.parse(cached);
@@ -78,6 +82,10 @@ class MediaPreviewService {
   // Store preview in cache
   async storePreviewInCache(cacheKey, previewData, ttl = 3600) {
     try {
+      // Ensure Redis is connected
+      if (!this.redis.isOpen) {
+        await this.redis.connect();
+      }
       await this.redis.setEx(`preview:${cacheKey}`, ttl, JSON.stringify(previewData));
     } catch (error) {
       console.error('Error storing in cache:', error);
@@ -264,7 +272,7 @@ class MediaPreviewService {
     await this.storePreviewInCache(cacheKey, previewData, 86400);
     return previewData;
   }
-  
+
   // Generate image preview - simplified approach like staging
   async generateImagePreview(filePath, options = {}) {
     const cacheKey = this.generateCacheKey(filePath, options);
@@ -326,9 +334,39 @@ class MediaPreviewService {
     });
   }
   
+  // Generate audio preview
+  async generateAudioPreview(filePath, options = {}) {
+    const cacheKey = this.generateCacheKey(filePath, options);
+    
+    // For audio files, we provide direct streaming for web-compatible formats
+    const previewData = {
+      type: 'audio',
+      cacheKey,
+      originalFilePath: filePath,
+      status: 'completed',
+      createdAt: new Date().toISOString()
+    };
+    
+    // For web-compatible audio files, serve directly
+    if (MediaPreviewService.isWebCompatible(filePath)) {
+      previewData.directUrl = `/api/preview/audio/${cacheKey}/direct`;
+    } else {
+      // For non-web-compatible audio, we'll convert on-demand
+      previewData.previewUrl = `/api/preview/audio/${cacheKey}/preview.mp3`;
+    }
+    
+    // Store the file path mapping in Redis for direct serving
+    await this.storePreviewInCache(cacheKey, previewData, 86400);
+    return previewData;
+  }
+
   // Start background transcoding for progressive streaming
   async startBackgroundTranscoding(filePath, outputDir, cacheKey, previewData) {
     try {
+      console.log(`🔧 DEBUG: Starting background transcoding for ${filePath}`);
+      console.log(`🔧 DEBUG: Output dir: ${outputDir}`);
+      console.log(`🔧 DEBUG: Cache key: ${cacheKey}`);
+      
       // Start progressive transcoding with segment monitoring
       await FFmpegTranscoder.transcodeToHLSProgressive(
         filePath,
@@ -523,13 +561,21 @@ class FFmpegTranscoder {
   }
 
   static async transcodeToHLSProgressive(inputPath, outputDir, videoId, onProgress, onSegmentReady) {
+    console.log(`🔧 DEBUG: FFmpegTranscoder.transcodeToHLSProgressive called`);
+    console.log(`🔧 DEBUG: inputPath: ${inputPath}`);
+    console.log(`🔧 DEBUG: outputDir: ${outputDir}`);
+    console.log(`🔧 DEBUG: videoId: ${videoId}`);
+    
     return new Promise(async (resolve, reject) => {
+      console.log(`🔧 DEBUG: Inside Promise - about to create output directory`);
+      
       // Ensure output directory exists
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
       }
 
       // First, check if the file has audio
+      console.log(`🔧 DEBUG: About to check if file has audio`);
       let hasAudio = false;
       try {
         const videoInfo = await FFmpegTranscoder.getVideoInfo(inputPath);
@@ -565,25 +611,25 @@ class FFmpegTranscoder {
       }
 
       args.push(
-        // Configurable quality stream for transcoding
-        '-filter:v:0', `scale=w=${this.VIDEO_WIDTH}:h=${this.VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,pad=${this.VIDEO_WIDTH}:${this.VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2`,
-        '-maxrate:v:0', this.VIDEO_MAXRATE,
-        '-bufsize:v:0', this.VIDEO_BUFSIZE,
-        '-b:v:0', this.VIDEO_BITRATE
+        // Single 720p quality stream for faster transcoding
+        '-filter:v:0', 'scale=w=1280:h=720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+        '-maxrate:v:0', '3000k',
+        '-bufsize:v:0', '6000k',
+        '-b:v:0', '2800k'
       );
       
       if (hasAudio) {
         args.push(
-          '-c:a', this.AUDIO_CODEC,
-          '-b:a', this.AUDIO_BITRATE,
-          '-ac', this.AUDIO_CHANNELS.toString(),
-          '-ar', this.AUDIO_SAMPLE_RATE.toString()
+          '-c:a', 'aac',
+          '-b:a', '128k',
+          '-ac', '2',
+          '-ar', '48000'
         );
       }
       
       args.push(
-        '-f', this.CONTAINER_FORMAT,
-        '-hls_time', this.HLS_SEGMENT_TIME.toString(),
+        '-f', 'hls',
+        '-hls_time', '2',
         '-hls_playlist_type', 'event',
         '-hls_flags', 'independent_segments+append_list+split_by_time',
         '-hls_segment_type', 'mpegts',

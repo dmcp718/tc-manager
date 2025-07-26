@@ -775,7 +775,7 @@ app.get('/api/admin/system-info', authService.requireAuth, async (req, res) => {
     let hostInfo = null;
     
     try {
-      if (fs.existsSync(hostInfoPath)) {
+      if (fsSync.existsSync(hostInfoPath)) {
         const hostInfoData = fs.readFileSync(hostInfoPath, 'utf8');
         hostInfo = JSON.parse(hostInfoData);
         console.log('Loaded host info from file');
@@ -2416,7 +2416,7 @@ app.post('/api/validate-directory-cache', authService.requireAuth, async (req, r
   }
 });
 
-// Media Preview Endpoints (using local MediaPreviewService)
+// Media Preview Endpoints (using integrated service)
 app.post('/api/preview', authService.requireAuth, async (req, res) => {
   try {
     const { filePath, type = 'auto' } = req.body;
@@ -2425,53 +2425,42 @@ app.post('/api/preview', authService.requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'File path is required' });
     }
     
-    // Security check - only allow LucidLink mount
-    const allowedPaths = (process.env.ALLOWED_PATHS || '/media/lucidlink-1').split(',');
-    const isAllowed = allowedPaths.some(allowed => filePath.startsWith(allowed.trim()));
-    
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Access denied to this path' });
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service is not available' });
     }
     
     // Check if file exists
-    if (!require('fs').existsSync(filePath)) {
+    if (!fsSync.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
     }
     
-    // Check if media preview service is initialized
-    if (!mediaPreviewService) {
-      return res.status(503).json({ error: 'Media preview service not available' });
-    }
-    
-    // Determine preview type based on file extension
-    const previewType = type === 'auto' ? 
-      MediaPreviewService.getPreviewType(filePath) : type;
-    
-    // Check if file format is supported
-    if (!MediaPreviewService.isSupportedFormat(filePath)) {
-      return res.status(400).json({ 
-        error: 'Unsupported file format',
-        supportedTypes: MediaPreviewService.getSupportedTypes()
-      });
-    }
-    
-    // Generate preview using local service
+    // Generate preview based on file type
     let result;
-    if (previewType === 'video') {
+    
+    // Check file extension for type detection
+    const ext = path.extname(filePath).toLowerCase();
+    
+    // Video files
+    if (type === 'video' || (type === 'auto' && /\.(mp4|mov|avi|mkv|mxf|webm|ogg|m4v|wmv|flv|mpg|mpeg|3gp|3g2|m2ts|mts|vob|ogv|drc|gif|gifv|mng|qt|yuv|rm|rmvb|asf|amv|m4p|m4v|svi|3gpp|3gpp2|f4v|f4p|f4a|f4b|r3d|braw)$/i.test(filePath))) {
       result = await mediaPreviewService.generateVideoPreview(filePath, req.body.options || {});
-    } else if (previewType === 'image') {
+    } 
+    // Image files
+    else if (type === 'image' || (type === 'auto' && /\.(jpg|jpeg|png|gif|webp|svg|tif|tiff|bmp|heic|heif|raw|exr|dpx|dng|cr2|nef|orf|arw|pef)$/i.test(filePath))) {
       result = await mediaPreviewService.generateImagePreview(filePath, req.body.options || {});
-    } else if (previewType === 'audio') {
+    }
+    // Audio files
+    else if (type === 'audio' || (type === 'auto' && /\.(mp3|wav|ogg|m4a|flac|aac|wma)$/i.test(filePath))) {
       result = await mediaPreviewService.generateAudioPreview(filePath, req.body.options || {});
-    } else {
-      return res.status(400).json({ error: 'Unsupported preview type' });
+    }
+    else {
+      return res.status(400).json({ error: 'Unsupported file type for preview' });
     }
     
     res.json(result);
     
   } catch (error) {
-    console.error('Error processing preview request:', error);
-    res.status(500).json({ error: 'Failed to process preview request' });
+    console.error('Error generating preview:', error);
+    res.status(500).json({ error: 'Failed to generate preview' });
   }
 });
 
@@ -2480,9 +2469,8 @@ app.get('/api/preview/status/:cacheKey', authService.requireAuth, async (req, re
   try {
     const { cacheKey } = req.params;
     
-    // Check if media preview service is initialized
     if (!mediaPreviewService) {
-      return res.status(503).json({ error: 'Media preview service not available' });
+      return res.status(503).json({ error: 'Media preview service is not available' });
     }
     
     const result = await mediaPreviewService.getPreviewStatus(cacheKey);
@@ -2499,99 +2487,42 @@ app.get('/api/preview/status/:cacheKey', authService.requireAuth, async (req, re
   }
 });
 
-// Direct preview file serving from local cache
+// Direct preview file serving (for HLS segments)
 app.get('/api/preview/:type/:cacheKey/*', authService.requireAuth, async (req, res) => {
   try {
     const { type, cacheKey } = req.params;
     const filename = req.params[0];
     
-    // Check if media preview service is initialized
-    if (!mediaPreviewService) {
-      return res.status(503).json({ error: 'Media preview service not available' });
+    // Construct file path
+    const filePath = path.join(process.env.PREVIEW_CACHE_DIR || '/app/preview-cache', cacheKey, filename);
+    
+    // Check if file exists
+    if (!fsSync.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
     }
     
-    const cacheDir = process.env.PREVIEW_CACHE_DIR || '/tmp/previews';
-    
-    if (type === 'video') {
-      // For video previews, serve HLS files from cache directory
-      const filePath = path.join(cacheDir, cacheKey, filename);
-      
-      if (!fsSync.existsSync(filePath)) {
-        return res.status(404).json({ error: 'Preview file not found' });
-      }
-      
-      // Set appropriate content type
-      if (filename.endsWith('.m3u8')) {
-        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-      } else if (filename.endsWith('.ts')) {
-        res.setHeader('Content-Type', 'video/mp2t');
-      }
-      
-      // Stream the file
-      const stream = fsSync.createReadStream(filePath);
-      stream.pipe(res);
-      
-    } else if (type === 'image') {
-      // For images, we need to handle direct serving differently
-      const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
-      if (!previewData) {
-        return res.status(404).json({ error: 'Preview not found' });
-      }
-      
-      if (filename === 'direct') {
-        // Serve original image directly
-        const originalPath = previewData.originalFilePath;
-        if (fsSync.existsSync(originalPath)) {
-          const contentType = MediaPreviewService.getContentType(originalPath);
-          res.setHeader('Content-Type', contentType);
-          const stream = fsSync.createReadStream(originalPath);
-          stream.pipe(res);
-        } else {
-          return res.status(404).json({ error: 'Original file not found' });
-        }
-      } else {
-        // Serve converted image
-        const convertedPath = path.join(cacheDir, cacheKey, filename);
-        if (!fsSync.existsSync(convertedPath)) {
-          // Convert on demand
-          const outputPath = path.join(cacheDir, cacheKey);
-          if (!fsSync.existsSync(outputPath)) {
-            fsSync.mkdirSync(outputPath, { recursive: true });
-          }
-          
-          await mediaPreviewService.convertImageToWebFormat(previewData.originalFilePath, convertedPath);
-        }
-        
-        res.setHeader('Content-Type', 'image/jpeg');
-        const stream = fsSync.createReadStream(convertedPath);
-        stream.pipe(res);
-      }
-    } else if (type === 'audio') {
-      // For audio files, serve directly or converted versions
-      const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
-      if (!previewData) {
-        return res.status(404).json({ error: 'Preview not found' });
-      }
-      
-      if (filename === 'direct') {
-        // Serve original audio file directly
-        const originalPath = previewData.originalFilePath;
-        if (fsSync.existsSync(originalPath)) {
-          const contentType = MediaPreviewService.getContentType(originalPath);
-          res.setHeader('Content-Type', contentType);
-          res.setHeader('Accept-Ranges', 'bytes');
-          const stream = fsSync.createReadStream(originalPath);
-          stream.pipe(res);
-        } else {
-          return res.status(404).json({ error: 'Original file not found' });
-        }
-      } else {
-        // For converted audio files (if needed in future)
-        return res.status(404).json({ error: 'Audio conversion not implemented' });
-      }
-    } else {
-      return res.status(400).json({ error: 'Invalid preview type' });
+    // Determine content type
+    let contentType = 'application/octet-stream';
+    if (filename.endsWith('.m3u8')) {
+      contentType = 'application/vnd.apple.mpegurl';
+    } else if (filename.endsWith('.ts')) {
+      contentType = 'video/mp2t';
+    } else if (filename.endsWith('.mp4')) {
+      contentType = 'video/mp4';
     }
+    
+    // Get file stats
+    const stat = fs.statSync(filePath);
+    
+    // Set headers
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Cache-Control', 'no-cache');
+    
+    // Stream the file
+    fs.createReadStream(filePath).pipe(res);
     
   } catch (error) {
     console.error('Error serving preview file:', error);
@@ -2605,53 +2536,144 @@ app.get('/api/video/stream/:cacheKey', authService.requireAuth, async (req, res)
     const { cacheKey } = req.params;
     
     if (!mediaPreviewService) {
-      return res.status(503).json({ error: 'Media preview service not available' });
+      return res.status(503).json({ error: 'Media preview service is not available' });
     }
     
+    // Get file info from cache
     const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
     if (!previewData || !previewData.originalFilePath) {
       return res.status(404).json({ error: 'Video not found' });
     }
     
     const videoPath = previewData.originalFilePath;
-    if (!fsSync.existsSync(videoPath)) {
-      return res.status(404).json({ error: 'Video file not found' });
-    }
-    
     const stat = fsSync.statSync(videoPath);
     const fileSize = stat.size;
     const range = req.headers.range;
     
     if (range) {
-      // Handle range requests for video seeking
+      // Parse range header
       const parts = range.replace(/bytes=/, "").split("-");
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunksize = (end - start) + 1;
       
-      const stream = fsSync.createReadStream(videoPath, {start, end});
-      const head = {
+      res.writeHead(206, {
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunksize,
-        'Content-Type': MediaPreviewService.getContentType(videoPath),
-      };
+        'Content-Type': 'video/mp4',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      });
       
-      res.writeHead(206, head);
+      const stream = fsSync.createReadStream(videoPath, { start, end });
       stream.pipe(res);
     } else {
-      // Serve entire file
-      const head = {
+      res.writeHead(200, {
         'Content-Length': fileSize,
-        'Content-Type': MediaPreviewService.getContentType(videoPath),
-      };
-      res.writeHead(200, head);
+        'Content-Type': 'video/mp4',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      });
+      
       fsSync.createReadStream(videoPath).pipe(res);
     }
     
   } catch (error) {
     console.error('Error streaming video:', error);
     res.status(500).json({ error: 'Failed to stream video' });
+  }
+});
+
+// Direct image serving endpoint for web-compatible images
+app.get('/api/preview/image/:cacheKey/direct', authService.requireAuth, async (req, res) => {
+  try {
+    const { cacheKey } = req.params;
+    
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service is not available' });
+    }
+    
+    // Get file info from cache
+    console.log(`Getting preview status for cache key: ${cacheKey}`);
+    const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
+    console.log('Preview data:', previewData);
+    if (!previewData || !previewData.originalFilePath) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    
+    const imagePath = previewData.originalFilePath;
+    const stat = fsSync.statSync(imagePath);
+    const contentType = MediaPreviewService.getContentType(imagePath);
+    
+    res.writeHead(200, {
+      'Content-Length': stat.size,
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=86400',
+      'Access-Control-Allow-Origin': '*'
+    });
+    
+    fsSync.createReadStream(imagePath).pipe(res);
+    
+  } catch (error) {
+    console.error('Error serving image:', error);
+    res.status(500).json({ error: 'Failed to serve image' });
+  }
+});
+
+// Direct audio serving endpoint for web-compatible audio
+app.get('/api/preview/audio/:cacheKey/direct', authService.requireAuth, async (req, res) => {
+  try {
+    const { cacheKey } = req.params;
+    
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service is not available' });
+    }
+    
+    // Get file info from cache
+    const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
+    if (!previewData || !previewData.originalFilePath) {
+      return res.status(404).json({ error: 'Audio not found' });
+    }
+    
+    const audioPath = previewData.originalFilePath;
+    const stat = fsSync.statSync(audioPath);
+    const contentType = MediaPreviewService.getContentType(audioPath);
+    const range = req.headers.range;
+    
+    if (range) {
+      // Parse range header for audio scrubbing support
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      const chunksize = (end - start) + 1;
+      
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': contentType,
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      });
+      
+      const stream = fsSync.createReadStream(audioPath, { start, end });
+      stream.pipe(res);
+    } else {
+      res.writeHead(200, {
+        'Content-Length': stat.size,
+        'Content-Type': contentType,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      });
+      
+      fsSync.createReadStream(audioPath).pipe(res);
+    }
+    
+  } catch (error) {
+    console.error('Error serving audio:', error);
+    res.status(500).json({ error: 'Failed to serve audio' });
   }
 });
 
@@ -2681,6 +2703,7 @@ wss.on('connection', (ws, req) => {
 
 function handleTerminalConnection(ws) {
   console.log('Terminal connection established');
+  console.log('pty module available:', typeof pty !== 'undefined');
   
   let ptyProcess = null;
   const sessionId = uuidv4();
@@ -2689,33 +2712,55 @@ function handleTerminalConnection(ws) {
     // With privileged container, we can use nsenter to access host
     const hostIP = process.env.SERVER_HOST || 'host.docker.internal';
     
-    // Try nsenter first, fallback to container shell if it fails
+    // SSH to the host system directly
+    // First, check if we can use SSH to connect to the host
+    const sshHost = process.env.SSH_HOST || 'host.docker.internal'; // Docker host
+    const sshUser = process.env.SSH_USER || 'ubuntu';
+    const sshPort = process.env.SSH_PORT || '22';
+    
     command = 'bash';
     args = [
       '-c',
-      `# Try to enter host namespace with nsenter
-if nsenter --target 1 --mount --uts --ipc --net --pid -- /bin/bash -c 'echo "Successfully connected to host system" && hostname && exec /bin/bash'; then
-  # Success - we're in the host namespace
+      `# Attempt to SSH to the host system
+echo "Connecting to host system..."
+echo ""
+
+# Set up SSH options for non-interactive connection
+SSH_OPTIONS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+
+# Try to connect via SSH
+if command -v ssh >/dev/null 2>&1; then
+  # Check if we can reach the host
+  if timeout 2 bash -c "</dev/tcp/${sshHost}/${sshPort}" 2>/dev/null; then
+    echo "Connected to host system via SSH"
+    echo "Host: ${sshHost}"
+    echo ""
+    exec ssh $SSH_OPTIONS -p ${sshPort} ${sshUser}@${sshHost}
+  else
+    echo "Cannot reach host SSH on ${sshHost}:${sshPort}"
+    echo ""
+  fi
+fi
+
+# If SSH fails, try nsenter as fallback
+if nsenter --target 1 --mount --uts --ipc --net --pid -- /bin/bash -c 'echo "Successfully connected to host system via nsenter" && hostname && exec /bin/bash'; then
   exit 0
-else
-  # Fallback to container shell with instructions
-  echo "==================================================================="
-  echo "Could not access host namespace directly."
-  echo "Terminal connected to Docker container instead."
-  echo ""
-  echo "Container hostname: $(hostname)"
-  echo ""
-  echo "To access the host system, you can:"
-  echo "1. SSH to host: ssh root@${hostIP}"
-  echo "2. Run: docker exec -it <host-container> bash"
-  echo ""
-  echo "For full host access, ensure container is running with:"
-  echo "  - privileged: true"
-  echo "  - pid: host"
-  echo "==================================================================="
-  echo ""
-  exec bash --rcfile <(echo 'PS1="[CONTAINER] \\u@\\h:\\w# "')
-fi`
+fi
+
+# Final fallback - container shell
+echo "==================================================================="
+echo "Could not connect to host system directly."
+echo "Terminal connected to Docker container instead."
+echo ""
+echo "Container hostname: $(hostname)"
+echo ""
+echo "To access the host system, configure SSH access:"
+echo "1. Ensure SSH is running on the host"
+echo "2. Set SSH_HOST, SSH_USER, and SSH_PORT environment variables"
+echo "3. Or use: docker exec -it <container> bash"
+echo "==================================================================="
+echo ""
+exec bash --rcfile <(echo 'PS1="[CONTAINER] \\u@\\h:\\w# "')`
     ];
     options = {
       name: 'xterm-color',
