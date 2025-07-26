@@ -2525,104 +2525,6 @@ app.get('/api/preview/status/:cacheKey', authService.requireAuth, async (req, re
   }
 });
 
-// Direct preview file serving (for HLS segments)
-app.get('/api/preview/:type/:cacheKey/*', authService.requireAuth, async (req, res) => {
-  try {
-    const { type, cacheKey } = req.params;
-    const filename = req.params[0];
-    
-    // Construct file path
-    const filePath = path.join(process.env.PREVIEW_CACHE_DIR || '/app/preview-cache', cacheKey, filename);
-    
-    // Check if file exists
-    if (!fsSync.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    
-    // Determine content type
-    let contentType = 'application/octet-stream';
-    if (filename.endsWith('.m3u8')) {
-      contentType = 'application/vnd.apple.mpegurl';
-    } else if (filename.endsWith('.ts')) {
-      contentType = 'video/mp2t';
-    } else if (filename.endsWith('.mp4')) {
-      contentType = 'video/mp4';
-    }
-    
-    // Get file stats
-    const stat = fs.statSync(filePath);
-    
-    // Set headers
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', stat.size);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Cache-Control', 'no-cache');
-    
-    // Stream the file
-    fs.createReadStream(filePath).pipe(res);
-    
-  } catch (error) {
-    console.error('Error serving preview file:', error);
-    res.status(500).json({ error: 'Failed to serve preview file' });
-  }
-});
-
-// Direct video streaming endpoint for web-compatible videos
-app.get('/api/video/stream/:cacheKey', authService.requireAuth, async (req, res) => {
-  try {
-    const { cacheKey } = req.params;
-    
-    if (!mediaPreviewService) {
-      return res.status(503).json({ error: 'Media preview service is not available' });
-    }
-    
-    // Get file info from cache
-    const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
-    if (!previewData || !previewData.originalFilePath) {
-      return res.status(404).json({ error: 'Video not found' });
-    }
-    
-    const videoPath = previewData.originalFilePath;
-    const stat = fsSync.statSync(videoPath);
-    const fileSize = stat.size;
-    const range = req.headers.range;
-    
-    if (range) {
-      // Parse range header
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunksize = (end - start) + 1;
-      
-      res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunksize,
-        'Content-Type': 'video/mp4',
-        'Cache-Control': 'no-cache',
-        'Access-Control-Allow-Origin': '*'
-      });
-      
-      const stream = fsSync.createReadStream(videoPath, { start, end });
-      stream.pipe(res);
-    } else {
-      res.writeHead(200, {
-        'Content-Length': fileSize,
-        'Content-Type': 'video/mp4',
-        'Cache-Control': 'no-cache',
-        'Access-Control-Allow-Origin': '*'
-      });
-      
-      fsSync.createReadStream(videoPath).pipe(res);
-    }
-    
-  } catch (error) {
-    console.error('Error streaming video:', error);
-    res.status(500).json({ error: 'Failed to stream video' });
-  }
-});
-
 // Direct image serving endpoint for web-compatible images
 app.get('/api/preview/image/:cacheKey/direct', authService.requireAuth, async (req, res) => {
   try {
@@ -2714,6 +2616,106 @@ app.get('/api/preview/audio/:cacheKey/direct', authService.requireAuth, async (r
     res.status(500).json({ error: 'Failed to serve audio' });
   }
 });
+
+// Direct preview file serving (for HLS segments)
+app.get('/api/preview/:type/:cacheKey/*', authService.requireAuth, async (req, res) => {
+  try {
+    const { type, cacheKey } = req.params;
+    const filename = req.params[0];
+    
+    // Construct file path
+    const filePath = path.join(process.env.PREVIEW_CACHE_DIR || '/app/preview-cache', cacheKey, filename);
+    
+    // Check if file exists
+    if (!fsSync.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    // Determine content type
+    let contentType = 'application/octet-stream';
+    if (filename.endsWith('.m3u8')) {
+      contentType = 'application/vnd.apple.mpegurl';
+    } else if (filename.endsWith('.ts')) {
+      contentType = 'video/mp2t';
+    } else if (filename.endsWith('.mp4')) {
+      contentType = 'video/mp4';
+    }
+    
+    // Get file stats
+    const stat = fsSync.statSync(filePath);
+    
+    // Set headers
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Cache-Control', 'no-cache');
+    
+    // Stream the file
+    fsSync.createReadStream(filePath).pipe(res);
+    
+  } catch (error) {
+    console.error('Error serving preview file:', error);
+    res.status(500).json({ error: 'Failed to serve preview file' });
+  }
+});
+
+// Direct video streaming endpoint for web-compatible videos
+app.get('/api/video/stream/:cacheKey', authService.requireAuth, async (req, res) => {
+  try {
+    const { cacheKey } = req.params;
+    
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service is not available' });
+    }
+    
+    // Get file info from cache
+    const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
+    if (!previewData || !previewData.originalFilePath) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+    
+    const videoPath = previewData.originalFilePath;
+    const stat = fsSync.statSync(videoPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+    
+    if (range) {
+      // Parse range header
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = (end - start) + 1;
+      
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': 'video/mp4',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      });
+      
+      const stream = fsSync.createReadStream(videoPath, { start, end });
+      stream.pipe(res);
+    } else {
+      res.writeHead(200, {
+        'Content-Length': fileSize,
+        'Content-Type': 'video/mp4',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      });
+      
+      fsSync.createReadStream(videoPath).pipe(res);
+    }
+    
+  } catch (error) {
+    console.error('Error streaming video:', error);
+    res.status(500).json({ error: 'Failed to stream video' });
+  }
+});
+
+
 
 // WebSocket connection handling
 // Terminal session management
