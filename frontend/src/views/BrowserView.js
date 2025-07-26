@@ -1472,10 +1472,49 @@ const BrowserView = ({ user, onLogout }) => {
       const result = await response.json();
       
       if (result.directLink || result.directUrl) {
-        // Copy to clipboard
         const url = result.directLink || result.directUrl;
-        await navigator.clipboard.writeText(url);
-        showToast('Direct link copied to clipboard!');
+        
+        // Try to copy to clipboard
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(url);
+            showToast('Direct link copied to clipboard!');
+          } catch (clipboardError) {
+            console.warn('Clipboard API failed:', clipboardError);
+            // Fallback: show the URL in a toast message
+            showToast(`Direct link generated: ${url}`, 'success', 10000); // Show for 10 seconds
+          }
+        } else {
+          // Clipboard API not available (HTTP context)
+          // Create a temporary input element for manual copying
+          const tempInput = document.createElement('input');
+          tempInput.value = url;
+          tempInput.style.position = 'fixed';
+          tempInput.style.top = '50%';
+          tempInput.style.left = '50%';
+          tempInput.style.transform = 'translate(-50%, -50%)';
+          tempInput.style.padding = '10px';
+          tempInput.style.fontSize = '14px';
+          tempInput.style.width = '80%';
+          tempInput.style.maxWidth = '600px';
+          tempInput.style.zIndex = '10000';
+          tempInput.style.backgroundColor = '#1a1a1a';
+          tempInput.style.color = '#e4e4e7';
+          tempInput.style.border = '2px solid #3b82f6';
+          tempInput.style.borderRadius = '6px';
+          
+          document.body.appendChild(tempInput);
+          tempInput.select();
+          tempInput.setSelectionRange(0, 99999); // For mobile devices
+          
+          showToast('Direct link generated! Press Ctrl+C (or Cmd+C) to copy', 'success', 5000);
+          
+          // Remove the input after user has had time to copy
+          setTimeout(() => {
+            document.body.removeChild(tempInput);
+          }, 5000);
+        }
+        
         console.log('Direct link generated:', url);
       } else {
         throw new Error('No direct URL received from server');
