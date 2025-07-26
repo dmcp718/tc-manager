@@ -964,7 +964,7 @@ const AdminView = ({ user, onLogout }) => {
               <div style={styles.statusContent}>
                 <div style={styles.statusLine}>
                   <div style={styles.statusLabel}>Application:</div>
-                  <div style={styles.statusValue}>SiteCache Manager v1.5.0</div>
+                  <div style={styles.statusValue}>SiteCache Manager v1.6.0</div>
                 </div>
                 <div style={styles.statusLine}>
                   <div style={styles.statusLabel}>User:</div>
@@ -1127,7 +1127,7 @@ const AdminView = ({ user, onLogout }) => {
             </svg>
             <span>
               SiteCache Manager
-              <span style={styles.titleVersion}>v1.5.0</span>
+              <span style={styles.titleVersion}>v1.6.0</span>
             </span>
           </h1>
         </div>

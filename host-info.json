@@ -6,8 +6,8 @@
     "cores": 32
   },
   "memory": {
-    "total_kb": 63651716,
-    "total_gb": "60.7"
+    "total_kb": 63647820,
+    "total_gb": "60.6"
   },
   "network": {
     "primary_ip": "192.168.8.28",
@@ -25,8 +25,8 @@
     {"name": "└─sde1", "size": "931.5G", "type": "part", "fstype": "ext4", "mountpoint": "/media/disk4", "usage": "1%"},
     {"name": "sr0", "size": "1024M", "type": "rom", "fstype": "", "mountpoint": "", "usage": "-"},
     {"name": "nvme0n1", "size": "953.9G", "type": "disk", "fstype": "", "mountpoint": "", "usage": "-"},
-    {"name": "├─nvme0n1p1", "size": "952.8G", "type": "part", "fstype": "ext4", "mountpoint": "/", "usage": "87%"},
+    {"name": "├─nvme0n1p1", "size": "952.8G", "type": "part", "fstype": "ext4", "mountpoint": "/", "usage": "92%"},
     {"name": "└─nvme0n1p2", "size": "1G", "type": "part", "fstype": "vfat", "mountpoint": "/boot/efi", "usage": "1%"}
   ],
-  "collected_at": "2025-07-23T10:37:00-05:00"
+  "collected_at": "2025-07-24T10:16:54-05:00"
 }

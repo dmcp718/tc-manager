@@ -14,9 +14,9 @@ if [ -n "$LUCIDLINK_FILESPACE" ] && [ -n "$LUCIDLINK_USER" ] && [ -n "$LUCIDLINK
         mkdir -p "$LUCIDLINK_MOUNT_POINT"
     fi
     
-    # Start LucidLink daemon in background as root
-    echo "Starting LucidLink daemon as root..."
-    lucid daemon \
+    # Start LucidLink daemon in background as root with instance 2001
+    echo "Starting LucidLink daemon as root with instance 2001..."
+    lucid --instance 2001 daemon \
         --fs "$LUCIDLINK_FILESPACE" \
         --user "$LUCIDLINK_USER" \
         --password "$LUCIDLINK_PASSWORD" \
@@ -26,9 +26,9 @@ if [ -n "$LUCIDLINK_FILESPACE" ] && [ -n "$LUCIDLINK_USER" ] && [ -n "$LUCIDLINK
     # Wait a bit for daemon to start
     sleep 5
     
-    # Configure LucidLink cache size
-    echo "Configuring LucidLink cache size to 100MB..."
-    lucid config --set --DataCache.Size 100MB
+    # Configure LucidLink cache size for instance 2001
+    echo "Configuring LucidLink cache size to 100MB for instance 2001..."
+    lucid --instance 2001 config --set --DataCache.Size 100MB
     
     # Check if mount was successful
     if mountpoint -q "$LUCIDLINK_MOUNT_POINT"; then
