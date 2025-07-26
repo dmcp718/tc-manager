@@ -1,13 +1,58 @@
 const fetch = require('node-fetch');
 const { FileModel } = require('../database');
+const { execSync } = require('child_process');
 
 class DirectLinkService {
   constructor() {
-    // LucidLink daemon runs on port 7778 for RESTful service
-    this.port = process.env.LUCIDLINK_FS_1_PORT || 7778;
     this.mountPoint = (process.env.INDEX_ROOT_PATH || '/media/lucidlink-1').replace(/\/$/, '');
-    // Since LucidLink daemon runs in the same container, use localhost
-    this.apiHost = '127.0.0.1';
+    // In production, LucidLink daemon runs inside the backend container
+    // In development, it runs on the host (use LUCIDLINK_API_HOST)
+    this.apiHost = process.env.NODE_ENV === 'production' ? '127.0.0.1' : (process.env.LUCIDLINK_API_HOST || 'host.docker.internal');
+    this.port = null;
+    this.lucidCommand = process.env.LUCIDLINK_COMMAND || '/usr/local/bin/lucid';
+    this.instance = process.env.LUCIDLINK_INSTANCE || 2001;
+    
+    // Try to get the port dynamically
+    this.initializePort();
+  }
+  
+  /**
+   * Initialize the LucidLink REST API port by parsing lucid list output
+   */
+  initializePort() {
+    try {
+      // Try environment variable first
+      if (process.env.LUCIDLINK_API_PORT) {
+        this.port = parseInt(process.env.LUCIDLINK_API_PORT);
+        console.log(`Using LUCIDLINK_API_PORT from environment: ${this.port}`);
+        return;
+      }
+      
+      // In production, try to get port from lucid list
+      if (process.env.NODE_ENV === 'production') {
+        const command = `${this.lucidCommand} --instance ${this.instance} list`;
+        const output = execSync(command, { encoding: 'utf8' });
+        
+        // Parse the output to find the REST port
+        // Example output: "Filespace ... REST: 20010 ..."
+        const restMatch = output.match(/REST:\s*(\d+)/);
+        if (restMatch && restMatch[1]) {
+          this.port = parseInt(restMatch[1]);
+          console.log(`Detected LucidLink REST API port from 'lucid list': ${this.port}`);
+          return;
+        }
+      }
+      
+      // Fallback to default ports
+      this.port = process.env.NODE_ENV === 'production' ? 20010 : 9780;
+      console.log(`Using default LucidLink REST API port: ${this.port}`);
+      
+    } catch (error) {
+      console.error('Error detecting LucidLink REST API port:', error.message);
+      // Fallback to default ports
+      this.port = process.env.NODE_ENV === 'production' ? 20010 : 9780;
+      console.log(`Falling back to default port: ${this.port}`);
+    }
   }
 
   /**
@@ -40,6 +85,14 @@ class DirectLinkService {
    */
   async generateDirectLink(filePath) {
     try {
+      // Ensure port is initialized
+      if (!this.port) {
+        this.initializePort();
+        if (!this.port) {
+          console.error('Failed to determine LucidLink REST API port');
+          return null;
+        }
+      }
       // Check if we already have a cached direct link
       const existingFile = await FileModel.findByPath(filePath);
       if (existingFile && existingFile.direct_link && existingFile.direct_link_created_at) {

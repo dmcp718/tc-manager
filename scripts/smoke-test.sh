@@ -396,6 +396,40 @@ else
 fi
 TESTS_RUN=$((TESTS_RUN + 1))
 
+# Direct link generation test
+echo ""
+echo -e "${BLUE}🔍 Direct Link Generation${NC}"
+echo -n "   Testing direct link generation... "
+
+# Get a sample file for direct link test
+SAMPLE_FILE=$(curl -s "$API_URL/files?path=$LUCIDLINK_MOUNT" \
+    -H "$AUTH_HEADER" \
+    --max-time $TIMEOUT | grep -o '"path":"[^"]*"' | grep -v '/$' | head -1 | cut -d'"' -f4 || echo "")
+
+if [ -n "$SAMPLE_FILE" ]; then
+    DIRECT_LINK_RESPONSE=$(curl -s -X POST "$API_URL/direct-link" \
+        -H "$AUTH_HEADER" \
+        -H "Content-Type: application/json" \
+        -d "{\"path\":\"$SAMPLE_FILE\"}" \
+        --max-time $TIMEOUT || echo "{}")
+    
+    if echo "$DIRECT_LINK_RESPONSE" | grep -q '"url":\|"direct_link":\|"directLink":'; then
+        echo -e "${GREEN}✅ PASS${NC}"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        DIRECT_URL=$(echo "$DIRECT_LINK_RESPONSE" | grep -o '"url":"[^"]*"\|"direct_link":"[^"]*"\|"directLink":"[^"]*"' | cut -d'"' -f4 | head -1)
+        if [ -n "$DIRECT_URL" ]; then
+            echo "      Generated URL: ${DIRECT_URL:0:60}..."
+        fi
+    else
+        echo -e "${RED}❌ FAIL${NC}"
+        echo "      Response: ${DIRECT_LINK_RESPONSE:0:100}..."
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+else
+    echo -e "${YELLOW}⚠️  SKIP${NC} (no files found)"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
 # Response time test
 echo -n "   API response time (<1s)... "
 START_TIME=$(date +%s.%N)
