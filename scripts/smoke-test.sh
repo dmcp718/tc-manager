@@ -336,15 +336,65 @@ TESTS_RUN=$((TESTS_RUN + 1))
 echo ""
 echo -e "${BLUE}🔍 Search Functionality Tests${NC}"
 
-# Test Elasticsearch integration
+# Test Elasticsearch health
+echo -n "   Elasticsearch cluster health... "
+ES_HEALTH=$(curl -s "http://localhost:9200/_cluster/health" --max-time $TIMEOUT || echo "{}")
+ES_STATUS=$(echo "$ES_HEALTH" | grep -o '"status":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+
+if [[ "$ES_STATUS" == "green" ]] || [[ "$ES_STATUS" == "yellow" ]]; then
+    echo -e "${GREEN}✅ PASS${NC} (status: $ES_STATUS)"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FAIL${NC} (status: $ES_STATUS)"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    
+    # Check disk space if ES is red
+    if [[ "$ES_STATUS" == "red" ]]; then
+        DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}' | sed 's/%//')
+        if [ "$DISK_USAGE" -gt 90 ]; then
+            echo "      ⚠️  Disk usage is ${DISK_USAGE}% - Elasticsearch requires <90% disk space"
+        fi
+    fi
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+# Test Elasticsearch index status
+echo -n "   Elasticsearch index status... "
+ES_INDICES=$(curl -s "http://localhost:9200/_cat/indices/teamcache-files?format=json" --max-time $TIMEOUT || echo "[]")
+INDEX_HEALTH=$(echo "$ES_INDICES" | grep -o '"health":"[^"]*"' | cut -d'"' -f4 | head -1 || echo "missing")
+
+if [[ "$INDEX_HEALTH" == "green" ]] || [[ "$INDEX_HEALTH" == "yellow" ]]; then
+    echo -e "${GREEN}✅ PASS${NC} (health: $INDEX_HEALTH)"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    
+    # Get document count - handle both string and number formats
+    DOC_COUNT=$(echo "$ES_INDICES" | grep -o '"docs\.count":[0-9]*\|"docs\.count":"[^"]*"' | sed 's/.*://; s/"//g' | head -1 || echo "0")
+    if [ -n "$DOC_COUNT" ] && [ "$DOC_COUNT" != "0" ]; then
+        echo "      Documents indexed: $DOC_COUNT"
+    fi
+elif [[ "$INDEX_HEALTH" == "red" ]]; then
+    echo -e "${RED}❌ FAIL${NC} (health: $INDEX_HEALTH)"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+else
+    echo -e "${YELLOW}⚠️  WARN${NC} (index may not exist yet)"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+# Test Elasticsearch search functionality
 echo -n "   Testing Elasticsearch search... "
 ES_SEARCH=$(curl -s "$API_URL/search/elasticsearch?q=*&limit=1" \
     -H "$AUTH_HEADER" \
     --max-time $TIMEOUT || echo "{}")
 
-if echo "$ES_SEARCH" | grep -q '"results"\|"hits"\|"files"'; then
+if echo "$ES_SEARCH" | grep -q '"results"'; then
     echo -e "${GREEN}✅ PASS${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
+    
+    # Check if we got actual results
+    RESULT_COUNT=$(echo "$ES_SEARCH" | grep -o '"total":[0-9]*' | cut -d: -f2 | head -1 || echo "0")
+    if [ -n "$RESULT_COUNT" ] && [ "$RESULT_COUNT" -gt 0 ]; then
+        echo "      Search returned $RESULT_COUNT total results"
+    fi
 else
     echo -e "${YELLOW}⚠️  WARN${NC} (Elasticsearch may be initializing)"
 fi
