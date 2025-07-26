@@ -1133,12 +1133,12 @@ const BrowserView = ({ user, onLogout }) => {
               // The stats are in the data object directly, not in data.stats
               setNetworkStats(data);
             } else if (data.type === 'varnish-stats') {
-              const stats = data.stats || {};
+              // Stats are sent directly in the data object, not in data.stats
               setCacheUsage({
-                used: stats.used_percent || 0,
+                used: data.usagePercentage || 0,
                 total: 100,
-                bytesUsed: stats.bytes_used || 0,
-                totalSpace: stats.total_space || 0,
+                bytesUsed: data.bytesUsed || 0,
+                totalSpace: data.totalSpace || 0,
                 loading: false
               });
             } else if (data.type === 'rui-update') {
@@ -1296,13 +1296,16 @@ const BrowserView = ({ user, onLogout }) => {
   };
 
   const loadCacheStats = async () => {
+    console.log('Loading cache stats...');
+    setCacheUsage(prev => ({ ...prev, loading: true }));
     try {
       const stats = await FileSystemAPI.getCacheStats();
+      console.log('Cache stats received:', stats);
       setCacheUsage({
-        used: stats.used_percent || 0,
+        used: stats.usagePercentage || stats.used_percent || 0,
         total: 100,
-        bytesUsed: stats.bytes_used || 0,
-        totalSpace: stats.total_space || 0,
+        bytesUsed: stats.bytesUsed || stats.bytes_used || 0,
+        totalSpace: stats.totalSpace || stats.total_space || 0,
         loading: false
       });
     } catch (error) {
@@ -2125,6 +2128,29 @@ const BrowserView = ({ user, onLogout }) => {
             }}
           >
             Index Files
+          </button>
+          
+          <button
+            style={{
+              ...styles.button,
+              minWidth: 'auto',
+              padding: '5px 8px 6px 8px',
+              lineHeight: 0,
+              fontSize: 0
+            }}
+            onClick={() => window.open(process.env.REACT_APP_GRAFANA_URL || 'http://localhost:3000', '_blank')}
+            title="Open Grafana Dashboard"
+          >
+            <img 
+              src="/Grafana_icon.svg" 
+              alt="Grafana" 
+              style={{
+                width: '16px',
+                height: '16px',
+                filter: 'brightness(0.9)',
+                display: 'block'
+              }}
+            />
           </button>
           
           <button
