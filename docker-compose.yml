@@ -24,6 +24,7 @@ services:
       - ./backend/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
       - ./backend/schema-profiles.sql:/docker-entrypoint-initdb.d/02-profiles.sql
       - ./backend/schema-direct-links.sql:/docker-entrypoint-initdb.d/03-direct-links.sql
+      - ./backend/schema-video-preview.sql:/docker-entrypoint-initdb.d/04-video-preview.sql
     ports:
       - "5432:5432"
     healthcheck:
@@ -116,6 +117,10 @@ services:
       TRANSCODE_AUDIO_SAMPLE_RATE: ${TRANSCODE_AUDIO_SAMPLE_RATE:-48000}
       TRANSCODE_HLS_SEGMENT_TIME: ${TRANSCODE_HLS_SEGMENT_TIME:-2}
       TRANSCODE_CONTAINER_FORMAT: ${TRANSCODE_CONTAINER_FORMAT:-hls}
+      # Video preview worker configuration
+      VIDEO_PREVIEW_WORKER_COUNT: ${VIDEO_PREVIEW_WORKER_COUNT:-2}
+      VIDEO_PREVIEW_MAX_CONCURRENT: ${VIDEO_PREVIEW_MAX_CONCURRENT:-2}
+      VIDEO_PREVIEW_POLL_INTERVAL: ${VIDEO_PREVIEW_POLL_INTERVAL:-5000}
     volumes:
       # Application logs
       - backend_logs:/app/logs
@@ -161,7 +166,7 @@ services:
         REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-}
     container_name: sc-mgr-frontend
     ports:
-      - "8080:3000"
+      - "8090:3000"
     depends_on:
       - backend
     healthcheck:

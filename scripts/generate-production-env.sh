@@ -44,16 +44,18 @@ read -p "LucidLink Filespace (e.g., filespace.domain): " LUCIDLINK_FILESPACE
 read -p "LucidLink username (email): " LUCIDLINK_USER
 read -sp "LucidLink password: " LUCIDLINK_PASSWORD
 echo ""
-read -p "Will you use SSL/HTTPS? (y/N): " -n 1 -r
+read -p "Disable SSL/HTTPS? (For development only) (y/N): " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    SSL_ENABLED=true
-    PROTOCOL="https"
-    WS_PROTOCOL="wss"
-else
     SSL_ENABLED=false
     PROTOCOL="http"
     WS_PROTOCOL="ws"
+    echo -e "${YELLOW}⚠️  WARNING: SSL disabled - use only for development!${NC}"
+else
+    SSL_ENABLED=true
+    PROTOCOL="https"
+    WS_PROTOCOL="wss"
+    echo -e "${GREEN}✅ Using HTTPS with automatic certificates (default)${NC}"
 fi
 
 read -p "Grafana URL (default: $PROTOCOL://$SERVER_HOST:3000): " GRAFANA_URL
@@ -100,8 +102,15 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 
 # Frontend Configuration
-REACT_APP_API_URL=$PROTOCOL://$SERVER_HOST/api
-REACT_APP_WS_URL=$WS_PROTOCOL://$SERVER_HOST
+if [ "$SSL_ENABLED" = true ]; then
+    # For HTTPS with Caddy, use path-based routing
+    REACT_APP_API_URL=$PROTOCOL://$SERVER_HOST/api
+    REACT_APP_WS_URL=$WS_PROTOCOL://$SERVER_HOST/ws
+else
+    # For non-SSL, use port-based routing
+    REACT_APP_API_URL=$PROTOCOL://$SERVER_HOST:3001/api
+    REACT_APP_WS_URL=$WS_PROTOCOL://$SERVER_HOST:3002
+fi
 REACT_APP_LUCIDLINK_MOUNT_POINT=/media/lucidlink-1
 REACT_APP_GRAFANA_URL=$GRAFANA_URL
 
@@ -183,7 +192,13 @@ echo ""
 echo -e "${YELLOW}📝 Configuration summary:${NC}"
 echo "   Server: $SERVER_HOST"
 echo "   SSL/HTTPS: $SSL_ENABLED"
-echo "   API URL: $PROTOCOL://$SERVER_HOST/api"
+if [ "$SSL_ENABLED" = true ]; then
+    echo "   API URL: $PROTOCOL://$SERVER_HOST/api"
+    echo "   WebSocket URL: $WS_PROTOCOL://$SERVER_HOST/ws"
+else
+    echo "   API URL: $PROTOCOL://$SERVER_HOST:3001/api"
+    echo "   WebSocket URL: $WS_PROTOCOL://$SERVER_HOST:3002"
+fi
 echo "   LucidLink Filespace: $LUCIDLINK_FILESPACE"
 echo "   LucidLink User: $LUCIDLINK_USER"
 echo ""
@@ -199,19 +214,23 @@ echo -e "${YELLOW}🚀 Next steps:${NC}"
 echo "   1. Verify configuration: ./scripts/verify-env.sh"
 echo "   2. Deploy TeamCache Manager:"
 if [ "$SSL_ENABLED" = "true" ]; then
-    echo "      ./scripts/deploy-production.sh nginx  # With nginx SSL"
-    echo "      OR"
-    echo "      ./scripts/deploy-production.sh caddy  # With Caddy auto-SSL"
+    echo "      ./scripts/deploy-production.sh        # Default: Caddy with auto-HTTPS"
+    echo ""
+    echo "      Alternative options:"
+    echo "      ./scripts/deploy-production.sh nginx  # Use nginx with manual SSL certs"
 else
-    echo "      ./scripts/deploy-production.sh        # Without SSL"
+    echo "      ./scripts/deploy-production.sh none   # Without SSL (dev only)"
 fi
 echo "   3. Run smoke tests: ./scripts/smoke-test.sh"
 echo ""
-echo -e "${YELLOW}📝 Additional options:${NC}"
+echo -e "${YELLOW}📝 Additional notes:${NC}"
 if [ "$SSL_ENABLED" = "true" ]; then
-    echo "   - Set up custom SSL certificates: ./scripts/setup-ssl.sh $SERVER_HOST your-email@example.com"
+    echo "   - Caddy will automatically generate self-signed certificates for IPs"
+    echo "   - For domain names, Caddy will obtain Let's Encrypt certificates"
+    echo "   - Custom certificates can be placed in ./ssl/ directory"
 else
-    echo "   - Enable SSL later: Update .env to set SSL_ENABLED=true, then deploy with nginx or caddy"
+    echo "   - SSL is strongly recommended for production deployments"
+    echo "   - Run this script again to regenerate with HTTPS enabled"
 fi
 echo "   - View logs: docker compose logs -f"
 echo "   - Stop services: docker compose down"

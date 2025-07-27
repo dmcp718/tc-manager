@@ -17,7 +17,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Default values
-SSL_MODE="${1:-none}"
+SSL_MODE="${1:-caddy}"
 SKIP_BUILD=false
 SKIP_DB_INIT=false
 
@@ -37,9 +37,9 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [ssl-mode] [options]"
             echo ""
             echo "SSL modes:"
-            echo "  none       No SSL (default)"
+            echo "  caddy      Use Caddy with automatic HTTPS (default)"
             echo "  nginx      Use nginx with SSL certificates"
-            echo "  caddy      Use Caddy with automatic HTTPS"
+            echo "  none       No SSL (development only)"
             echo ""
             echo "Options:"
             echo "  --skip-build    Skip building Docker images"
@@ -47,9 +47,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --help          Show this help message"
             echo ""
             echo "Examples:"
-            echo "  ./deploy-production.sh              # Deploy without SSL"
+            echo "  ./deploy-production.sh              # Deploy with Caddy HTTPS (default)"
             echo "  ./deploy-production.sh nginx        # Deploy with nginx SSL"
-            echo "  ./deploy-production.sh caddy        # Deploy with Caddy auto-SSL"
+            echo "  ./deploy-production.sh none         # Deploy without SSL (dev only)"
             exit 0
             ;;
         *)
@@ -73,6 +73,7 @@ fi
 # Determine URLs based on SSL mode
 if [ "$SSL_MODE" = "none" ]; then
     DEPLOYMENT_URL="http://${SERVER_HOST:-localhost}:8090"
+    echo -e "${YELLOW}⚠️  WARNING: Running without SSL is not recommended for production!${NC}"
 else
     DEPLOYMENT_URL="https://${SERVER_HOST:-localhost}"
 fi
@@ -188,12 +189,25 @@ fi
 # Step 6: Initialize database (if needed)
 if [ "$SKIP_DB_INIT" = false ]; then
     echo ""
-    echo -e "${BLUE}🗄️  Initializing database...${NC}"
-    if ./scripts/init-database.sh; then
-        echo -e "${GREEN}✅ Database initialized${NC}"
+    echo -e "${BLUE}🗄️  Checking database initialization...${NC}"
+    
+    # Check if critical tables exist
+    USERS_TABLE_EXISTS=$($COMPOSE_CMD exec -T postgres psql -U "${POSTGRES_USER:-teamcache_user}" -d "${POSTGRES_DB:-teamcache_db}" -t -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users');" 2>/dev/null | xargs || echo "f")
+    
+    if [ "$USERS_TABLE_EXISTS" = "f" ]; then
+        echo -e "${YELLOW}⚠️  Users table not found, initializing database...${NC}"
+        # Run init-database.sh in non-interactive mode for missing critical tables
+        # Use echo to provide a single 'y' response instead of yes to avoid SIGPIPE
+        echo "y" | ./scripts/init-database.sh
+        INIT_STATUS=$?
+        if [ $INIT_STATUS -eq 0 ]; then
+            echo -e "${GREEN}✅ Database initialized${NC}"
+        else
+            echo -e "${RED}❌ Database initialization failed (exit code: $INIT_STATUS)${NC}"
+            exit 1
+        fi
     else
-        echo -e "${RED}❌ Database initialization failed${NC}"
-        exit 1
+        echo -e "${GREEN}✅ Database already initialized${NC}"
     fi
 else
     echo ""
@@ -248,20 +262,32 @@ if [ "$SSL_MODE" = "none" ]; then
     API_URL="http://${SERVER_HOST:-localhost}:3001"
     WS_URL="ws://${SERVER_HOST:-localhost}:3002"
 else
-    FRONTEND_URL="https://${SERVER_HOST}"
-    API_URL="https://${SERVER_HOST}:3001"
-    WS_URL="wss://${SERVER_HOST}:3002"
+    FRONTEND_URL="https://${SERVER_HOST:-localhost}"
+    # For Caddy, API and WS go through the same HTTPS port
+    if [ "$SSL_MODE" = "caddy" ]; then
+        API_URL="https://${SERVER_HOST:-localhost}/api"
+        WS_URL="wss://${SERVER_HOST:-localhost}/ws"
+    else
+        # For nginx with separate ports
+        API_URL="https://${SERVER_HOST:-localhost}:3001"
+        WS_URL="wss://${SERVER_HOST:-localhost}:3002"
+    fi
 fi
 
 echo -n "   Testing frontend ($FRONTEND_URL)... "
-if curl -f -s -o /dev/null "$FRONTEND_URL"; then
+# Add -k flag for self-signed certs when using HTTPS
+CURL_OPTS=""
+if [[ "$FRONTEND_URL" == https://* ]]; then
+    CURL_OPTS="-k"
+fi
+if curl $CURL_OPTS -f -s -o /dev/null "$FRONTEND_URL"; then
     echo -e "${GREEN}✅${NC}"
 else
     echo -e "${YELLOW}⚠️  May need more time to start${NC}"
 fi
 
 echo -n "   Testing backend API ($API_URL/health)... "
-if curl -f -s "$API_URL/health" | grep -q "healthy"; then
+if curl $CURL_OPTS -f -s "$API_URL/health" | grep -q "healthy"; then
     echo -e "${GREEN}✅${NC}"
 else
     echo -e "${RED}❌${NC}"
@@ -304,9 +330,16 @@ echo "4. Set up backups: crontab -e (add backup script)"
 
 if [ "$SSL_MODE" = "none" ]; then
     echo ""
-    echo -e "${YELLOW}⚠️  Warning: Running without SSL!${NC}"
-    echo "   For production use, deploy with SSL:"
-    echo "   ./deploy-production.sh nginx"
+    echo -e "${RED}⚠️  Warning: Running without SSL!${NC}"
+    echo "   This mode should only be used for development."
+    echo "   For production, use the default Caddy deployment:"
+    echo "   ./deploy-production.sh"
+elif [ "$SSL_MODE" = "caddy" ]; then
+    echo ""
+    echo -e "${GREEN}🔒 HTTPS Security:${NC}"
+    echo "   Caddy is using automatic HTTPS with self-signed certificates."
+    echo "   For trusted certificates with a domain name, Caddy will"
+    echo "   automatically obtain Let's Encrypt certificates."
 fi
 
 echo ""

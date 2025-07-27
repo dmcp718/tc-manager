@@ -228,18 +228,16 @@ class MediaPreviewService {
       
       return previewData;
     } else {
-      // For non-web-compatible videos, set up progressive DASH transcoding
+      // For non-web-compatible videos, set up DASH transcoding
       const outputDir = path.join(this.PREVIEW_CACHE_DIR, cacheKey);
       previewData.outputDir = outputDir;
       previewData.status = 'processing';
       previewData.progress = 0;
       previewData.streamType = 'dash';
       previewData.segmentCount = 0;
-      previewData.autoplay = true;
+      previewData.autoplay = false; // Don't autoplay until fully transcoded
       
-      // Progressive DASH transcoding for non-web video
-      
-      // Store initial processing state and return immediately for progressive streaming
+      // Store initial processing state
       await this.storePreviewInCache(cacheKey, previewData);
       
       // Start transcoding in background (don't await)
@@ -387,7 +385,7 @@ class MediaPreviewService {
         async (progress, currentTime, duration) => {
           // Get latest data from cache and update
           const currentData = await this.getPreviewFromCache(cacheKey) || previewData;
-          currentData.progress = progress;
+          currentData.progress = Math.round(progress * 10) / 10; // Ensure 1 decimal place
           currentData.currentTime = currentTime;
           currentData.duration = duration;
           await this.storePreviewInCache(cacheKey, currentData);
@@ -397,11 +395,22 @@ class MediaPreviewService {
             // Get latest data from cache and update segment count
             const currentData = await this.getPreviewFromCache(cacheKey) || previewData;
             currentData.segmentCount = (currentData.segmentCount || 0) + 1;
-            await this.storePreviewInCache(cacheKey, currentData);
-            // New segment ready
             
-            // Check if ready for progressive playback
-            await this.checkProgressivePlaybackReady(cacheKey, outputDir, currentData);
+            // Calculate progress based on estimated total segments
+            // Assuming average video length and 4-second segments
+            const estimatedProgress = Math.min((currentData.segmentCount * 4) / 120 * 100, 95); // Cap at 95% until complete
+            currentData.progress = Math.round(estimatedProgress * 10) / 10; // Round to 1 decimal place
+            
+            await this.storePreviewInCache(cacheKey, currentData);
+            
+            // Broadcast progress update (no longer triggering progressive playback)
+            this.broadcast({
+              type: 'preview-update',
+              cacheKey: cacheKey,
+              status: 'processing',
+              progress: estimatedProgress,
+              data: currentData
+            });
           }
         }
       );
@@ -459,56 +468,8 @@ class MediaPreviewService {
   
   // Check if enough segments are ready for progressive playback
   async checkProgressivePlaybackReady(cacheKey, outputDir, previewData) {
-    try {
-      // Only proceed if still processing
-      if (previewData.status !== 'processing') {
-        return;
-      }
-      
-      const manifestPath = path.join(outputDir, 'manifest.mpd');
-      const segmentCount = previewData.segmentCount || 0;
-      
-      // Count actual segments on disk as backup
-      let actualSegmentCount = 0;
-      try {
-        const files = fs.readdirSync(outputDir);
-        actualSegmentCount = files.filter(f => f.endsWith('.m4s') && f.includes('chunk-')).length;
-      } catch (e) {
-        actualSegmentCount = 0;
-      }
-      
-      // Check if manifest exists and has content
-      let manifestReady = false;
-      try {
-        manifestReady = fs.existsSync(manifestPath) && fs.statSync(manifestPath).size > 100;
-      } catch (e) {
-        manifestReady = false;
-      }
-      
-      // Checking progressive readiness
-      
-      // Use the higher of the two segment counts
-      const totalSegments = Math.max(segmentCount, actualSegmentCount);
-      
-      // Wait for manifest and at least 4 segments (16 seconds with 4-second segments)
-      if (manifestReady && totalSegments >= 4) {
-        previewData.status = 'progressive_ready';
-        previewData.manifestUrl = `/api/preview/video/${cacheKey}/manifest.mpd`;
-        previewData.streamType = 'dash';
-        await this.storePreviewInCache(cacheKey, previewData);
-        // Progressive DASH playback ready with sufficient buffer (16s)
-        
-        // Broadcast preview status update via WebSocket
-        this.broadcast({
-          type: 'preview-update',
-          cacheKey: cacheKey,
-          status: 'progressive_ready',
-          data: previewData
-        });
-      }
-    } catch (error) {
-      // Error checking progressive readiness
-    }
+    // Disabled - we now wait for complete transcoding before playback
+    return;
   }
   
   // Get preview status
@@ -790,11 +751,12 @@ class FFmpegTranscoder {
                                  parseFloat(match[2]) * 60 + 
                                  parseFloat(match[3]);
               const progress = Math.min((currentTime / duration) * 100, 100);
+              const roundedProgress = Math.round(progress * 10) / 10; // Round to 1 decimal place
               
-              if (progress - lastProgress > 0.5) {
-                lastProgress = progress;
+              if (roundedProgress - lastProgress > 0.5) {
+                lastProgress = roundedProgress;
                 if (onProgress) {
-                  onProgress(progress, currentTime, duration);
+                  onProgress(roundedProgress, currentTime, duration);
                 }
               }
             }

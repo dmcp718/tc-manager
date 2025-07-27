@@ -42,12 +42,21 @@ services:
   # Frontend - Production overrides  
   frontend:
     container_name: tc-mgr-frontend
+    # Override development ports - only expose nginx on 80
+    ports:
+      - "8091:80"
     build:
       args:
         # Frontend URLs require SERVER_HOST to be set
         REACT_APP_API_URL: ${REACT_APP_API_URL:-https://${SERVER_HOST}/api}
         REACT_APP_WS_URL: ${REACT_APP_WS_URL:-wss://${SERVER_HOST}}
         REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-https://${SERVER_HOST}:3000}
+    # Override health check to use nginx port
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Elasticsearch - Production naming
   elasticsearch:

@@ -473,6 +473,7 @@ const JobPanel = ({ isOpen, onClose, jobs, onClearJobs, onCancelJob }) => {
             <div style={{ fontSize: '14px', marginBottom: '5px' }}>
               {job.type === 'script' ? job.scriptPath.split('/').pop() : 
                job.type === 'index' ? `Index Files: ${job.rootPath || '/media/lucidlink-1'}` :
+               job.type === 'video-preview' ? `Video Preview (${job.totalFiles} files)` :
                `Cache Job (${job.totalFiles} files)`}
             </div>
             <div style={{ fontSize: '11px', color: '#666', marginBottom: '3px' }}>
@@ -510,7 +511,7 @@ const JobPanel = ({ isOpen, onClose, jobs, onClearJobs, onCancelJob }) => {
                 }
               })()}
             </div>
-            {job.type === 'cache' && ['pending', 'running', 'paused'].includes(job.status) && (
+            {(job.type === 'cache' || job.type === 'video-preview') && ['pending', 'running', 'paused'].includes(job.status) && (
               <div style={{ marginTop: '10px' }}>
                 <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>
                   Progress: {Math.round((job.completedFiles / job.totalFiles) * 100)}% 
@@ -889,9 +890,68 @@ function PreviewModal({ filePath, preview, type, onClose }) {
       );
     }
 
-    // Render completed or progressive_ready preview
-    if (type === 'video' && (currentPreview?.status === 'completed' || currentPreview?.status === 'progressive_ready')) {
-      return <VideoPlayer preview={currentPreview} />;
+    // Render video preview based on status
+    if (type === 'video') {
+      if (currentPreview?.status === 'processing') {
+        return (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '400px',
+            flexDirection: 'column',
+            gap: '20px'
+          }}>
+            <div style={{ 
+              fontSize: '48px',
+              animation: 'spin 2s linear infinite'
+            }}>
+              🎬
+            </div>
+            <div style={{ fontSize: '18px', color: '#e4e4e7' }}>
+              Transcoding video preview...
+            </div>
+            {currentPreview?.progress && (
+              <div style={{ width: '300px' }}>
+                <div style={{
+                  width: '100%',
+                  height: '8px',
+                  backgroundColor: '#3a3a3a',
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: `${currentPreview.progress}%`,
+                    height: '100%',
+                    backgroundColor: '#3b82f6',
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+                <div style={{
+                  marginTop: '8px',
+                  fontSize: '14px',
+                  color: '#a1a1aa',
+                  textAlign: 'center'
+                }}>
+                  {Math.round(currentPreview.progress)}% complete
+                </div>
+              </div>
+            )}
+            <div style={{ 
+              fontSize: '14px', 
+              color: '#a1a1aa',
+              textAlign: 'center',
+              maxWidth: '400px'
+            }}>
+              Please wait while we prepare your video for optimal streaming...
+            </div>
+          </div>
+        );
+      }
+      
+      if (currentPreview?.status === 'completed') {
+        return <VideoPlayer preview={currentPreview} />;
+      }
     }
 
     if (type === 'image') {
@@ -1579,6 +1639,128 @@ const BrowserView = ({ user, onLogout }) => {
       
     } catch (error) {
       console.error('Failed to add to job queue:', error);
+    }
+  };
+
+  // Helper functions for video preview queue
+  const isVideoFile = (file) => {
+    const videoExtensions = ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.r3d', '.braw', '.mxf', '.mpg', '.mpeg', '.m4v', '.wmv', '.flv'];
+    const ext = file.extension?.toLowerCase() || '';
+    return videoExtensions.includes(ext);
+  };
+
+  const hasSelectedVideos = () => {
+    return Array.from(selectedItems).some(path => {
+      const file = getFilteredFiles().find(f => f.path === path);
+      // Check if it's a video file OR a directory (which might contain videos)
+      return file && (file.isDirectory || isVideoFile(file));
+    });
+  };
+
+  const countSelectedVideos = () => {
+    // Count individual video files and directories
+    const items = Array.from(selectedItems);
+    let videoCount = 0;
+    let dirCount = 0;
+    
+    items.forEach(path => {
+      const file = getFilteredFiles().find(f => f.path === path);
+      if (file) {
+        if (file.isDirectory) {
+          dirCount++;
+        } else if (isVideoFile(file)) {
+          videoCount++;
+        }
+      }
+    });
+    
+    // If we have directories, show directory count instead
+    if (dirCount > 0) {
+      return `${dirCount} dir${dirCount > 1 ? 's' : ''}`;
+    }
+    return videoCount;
+  };
+
+  const addToVideoPreviewQueue = async () => {
+    if (!hasSelectedVideos()) return;
+    
+    try {
+      const selectedPaths = Array.from(selectedItems);
+      
+      // Collect video files
+      const videoFilePaths = [];
+      let directories = [];
+      
+      const collectVideoFiles = async (filePath) => {
+        const currentFile = getFilteredFiles().find(f => f.path === filePath);
+        if (!currentFile) return;
+        
+        if (currentFile.isDirectory) {
+          directories.push(filePath);
+          try {
+            const dirFiles = await FileSystemAPI.getFiles(filePath);
+            for (const file of dirFiles) {
+              if (file.isDirectory) {
+                await collectVideoFiles(file.path);
+              } else if (isVideoFile(file)) {
+                videoFilePaths.push(file.path);
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to load directory ${filePath}:`, error);
+          }
+        } else if (isVideoFile(currentFile)) {
+          videoFilePaths.push(filePath);
+        }
+      };
+      
+      for (const path of selectedPaths) {
+        await collectVideoFiles(path);
+      }
+      
+      if (videoFilePaths.length === 0) {
+        alert('No video files selected');
+        return;
+      }
+      
+      // Remove duplicates
+      directories = [...new Set(directories)];
+      
+      console.log('Adding to video preview queue:', videoFilePaths);
+      
+      // Send to backend video preview job endpoint
+      const response = await fetch(`${FileSystemAPI.baseURL}/jobs/video-preview`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...FileSystemAPI.getAuthHeaders()
+        },
+        body: JSON.stringify({
+          filePaths: videoFilePaths,
+          directories: directories
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Video preview job created:', result);
+        
+        // Clear selection
+        setSelectedItems(new Set());
+        
+        // Refresh jobs to show the new video preview job
+        loadJobs();
+        
+        // Show success message
+        showToast(`Added ${result.fileCount} video${result.fileCount !== 1 ? 's' : ''} to preview queue`);
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to create video preview job:', errorText);
+        alert(`Failed to create video preview job: ${errorText}`);
+      }
+    } catch (error) {
+      console.error('Failed to add to video preview queue:', error);
+      alert(`Error: ${error.message}`);
     }
   };
 
@@ -2784,6 +2966,27 @@ const BrowserView = ({ user, onLogout }) => {
               disabled={selectedItems.size === 0}
             >
               ☰ Add to Cache Job Queue ({selectedItems.size})
+            </button>
+            
+            <button
+              style={{
+                ...styles.button,
+                ...(hasSelectedVideos() ? styles.primaryButton : {}),
+              }}
+              onClick={addToVideoPreviewQueue}
+              disabled={!hasSelectedVideos()}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '8px', verticalAlign: 'middle' }}>
+                <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+                <line x1="7" y1="2" x2="7" y2="22" />
+                <line x1="17" y1="2" x2="17" y2="22" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <line x1="2" y1="7" x2="7" y2="7" />
+                <line x1="2" y1="17" x2="7" y2="17" />
+                <line x1="17" y1="17" x2="22" y2="17" />
+                <line x1="17" y1="7" x2="22" y2="7" />
+              </svg>
+              Add to Video Preview Queue ({countSelectedVideos()})
             </button>
             
             {selectedFile && selectedFile.extension === '.py' && (

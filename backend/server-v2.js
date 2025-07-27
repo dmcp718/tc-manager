@@ -22,7 +22,10 @@ const {
   CacheJobModel, 
   CacheJobItemModel,
   IndexProgressModel,
-  CacheJobProfileModel
+  CacheJobProfileModel,
+  VideoPreviewJobModel,
+  VideoPreviewJobItemModel,
+  VideoPreviewProfileModel
 } = require('./database');
 
 // Import indexer
@@ -30,6 +33,9 @@ const { getIndexer } = require('./indexer');
 
 // Import cache worker manager
 const { getCacheWorkerManager } = require('./workers/cache-worker-manager');
+
+// Import video preview manager
+const VideoPreviewManager = require('./workers/video-preview-manager');
 
 // Import network stats workers
 const NetworkStatsWorker = require('./network-stats-worker');
@@ -1958,6 +1964,124 @@ app.post('/api/jobs/cache', authService.requireAuth, async (req, res) => {
   }
 });
 
+// Create video preview job from selected files
+app.post('/api/jobs/video-preview', authService.requireAuth, async (req, res) => {
+  try {
+    let { filePaths, directories = [], profileName, profileId } = req.body;
+    
+    // If no filePaths but directories provided, expand directories to get files
+    if ((!filePaths || filePaths.length === 0) && directories && directories.length > 0) {
+      console.log(`Expanding ${directories.length} directories to collect files for video preview job`);
+      filePaths = [];
+      
+      for (const dir of directories) {
+        try {
+          const dirFiles = await FileModel.findFilesRecursively(dir);
+          // Filter for video files only
+          const videoFiles = dirFiles.filter(f => {
+            const type = MediaPreviewService.getPreviewType(f.path);
+            return type === 'video';
+          });
+          filePaths.push(...videoFiles.map(f => f.path));
+          console.log(`Collected ${videoFiles.length} video files from directory: ${dir}`);
+        } catch (error) {
+          console.error(`Error collecting video files from directory ${dir}:`, error);
+        }
+      }
+      
+      if (filePaths.length === 0) {
+        return res.status(400).json({ error: 'No video files found in provided directories' });
+      }
+    }
+    
+    // Filter for video files only
+    const videoFilePaths = filePaths.filter(path => {
+      const type = MediaPreviewService.getPreviewType(path);
+      return type === 'video';
+    });
+    
+    if (videoFilePaths.length === 0) {
+      return res.status(400).json({ error: 'No video files in selection' });
+    }
+    
+    // Get profile
+    let profile;
+    if (profileId) {
+      profile = await VideoPreviewProfileModel.findById(profileId);
+    } else if (profileName) {
+      profile = await VideoPreviewProfileModel.findByName(profileName);
+    } else {
+      profile = await VideoPreviewProfileModel.findDefault();
+    }
+    
+    // Create the job
+    const job = await VideoPreviewJobModel.create({
+      filePaths: videoFilePaths,
+      directoryPaths: directories,
+      profileId: profile ? profile.id : null
+    });
+    
+    // Create job items
+    for (const filePath of videoFilePaths) {
+      const fileName = path.basename(filePath);
+      await VideoPreviewJobItemModel.create({
+        jobId: job.id,
+        filePath,
+        fileName,
+        fileSize: null // We'll get size during processing
+      });
+    }
+    
+    logger.info('Video preview job created', {
+      event: 'video_preview_job_created',
+      jobId: job.id,
+      fileCount: videoFilePaths.length,
+      profile: profile?.name || 'default',
+      username: req.user?.username || 'unknown',
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({ 
+      jobId: job.id, 
+      fileCount: videoFilePaths.length,
+      status: 'pending',
+      profile: profile?.name || 'default'
+    });
+    
+  } catch (error) {
+    console.error('Error creating video preview job:', error);
+    logger.error('Video preview job creation failed', {
+      event: 'video_preview_job_failed',
+      error: error.message,
+      username: req.user?.username || 'unknown',
+      timestamp: new Date().toISOString()
+    });
+    res.status(500).json({ error: 'Failed to create video preview job' });
+  }
+});
+
+// Get video preview profiles
+app.get('/api/video-preview/profiles', authService.requireAuth, async (req, res) => {
+  try {
+    const profiles = await VideoPreviewProfileModel.findAll();
+    res.json(profiles);
+  } catch (error) {
+    console.error('Error getting video preview profiles:', error);
+    res.status(500).json({ error: 'Failed to get profiles' });
+  }
+});
+
+// Get video preview job statistics
+app.get('/api/video-preview/stats', authService.requireAuth, async (req, res) => {
+  try {
+    const stats = await VideoPreviewJobModel.getStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Error getting video preview stats:', error);
+    res.status(500).json({ error: 'Failed to get statistics' });
+  }
+});
+
 // Generate direct link for a file
 app.post('/api/direct-link', authService.requireAuth, async (req, res) => {
   try {
@@ -2187,8 +2311,23 @@ app.get('/api/jobs', authService.requireAuth, async (req, res) => {
       output: [] // Index jobs don't have output like script jobs
     }));
     
+    // Get video preview jobs from database
+    const videoPreviewJobs = await VideoPreviewJobModel.findAll(20);
+    const videoPreviewJobList = videoPreviewJobs.map(job => ({
+      id: job.id,
+      type: 'video-preview',
+      status: job.status,
+      totalFiles: job.total_files,
+      completedFiles: job.completed_files,
+      failedFiles: job.failed_files,
+      skippedFiles: job.skipped_files,
+      startTime: job.created_at,
+      endTime: job.completed_at,
+      output: [] // Video preview jobs don't have output like script jobs
+    }));
+    
     // Combine and sort by start time
-    const allJobs = [...dbJobList, ...scriptJobList, ...indexJobList]
+    const allJobs = [...dbJobList, ...scriptJobList, ...indexJobList, ...videoPreviewJobList]
       .sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
     
     res.json(allJobs);
@@ -3117,6 +3256,7 @@ async function startServer() {
     console.log('Cache worker manager started');
   }
   
+  
   // Start LucidLink stats worker for download speed monitoring
   if (process.env.ENABLE_LUCIDLINK_STATS !== 'false') {
     try {
@@ -3217,6 +3357,90 @@ async function startServer() {
     );
   } catch (error) {
     console.error('Failed to initialize media preview service:', error);
+  }
+  
+  // Start video preview manager
+  let videoPreviewManager = null;
+  console.log('Checking video preview manager prerequisites:', {
+    dbConnected,
+    mediaPreviewService: !!mediaPreviewService
+  });
+  if (dbConnected && mediaPreviewService) {
+    console.log('Initializing video preview manager...');
+    videoPreviewManager = new VideoPreviewManager({
+      workerCount: parseInt(process.env.VIDEO_PREVIEW_WORKER_COUNT) || 1,
+      workerOptions: {
+        maxConcurrentFiles: parseInt(process.env.VIDEO_PREVIEW_MAX_CONCURRENT) || 2,
+        pollInterval: parseInt(process.env.VIDEO_PREVIEW_POLL_INTERVAL) || 5000,
+        mediaPreviewService
+      }
+    });
+    
+    // Set up video preview event forwarding to WebSocket
+    videoPreviewManager.on('job-started', (data) => {
+      logger.info('Video preview job started', {
+        event: 'video_preview_job_started',
+        jobId: data.jobId,
+        timestamp: new Date().toISOString()
+      });
+      broadcast({ type: 'video-preview-job-started', ...data });
+    });
+    
+    videoPreviewManager.on('job-completed', (data) => {
+      logger.info('Video preview job completed', {
+        event: 'video_preview_job_completed',
+        jobId: data.jobId,
+        duration: data.duration,
+        totalFiles: data.totalFiles,
+        timestamp: new Date().toISOString()
+      });
+      broadcast({ type: 'video-preview-job-completed', ...data });
+    });
+    
+    videoPreviewManager.on('job-failed', (data) => {
+      logger.error('Video preview job failed', {
+        event: 'video_preview_job_failed',
+        jobId: data.jobId,
+        error: data.error,
+        timestamp: new Date().toISOString()
+      });
+      broadcast({ type: 'video-preview-job-failed', ...data });
+    });
+    
+    videoPreviewManager.on('job-progress', (data) => {
+      broadcast({ type: 'video-preview-job-progress', ...data });
+    });
+    
+    videoPreviewManager.on('file-started', (data) => {
+      broadcast({ type: 'video-preview-file-started', ...data });
+    });
+    
+    videoPreviewManager.on('file-completed', (data) => {
+      broadcast({ type: 'video-preview-file-completed', ...data });
+    });
+    
+    videoPreviewManager.on('file-failed', (data) => {
+      broadcast({ type: 'video-preview-file-failed', ...data });
+    });
+    
+    videoPreviewManager.on('file-skipped', (data) => {
+      broadcast({ type: 'video-preview-file-skipped', ...data });
+    });
+    
+    try {
+      await videoPreviewManager.start();
+      console.log('Video preview manager started');
+      
+      // Store in app locals for access in routes
+      app.locals.videoPreviewManager = videoPreviewManager;
+    } catch (error) {
+      console.error('Failed to start video preview manager:', error);
+    }
+  } else {
+    console.log('Video preview manager not started:', {
+      dbConnected,
+      mediaPreviewService: !!mediaPreviewService
+    });
   }
   
   // Initialize Elasticsearch client

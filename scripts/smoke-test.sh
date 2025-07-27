@@ -11,6 +11,21 @@ API_URL="${API_URL:-http://localhost:3001/api}"
 WS_URL="${WS_URL:-ws://localhost:3002}"
 TIMEOUT=30
 
+# SSL configuration
+USE_SSL="${USE_SSL:-false}"
+SKIP_SSL_VERIFY="${SKIP_SSL_VERIFY:-true}"
+
+# Detect if SSL is being used
+if [[ "$BASE_URL" =~ ^https:// ]] || [[ "$API_URL" =~ ^https:// ]]; then
+    USE_SSL="true"
+fi
+
+# Set curl SSL options
+CURL_SSL_OPTS=""
+if [ "$USE_SSL" = "true" ] && [ "$SKIP_SSL_VERIFY" = "true" ]; then
+    CURL_SSL_OPTS="-k"
+fi
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -72,7 +87,7 @@ test_http() {
     test_url="${test_url/wss:\/\//https://}"
     
     # Use eval to properly handle header arguments with spaces
-    local status_code=$(eval "curl -s -o /dev/null -w \"%{http_code}\" --max-time $TIMEOUT $extra_args \"$test_url\"" || echo "000")
+    local status_code=$(eval "curl -s -o /dev/null -w \"%{http_code}\" --max-time $TIMEOUT $CURL_SSL_OPTS $extra_args \"$test_url\"" || echo "000")
     [ "$status_code" = "$expected_status" ]
 }
 
@@ -83,7 +98,7 @@ test_http_json() {
     local expected_value="$3"
     local extra_args="${4:-}"
     
-    local response=$(curl -s --max-time $TIMEOUT $extra_args "$url" || echo "{}")
+    local response=$(curl -s --max-time $TIMEOUT $CURL_SSL_OPTS $extra_args "$url" || echo "{}")
     echo "$response" | grep -q "$expected_value"
 }
 
@@ -108,7 +123,7 @@ echo -n "   WebSocket endpoint... "
 TESTS_RUN=$((TESTS_RUN + 1))
 WS_HTTP_URL="${WS_URL/ws:\/\//http://}"
 WS_HTTP_URL="${WS_HTTP_URL/wss:\/\//https://}"
-WS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Upgrade: websocket" --max-time $TIMEOUT "$WS_HTTP_URL" || echo "000")
+WS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $CURL_SSL_OPTS -H "Upgrade: websocket" --max-time $TIMEOUT "$WS_HTTP_URL" || echo "000")
 if [ "$WS_STATUS" = "426" ]; then
     echo -e "${GREEN}✅ PASS${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -125,7 +140,7 @@ echo -e "${BLUE}🔍 Authentication Tests${NC}"
 
 # Get auth token
 echo -n "   Attempting login... "
-LOGIN_RESPONSE=$(curl -s -X POST "$API_URL/auth/login" \
+LOGIN_RESPONSE=$(curl -s -X POST $CURL_SSL_OPTS "$API_URL/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}" \
     --max-time 10 || echo "{}")
@@ -193,7 +208,7 @@ echo -e "${BLUE}🔍 File System Tests${NC}"
 
 # Test 1: FS tree loading mount point file listing
 echo -n "   Testing filesystem mount point access... "
-FS_RESPONSE=$(curl -s "$API_URL/files?path=$LUCIDLINK_MOUNT" \
+FS_RESPONSE=$(curl -s $CURL_SSL_OPTS "$API_URL/files?path=$LUCIDLINK_MOUNT" \
     -H "$AUTH_HEADER" \
     --max-time $TIMEOUT || echo "{}")
 
@@ -214,7 +229,7 @@ echo -e "${BLUE}🔍 Cache Statistics Tests${NC}"
 
 # Test 2: 'Cached data:' displaying varnish stats
 echo -n "   Testing cache statistics endpoint... "
-CACHE_STATS=$(curl -s "$API_URL/cache-stats" \
+CACHE_STATS=$(curl -s $CURL_SSL_OPTS "$API_URL/cache-stats" \
     -H "$AUTH_HEADER" \
     --max-time $TIMEOUT || echo "{}")
 
@@ -241,7 +256,7 @@ echo -e "${BLUE}🔍 UI Functionality Tests${NC}"
 if [ -n "$GRAFANA_URL" ] && [ "$GRAFANA_URL" != "null" ]; then
     # Grafana might return 302 (redirect) or 401 (unauthorized) or 200
     echo -n "   Grafana URL configured... "
-    GRAFANA_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$GRAFANA_URL" || echo "000")
+    GRAFANA_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $CURL_SSL_OPTS --max-time 5 "$GRAFANA_URL" || echo "000")
     if [[ "$GRAFANA_STATUS" =~ ^(200|302|401)$ ]]; then
         echo -e "${GREEN}✅ PASS${NC} (status: $GRAFANA_STATUS)"
         TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -259,7 +274,7 @@ echo -e "${BLUE}🔍 Job Submission Tests${NC}"
 
 # Test 4: 'Index Files' button job submission success
 echo -n "   Testing index job submission... "
-INDEX_RESPONSE=$(curl -s -X POST "$API_URL/index/start" \
+INDEX_RESPONSE=$(curl -s -X POST $CURL_SSL_OPTS "$API_URL/index/start" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d "{\"rootPath\":\"$LUCIDLINK_MOUNT\",\"clearDeleted\":true}" \
@@ -272,7 +287,7 @@ if echo "$INDEX_RESPONSE" | grep -q '"status":"started"\|"message":"Indexing sta
     # Test 5: Running Jobs panel, Index Job added
     sleep 2
     echo -n "   Verifying index job in running jobs... "
-    JOBS_RESPONSE=$(curl -s "$API_URL/jobs/running" \
+    JOBS_RESPONSE=$(curl -s $CURL_SSL_OPTS "$API_URL/jobs/running" \
         -H "$AUTH_HEADER" \
         --max-time $TIMEOUT || echo "{}")
     
@@ -293,12 +308,12 @@ TESTS_RUN=$((TESTS_RUN + 1))
 # Test 9: Add to Cache Job Queue button submission success
 echo -n "   Testing cache job submission... "
 # First, get a sample file to cache
-SAMPLE_FILE=$(curl -s "$API_URL/files?path=$LUCIDLINK_MOUNT" \
+SAMPLE_FILE=$(curl -s $CURL_SSL_OPTS "$API_URL/files?path=$LUCIDLINK_MOUNT" \
     -H "$AUTH_HEADER" \
     --max-time $TIMEOUT | grep -o '"path":"[^"]*"' | grep -v '/$' | head -1 | cut -d'"' -f4 || echo "")
 
 if [ -n "$SAMPLE_FILE" ]; then
-    CACHE_RESPONSE=$(curl -s -X POST "$API_URL/jobs/cache" \
+    CACHE_RESPONSE=$(curl -s -X POST $CURL_SSL_OPTS "$API_URL/jobs/cache" \
         -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d "{\"name\":\"Smoke Test Cache Job\",\"filePaths\":[\"$SAMPLE_FILE\"]}" \
@@ -312,7 +327,7 @@ if [ -n "$SAMPLE_FILE" ]; then
         # Test 10: Running Jobs panel, Cache Job added
         sleep 2
         echo -n "   Verifying cache job in running jobs... "
-        CACHE_JOBS=$(curl -s "$API_URL/jobs/running" \
+        CACHE_JOBS=$(curl -s $CURL_SSL_OPTS "$API_URL/jobs/running" \
             -H "$AUTH_HEADER" \
             --max-time $TIMEOUT || echo "{}")
         
@@ -338,7 +353,7 @@ echo -e "${BLUE}🔍 Search Functionality Tests${NC}"
 
 # Test Elasticsearch health
 echo -n "   Elasticsearch cluster health... "
-ES_HEALTH=$(curl -s "http://localhost:9200/_cluster/health" --max-time $TIMEOUT || echo "{}")
+ES_HEALTH=$(curl -s $CURL_SSL_OPTS "http://localhost:9200/_cluster/health" --max-time $TIMEOUT || echo "{}")
 ES_STATUS=$(echo "$ES_HEALTH" | grep -o '"status":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
 
 if [[ "$ES_STATUS" == "green" ]] || [[ "$ES_STATUS" == "yellow" ]]; then
@@ -360,7 +375,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 
 # Test Elasticsearch index status
 echo -n "   Elasticsearch index status... "
-ES_INDICES=$(curl -s "http://localhost:9200/_cat/indices/teamcache-files?format=json" --max-time $TIMEOUT || echo "[]")
+ES_INDICES=$(curl -s $CURL_SSL_OPTS "http://localhost:9200/_cat/indices/teamcache-files?format=json" --max-time $TIMEOUT || echo "[]")
 INDEX_HEALTH=$(echo "$ES_INDICES" | grep -o '"health":"[^"]*"' | cut -d'"' -f4 | head -1 || echo "missing")
 
 if [[ "$INDEX_HEALTH" == "green" ]] || [[ "$INDEX_HEALTH" == "yellow" ]]; then
@@ -382,7 +397,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 
 # Test Elasticsearch search functionality
 echo -n "   Testing Elasticsearch search... "
-ES_SEARCH=$(curl -s "$API_URL/search/elasticsearch?q=*&limit=1" \
+ES_SEARCH=$(curl -s $CURL_SSL_OPTS "$API_URL/search/elasticsearch?q=*&limit=1" \
     -H "$AUTH_HEADER" \
     --max-time $TIMEOUT || echo "{}")
 
@@ -408,7 +423,7 @@ echo -e "${BLUE}🔍 WebSocket Real-time Updates${NC}"
 
 # Test WebSocket connectivity with simple curl upgrade request
 echo -n "   Testing WebSocket upgrade... "
-WS_TEST=$(timeout 2 curl -s -i -N \
+WS_TEST=$(timeout 2 curl -s -i -N $CURL_SSL_OPTS \
     -H "Connection: Upgrade" \
     -H "Upgrade: websocket" \
     -H "Sec-WebSocket-Version: 13" \
@@ -428,7 +443,7 @@ echo -e "${BLUE}🔍 Performance Metrics${NC}"
 
 # Test 12: GET Speed stats display
 echo -n "   Testing performance metrics endpoint... "
-PERF_METRICS=$(curl -s "$API_URL/stats" \
+PERF_METRICS=$(curl -s $CURL_SSL_OPTS "$API_URL/stats" \
     -H "$AUTH_HEADER" \
     --max-time $TIMEOUT || echo "{}")
 
@@ -452,12 +467,12 @@ echo -e "${BLUE}🔍 Direct Link Generation${NC}"
 echo -n "   Testing direct link generation... "
 
 # Get a sample file for direct link test
-SAMPLE_FILE=$(curl -s "$API_URL/files?path=$LUCIDLINK_MOUNT" \
+SAMPLE_FILE=$(curl -s $CURL_SSL_OPTS "$API_URL/files?path=$LUCIDLINK_MOUNT" \
     -H "$AUTH_HEADER" \
     --max-time $TIMEOUT | grep -o '"path":"[^"]*"' | grep -v '/$' | head -1 | cut -d'"' -f4 || echo "")
 
 if [ -n "$SAMPLE_FILE" ]; then
-    DIRECT_LINK_RESPONSE=$(curl -s -X POST "$API_URL/direct-link" \
+    DIRECT_LINK_RESPONSE=$(curl -s -X POST $CURL_SSL_OPTS "$API_URL/direct-link" \
         -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d "{\"filePath\":\"$SAMPLE_FILE\"}" \
@@ -483,7 +498,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 # Response time test
 echo -n "   API response time (<1s)... "
 START_TIME=$(date +%s.%N)
-curl -s "$API_URL/health" -H "$AUTH_HEADER" --max-time 5 >/dev/null
+curl -s $CURL_SSL_OPTS "$API_URL/health" -H "$AUTH_HEADER" --max-time 5 >/dev/null
 END_TIME=$(date +%s.%N)
 RESPONSE_TIME=$(echo "$END_TIME - $START_TIME" | bc 2>/dev/null || echo "0")
 

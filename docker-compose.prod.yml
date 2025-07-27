@@ -57,6 +57,10 @@ services:
       LUCIDLINK_API_HOST: ${LUCIDLINK_API_HOST:-host.docker.internal}
       # Configure S3 proxy for Varnish cache
       LUCID_S3_PROXY: ${LUCID_S3_PROXY}
+      # Video preview worker configuration
+      VIDEO_PREVIEW_WORKER_COUNT: ${VIDEO_PREVIEW_WORKER_COUNT:-2}
+      VIDEO_PREVIEW_MAX_CONCURRENT: ${VIDEO_PREVIEW_MAX_CONCURRENT:-2}
+      VIDEO_PREVIEW_POLL_INTERVAL: ${VIDEO_PREVIEW_POLL_INTERVAL:-5000}
     volumes:
       # Application logs
       - backend_logs:/app/logs
@@ -95,11 +99,15 @@ services:
         REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:3002}
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
         REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-}
+    image: sc-manager-greenfield-frontend:latest
     container_name: sc-mgr-frontend-prod
     ports:
-      - "8090:80"
+      - "8091:80"
     depends_on:
       - backend
+    # Override any dev server command with nginx
+    command: ["nginx", "-g", "daemon off;"]
+    entrypoint: []
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/"]
       interval: 30s

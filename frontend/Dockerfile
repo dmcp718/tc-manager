@@ -21,11 +21,21 @@ RUN npm ci
 # Copy source code (for development, this will be overridden by volume mount)
 COPY . .
 
+# Accept build arguments for development
+ARG REACT_APP_API_URL
+ARG REACT_APP_WS_URL
+ARG REACT_APP_LUCIDLINK_MOUNT_POINT
+ARG REACT_APP_GRAFANA_URL
+
 # Set development environment variables
 ENV NODE_ENV=development
 ENV CHOKIDAR_USEPOLLING=true
 ENV FAST_REFRESH=true
 ENV GENERATE_SOURCEMAP=true
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
+ENV REACT_APP_WS_URL=$REACT_APP_WS_URL
+ENV REACT_APP_LUCIDLINK_MOUNT_POINT=$REACT_APP_LUCIDLINK_MOUNT_POINT
+ENV REACT_APP_GRAFANA_URL=$REACT_APP_GRAFANA_URL
 
 # Expose port for React dev server
 EXPOSE 3000

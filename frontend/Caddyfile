@@ -1,43 +1,41 @@
 # Caddyfile for SC-Manager Frontend
 {
     # Global options
-    auto_https off
     admin off
+    
+    # Caddy automatically enables HTTPS by default
+    # - For domains: automatic Let's Encrypt
+    # - For IPs: automatic self-signed certificates
+    # To disable: use 'auto_https off'
+    
+    # Accept self-signed certs for backend communication
+    servers {
+        trusted_proxies static private_ranges
+    }
 }
 
-# HTTP site (for development/testing with existing certs)
-:80 {
+# Main site configuration - handles both HTTP and HTTPS
+https://192.168.8.28 {
+    # TLS configuration - Caddy will auto-generate certificates
+    # For IP addresses, this will create a self-signed certificate
+    tls
+    
     # API routes - highest priority
     route /api/* {
-        reverse_proxy backend:3001
+        reverse_proxy backend:3001 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
+            header_up X-Real-IP {remote}
+        }
     }
     
     # WebSocket routes
     route /ws {
-        reverse_proxy backend:3002
-    }
-    
-    # Static files and SPA fallback
-    route {
-        root * /usr/share/caddy
-        try_files {path} /index.html
-        file_server
-    }
-}
-
-# HTTPS site (when SSL certs are available)
-:443 {
-    # Use existing certificates
-    tls /etc/ssl/certs/sc-mgr.crt /etc/ssl/certs/sc-mgr.key
-    
-    # API routes - highest priority
-    route /api/* {
-        reverse_proxy backend:3001
-    }
-    
-    # WebSocket routes
-    route /ws {
-        reverse_proxy backend:3002
+        reverse_proxy backend:3002 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
+            header_up X-Real-IP {remote}
+        }
     }
     
     # Static files and SPA fallback
@@ -54,5 +52,10 @@
         X-Frame-Options "DENY"
         X-XSS-Protection "1; mode=block"
         Referrer-Policy "strict-origin-when-cross-origin"
+        # Allow WebSocket connections
+        Content-Security-Policy "default-src 'self' https: wss: data: blob: 'unsafe-inline' 'unsafe-eval'"
     }
+    
+    # Enable compression
+    encode gzip
 }
