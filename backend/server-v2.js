@@ -2561,6 +2561,79 @@ app.get('/api/preview/image/:cacheKey/direct', authService.requireAuth, async (r
   }
 });
 
+// Converted image preview endpoint for non-web-compatible images (TIF, EXR, etc.)
+app.get('/api/preview/image/:cacheKey/preview.jpg', authService.requireAuth, async (req, res) => {
+  try {
+    const { cacheKey } = req.params;
+    
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service is not available' });
+    }
+    
+    // Get file info from cache
+    console.log(`Looking for preview data with cache key: ${cacheKey}`);
+    const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
+    console.log('Preview data found:', previewData);
+    if (!previewData || !previewData.originalFilePath) {
+      console.log('No preview data or originalFilePath found');
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    
+    const imagePath = previewData.originalFilePath;
+    const previewDir = path.join(mediaPreviewService.PREVIEW_CACHE_DIR, 'image', cacheKey);
+    const convertedPath = path.join(previewDir, 'preview.jpg');
+    
+    // Check if preview already exists
+    if (fsSync.existsSync(convertedPath)) {
+      const stat = fsSync.statSync(convertedPath);
+      res.writeHead(200, {
+        'Content-Length': stat.size,
+        'Content-Type': 'image/jpeg',
+        'Cache-Control': 'public, max-age=86400',
+        'Access-Control-Allow-Origin': '*'
+      });
+      return fsSync.createReadStream(convertedPath).pipe(res);
+    }
+    
+    // Create preview directory
+    fsSync.mkdirSync(previewDir, { recursive: true });
+    
+    // Convert image to JPEG using ffmpeg
+    const { spawn } = require('child_process');
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', imagePath,
+      '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease',
+      '-q:v', '2',
+      '-y',
+      convertedPath
+    ]);
+    
+    ffmpeg.on('close', (code) => {
+      if (code === 0 && fsSync.existsSync(convertedPath)) {
+        const stat = fsSync.statSync(convertedPath);
+        res.writeHead(200, {
+          'Content-Length': stat.size,
+          'Content-Type': 'image/jpeg',
+          'Cache-Control': 'public, max-age=86400',
+          'Access-Control-Allow-Origin': '*'
+        });
+        fsSync.createReadStream(convertedPath).pipe(res);
+      } else {
+        console.error(`FFmpeg conversion failed with code ${code}`);
+        res.status(500).json({ error: 'Failed to convert image' });
+      }
+    });
+    
+    ffmpeg.stderr.on('data', (data) => {
+      console.error(`FFmpeg stderr: ${data}`);
+    });
+    
+  } catch (error) {
+    console.error('Error serving converted image:', error);
+    res.status(500).json({ error: 'Failed to serve converted image' });
+  }
+});
+
 // Direct audio serving endpoint for web-compatible audio
 app.get('/api/preview/audio/:cacheKey/direct', authService.requireAuth, async (req, res) => {
   try {
