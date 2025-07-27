@@ -47,3 +47,25 @@ The DirectLinkService now dynamically detects the port by parsing `lucid list` o
 - Production: 20010 (fallback)
 - Development: 9780 (fallback)
 - Actual production port detected: 9779
+
+## Database Reset Process
+
+### Problem
+When Elasticsearch gets out of sync with PostgreSQL or when you need a clean slate.
+
+### Solution
+Use the database reset script to clear both databases:
+
+```bash
+./scripts/reset-databases-simple.sh
+```
+
+This script will:
+1. Clear all data from PostgreSQL files table
+2. Delete and recreate the Elasticsearch index
+3. Verify both databases are empty
+
+After reset, run indexing from the UI or via API to repopulate both databases.
+
+### Authentication
+The default admin password is set in the environment as `ADMIN_PASSWORD`. For this deployment it's `SiteCaash@IBC25` (not the development default of `admin123`).

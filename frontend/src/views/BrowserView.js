@@ -1680,7 +1680,7 @@ const BrowserView = ({ user, onLogout }) => {
     
     // Regular filter handling
     setActiveFilter(filterKey);
-    setSearchResults(null); // Clear search results when switching filters
+    // Don't clear search results - let filters work on them
   };
 
   // Search functionality
@@ -1944,6 +1944,14 @@ const BrowserView = ({ user, onLogout }) => {
               onBlur={(e) => {
                 e.target.style.borderColor = '#3a3a3a';
                 setTimeout(() => setShowSearchTooltip(false), 200);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setShowSearchTooltip(false);
+                  // Blur the input to remove focus, which also helps with mobile keyboards
+                  e.target.blur();
+                }
               }}
             />
             
