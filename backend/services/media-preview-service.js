@@ -6,7 +6,8 @@ const { spawn } = require('child_process');
 const { createClient } = require('redis');
 
 class MediaPreviewService {
-  constructor() {
+  constructor(broadcastFunction) {
+    this.broadcast = broadcastFunction || (() => {}); // Store broadcast function
     this.PREVIEW_CACHE_DIR = process.env.PREVIEW_CACHE_DIR || '/tmp/previews';
     this.TEMP_DIR = process.env.TEMP_DIR || '/tmp';
     
@@ -80,7 +81,7 @@ class MediaPreviewService {
   }
   
   // Store preview in cache
-  async storePreviewInCache(cacheKey, previewData, ttl = 3600) {
+  async storePreviewInCache(cacheKey, previewData, ttl = 604800) { // 7 days default
     try {
       // Ensure Redis is connected
       if (!this.redis.isOpen) {
@@ -198,7 +199,7 @@ class MediaPreviewService {
         createdAt: new Date().toISOString()
       };
       
-      await this.storePreviewInCache(cacheKey, previewData, 86400); // 24 hour cache
+      await this.storePreviewInCache(cacheKey, previewData, 604800); // 7 day cache
       return previewData;
     }
     
@@ -216,22 +217,27 @@ class MediaPreviewService {
     };
     
     if (isWebCompatible) {
-      // For web-compatible videos, provide direct streaming URL
-      previewData.directStreamUrl = `/api/video/stream/${cacheKey}`;
+      // For web-compatible videos, serve directly without any processing
+      previewData.status = 'completed';
       previewData.streamType = 'direct';
-      previewData.autoplay = true;
-      // Direct streaming for web-compatible video
+      previewData.isWebCompatible = true;
+      previewData.directUrl = `/api/preview/video/${cacheKey}/direct`;
+      
+      // Store and return immediately for direct playback
+      await this.storePreviewInCache(cacheKey, previewData, 604800); // 7 days
+      
+      return previewData;
     } else {
-      // For non-web-compatible videos, set up progressive HLS transcoding
+      // For non-web-compatible videos, set up progressive DASH transcoding
       const outputDir = path.join(this.PREVIEW_CACHE_DIR, cacheKey);
       previewData.outputDir = outputDir;
       previewData.status = 'processing';
       previewData.progress = 0;
-      previewData.streamType = 'hls';
+      previewData.streamType = 'dash';
       previewData.segmentCount = 0;
       previewData.autoplay = true;
       
-      // Progressive HLS transcoding for non-web video
+      // Progressive DASH transcoding for non-web video
       
       // Store initial processing state and return immediately for progressive streaming
       await this.storePreviewInCache(cacheKey, previewData);
@@ -243,7 +249,7 @@ class MediaPreviewService {
       return previewData;
     }
     
-    await this.storePreviewInCache(cacheKey, previewData, 86400); // 24 hour cache
+    await this.storePreviewInCache(cacheKey, previewData, 604800); // 7 days // 24 hour cache
     return previewData;
   }
   
@@ -269,7 +275,7 @@ class MediaPreviewService {
     }
     
     // Store the file path mapping in Redis for direct serving
-    await this.storePreviewInCache(cacheKey, previewData, 86400);
+    await this.storePreviewInCache(cacheKey, previewData, 604800); // 7 days
     return previewData;
   }
 
@@ -295,7 +301,7 @@ class MediaPreviewService {
     }
     
     // Store the file path mapping in Redis for direct serving
-    await this.storePreviewInCache(cacheKey, previewData, 86400);
+    await this.storePreviewInCache(cacheKey, previewData, 604800); // 7 days
     return previewData;
   }
   
@@ -356,7 +362,7 @@ class MediaPreviewService {
     }
     
     // Store the file path mapping in Redis for direct serving
-    await this.storePreviewInCache(cacheKey, previewData, 86400);
+    await this.storePreviewInCache(cacheKey, previewData, 604800); // 7 days
     return previewData;
   }
 
@@ -364,6 +370,14 @@ class MediaPreviewService {
   async startBackgroundTranscoding(filePath, outputDir, cacheKey, previewData) {
     try {
       // Starting background transcoding
+      
+      // Clean up any existing files in output directory
+      if (fs.existsSync(outputDir)) {
+        const files = fs.readdirSync(outputDir);
+        for (const file of files) {
+          fs.unlinkSync(path.join(outputDir, file));
+        }
+      }
       
       // Start progressive transcoding with segment monitoring
       await FFmpegTranscoder.transcodeToHLSProgressive(
@@ -396,10 +410,19 @@ class MediaPreviewService {
       const finalData = await this.getPreviewFromCache(cacheKey) || previewData;
       finalData.status = 'completed';
       finalData.progress = 100;
-      finalData.playlistUrl = `/api/preview/video/${cacheKey}/playlist.m3u8`;
+      finalData.manifestUrl = `/api/preview/video/${cacheKey}/manifest.mpd`;
+      finalData.streamType = 'dash';
       await this.storePreviewInCache(cacheKey, finalData);
       
       // Background transcoding completed
+      
+      // Broadcast completion via WebSocket
+      this.broadcast({
+        type: 'preview-update',
+        cacheKey: cacheKey,
+        status: 'completed',
+        data: finalData
+      });
       
     } catch (error) {
       // Background transcoding failed
@@ -423,6 +446,14 @@ class MediaPreviewService {
       }
       
       await this.storePreviewInCache(cacheKey, errorData);
+      
+      // Broadcast failure via WebSocket
+      this.broadcast({
+        type: 'preview-update',
+        cacheKey: cacheKey,
+        status: 'failed',
+        data: errorData
+      });
     }
   }
   
@@ -434,41 +465,46 @@ class MediaPreviewService {
         return;
       }
       
-      const masterPlaylistPath = path.join(outputDir, 'playlist.m3u8');
+      const manifestPath = path.join(outputDir, 'manifest.mpd');
       const segmentCount = previewData.segmentCount || 0;
       
       // Count actual segments on disk as backup
       let actualSegmentCount = 0;
       try {
         const files = fs.readdirSync(outputDir);
-        actualSegmentCount = files.filter(f => f.endsWith('.ts')).length;
+        actualSegmentCount = files.filter(f => f.endsWith('.m4s') && f.includes('chunk-')).length;
       } catch (e) {
         actualSegmentCount = 0;
       }
       
-      // Check if we have quality playlists (now only one stream)
-      const qualityPlaylists = ['stream_0.m3u8']
-        .map(name => path.join(outputDir, name))
-        .filter(playlistPath => {
-          try {
-            return fs.existsSync(playlistPath) && fs.statSync(playlistPath).size > 0;
-          } catch (e) {
-            return false;
-          }
-        });
+      // Check if manifest exists and has content
+      let manifestReady = false;
+      try {
+        manifestReady = fs.existsSync(manifestPath) && fs.statSync(manifestPath).size > 100;
+      } catch (e) {
+        manifestReady = false;
+      }
       
       // Checking progressive readiness
       
       // Use the higher of the two segment counts
       const totalSegments = Math.max(segmentCount, actualSegmentCount);
       
-      // Wait for at least 2 segments for smoother playback (4 seconds of video with 2-second segments)
-      // This helps prevent black frames, especially with MXF and other professional formats
-      if (qualityPlaylists.length > 0 && totalSegments >= 2) {
+      // Wait for manifest and at least 4 segments (16 seconds with 4-second segments)
+      if (manifestReady && totalSegments >= 4) {
         previewData.status = 'progressive_ready';
-        previewData.playlistUrl = `/api/preview/video/${cacheKey}/playlist.m3u8`;
+        previewData.manifestUrl = `/api/preview/video/${cacheKey}/manifest.mpd`;
+        previewData.streamType = 'dash';
         await this.storePreviewInCache(cacheKey, previewData);
-        // Progressive playback ready with sufficient buffer
+        // Progressive DASH playback ready with sufficient buffer (16s)
+        
+        // Broadcast preview status update via WebSocket
+        this.broadcast({
+          type: 'preview-update',
+          cacheKey: cacheKey,
+          status: 'progressive_ready',
+          data: previewData
+        });
       }
     } catch (error) {
       // Error checking progressive readiness
@@ -492,8 +528,68 @@ class MediaPreviewService {
     return null; // No user-friendly message available
   }
 
+  // Generate DASH manifest for web-compatible videos (no transcoding)
+  async generateDashManifestDirect(filePath, outputDir, cacheKey, previewData) {
+    try {
+      // Create output directory
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+      
+      // First check if file has audio
+      let hasAudio = false;
+      try {
+        const videoInfo = await FFmpegTranscoder.getVideoInfo(filePath);
+        hasAudio = videoInfo.streams.some(s => s.codec_type === 'audio');
+      } catch (e) {
+        hasAudio = true; // Assume has audio if can't determine
+      }
+      
+      // Use FFmpeg to generate DASH manifest without re-encoding
+      const args = [
+        '-i', filePath,
+        '-c:v', 'copy',           // Copy video codec (no re-encoding)
+        '-c:a', 'copy',           // Copy audio codec (no re-encoding)
+        '-f', 'dash',
+        '-seg_duration', '4',
+        '-use_template', '1',
+        '-use_timeline', '1',
+        '-adaptation_sets', hasAudio ? 'id=0,streams=v id=1,streams=a' : 'id=0,streams=v',
+        '-init_seg_name', 'init-$RepresentationID$.m4s',
+        '-media_seg_name', 'chunk-$RepresentationID$-$Number%05d$.m4s',
+        path.join(outputDir, 'manifest.mpd')
+      ];
+      
+      const ffmpeg = spawn('ffmpeg', args);
+      let errorOutput = '';
+      
+      ffmpeg.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+      
+      ffmpeg.on('close', async (code) => {
+        if (code === 0) {
+          // Update preview data with completed status
+          previewData.status = 'completed';
+          previewData.manifestUrl = `/api/preview/video/${cacheKey}/manifest.mpd`;
+          previewData.streamType = 'dash';
+          await this.storePreviewInCache(cacheKey, previewData);
+        } else {
+          previewData.status = 'failed';
+          previewData.error = `Failed to generate DASH manifest: ${errorOutput}`;
+          await this.storePreviewInCache(cacheKey, previewData);
+        }
+      });
+      
+    } catch (error) {
+      previewData.status = 'failed';
+      previewData.error = error.message;
+      await this.storePreviewInCache(cacheKey, previewData);
+    }
+  }
+
   // Clean up old previews
-  async cleanupOldPreviews(maxAge = 86400000) { // 24 hours
+  async cleanupOldPreviews(maxAge = 604800000) { // 7 days
     try {
       const cacheDir = this.PREVIEW_CACHE_DIR;
       if (!fs.existsSync(cacheDir)) return;
@@ -583,18 +679,21 @@ class FFmpegTranscoder {
         '-i', inputPath,
         '-threads', '0',
         '-c:v', 'libx264',
-        '-preset', 'veryfast',
+        '-preset', 'fast',            // Better quality for encoding consistency
         '-crf', '23',
-        '-g', '48',
-        '-sc_threshold', '0',
+        '-force_key_frames', 'expr:gte(t,n_forced*2)', // Force keyframe every 2 seconds (half of 4s segment)
+        '-sc_threshold', '0',         // Disable scene cut detection
         '-profile:v', 'high',
         '-level', '4.1',
-        '-pix_fmt', 'yuv420p'
+        '-pix_fmt', 'yuv420p',
+        '-movflags', '+faststart',    // Optimize for streaming
+        '-avoid_negative_ts', 'make_zero' // Fix timestamp issues
       ];
 
       if (hasAudio) {
         args.push(
-          '-map', '0:v:0', '-map', '0:a:0'
+          '-map', '0:v:0',              // Map first video stream
+          '-map', '0:a:0?'              // Map first audio stream if available (? makes it optional)
         );
       } else {
         args.push(
@@ -603,11 +702,11 @@ class FFmpegTranscoder {
       }
 
       args.push(
-        // Single 720p quality stream for faster transcoding
-        '-filter:v:0', 'scale=w=1280:h=720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-        '-maxrate:v:0', '3000k',
-        '-bufsize:v:0', '6000k',
-        '-b:v:0', '2800k'
+        // Single 720p quality stream with optimized settings
+        '-filter:v:0', 'scale=w=1280:h=720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1',
+        '-b:v:0', '2500k',            // Target bitrate
+        '-maxrate:v:0', '3000k',      // Maximum bitrate
+        '-bufsize:v:0', '5000k'       // Buffer size
       );
       
       if (hasAudio) {
@@ -619,18 +718,22 @@ class FFmpegTranscoder {
         );
       }
       
+      // Use DASH for better progressive streaming
       args.push(
-        '-f', 'hls',
-        '-hls_time', '2',
-        '-hls_playlist_type', 'event',
-        '-hls_flags', 'independent_segments+append_list+split_by_time',
-        '-hls_segment_type', 'mpegts',
-        '-hls_segment_filename', path.join(outputDir, 'segment_%v_%03d.ts'),
-        '-master_pl_name', 'playlist.m3u8',
-        '-var_stream_map', hasAudio ? 'v:0,a:0' : 'v:0',
-        path.join(outputDir, 'stream_%v.m3u8'),
+        '-f', 'dash',
+        '-seg_duration', '4',          // 4-second segments
+        '-use_template', '1',          // Use SegmentTemplate
+        '-use_timeline', '1',          // Use SegmentTimeline for accurate timing
+        '-adaptation_sets', hasAudio ? 'id=0,streams=v id=1,streams=a' : 'id=0,streams=v',
+        '-init_seg_name', 'init-$RepresentationID$.m4s',
+        '-media_seg_name', 'chunk-$RepresentationID$-$Number%05d$.m4s',
+        '-single_file', '0',           // Separate files for each segment
+        '-remove_at_exit', '0',        // Don't remove segments when done
+        '-dash_segment_type', 'mp4',   // Use MP4 segments
+        path.join(outputDir, 'manifest.mpd'),
         '-progress', 'pipe:1',
-        '-nostats'
+        '-nostats',
+        '-loglevel', 'warning'
       );
 
       // Starting progressive FFmpeg transcoding
@@ -640,23 +743,23 @@ class FFmpegTranscoder {
       let lastProgress = 0;
       let segmentWatcher = null;
       
-      // Watch for new segments and playlist updates for progressive playback
+      // Watch for new segments and manifest updates for progressive playback
       const watchSegments = () => {
         segmentWatcher = fs.watch(outputDir, { persistent: false }, (eventType, filename) => {
           if (filename) {
             // File event detected
             
-            if (filename.endsWith('.ts') && eventType === 'rename') {
-              // New segment created
+            if (filename.endsWith('.m4s') && filename.includes('chunk-') && eventType === 'rename') {
+              // New DASH segment created
               if (onSegmentReady) {
-                onSegmentReady(filename, false); // false indicates segment, not playlist
+                onSegmentReady(filename, false); // false indicates segment, not manifest
               }
             }
             
-            if (filename.endsWith('.m3u8') && (eventType === 'change' || eventType === 'rename')) {
-              // Playlist updated
+            if (filename === 'manifest.mpd' && (eventType === 'change' || eventType === 'rename')) {
+              // DASH manifest updated
               if (onSegmentReady) {
-                onSegmentReady(filename, true); // true indicates playlist update
+                onSegmentReady(filename, true); // true indicates manifest update
               }
             }
           }
@@ -702,8 +805,9 @@ class FFmpegTranscoder {
       let errorOutput = '';
       ffmpeg.stderr.on('data', (data) => {
         errorOutput += data.toString();
-        if (data.toString().toLowerCase().includes('error')) {
-          // FFmpeg error output
+        const output = data.toString();
+        if (output.toLowerCase().includes('error') || output.toLowerCase().includes('warning')) {
+          console.log('FFmpeg output:', output);
         }
       });
 
@@ -715,7 +819,7 @@ class FFmpegTranscoder {
         }
         
         if (code === 0) {
-          FFmpegTranscoder.finalizePlaylists(outputDir);
+          // DASH doesn't need finalization like HLS
           resolve();
         } else {
           // Check for specific professional format errors with user-friendly messages

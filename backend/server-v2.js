@@ -2690,6 +2690,62 @@ app.get('/api/preview/audio/:cacheKey/direct', authService.requireAuth, async (r
   }
 });
 
+// Direct video serving endpoint for web-compatible videos
+app.get('/api/preview/video/:cacheKey/direct', authService.requireAuth, async (req, res) => {
+  try {
+    const { cacheKey } = req.params;
+    
+    if (!mediaPreviewService) {
+      return res.status(503).json({ error: 'Media preview service is not available' });
+    }
+    
+    // Get file info from cache
+    const previewData = await mediaPreviewService.getPreviewStatus(cacheKey);
+    if (!previewData || !previewData.originalFilePath) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+    
+    const videoPath = previewData.originalFilePath;
+    const stat = fsSync.statSync(videoPath);
+    const contentType = MediaPreviewService.getContentType(videoPath);
+    const range = req.headers.range;
+    
+    if (range) {
+      // Parse range header for video seeking support
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      const chunksize = (end - start) + 1;
+      
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': contentType,
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      });
+      
+      const stream = fsSync.createReadStream(videoPath, { start, end });
+      stream.pipe(res);
+    } else {
+      res.writeHead(200, {
+        'Content-Length': stat.size,
+        'Content-Type': contentType,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      });
+      
+      fsSync.createReadStream(videoPath).pipe(res);
+    }
+    
+  } catch (error) {
+    console.error('Error serving direct video:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Direct preview file serving (for HLS segments)
 app.get('/api/preview/:type/:cacheKey/*', authService.requireAuth, async (req, res) => {
   try {
@@ -2712,6 +2768,10 @@ app.get('/api/preview/:type/:cacheKey/*', authService.requireAuth, async (req, r
       contentType = 'video/mp2t';
     } else if (filename.endsWith('.mp4')) {
       contentType = 'video/mp4';
+    } else if (filename.endsWith('.mpd')) {
+      contentType = 'application/dash+xml';
+    } else if (filename.endsWith('.m4s')) {
+      contentType = 'video/iso.segment';
     }
     
     // Get file stats
@@ -2722,7 +2782,17 @@ app.get('/api/preview/:type/:cacheKey/*', authService.requireAuth, async (req, r
     res.setHeader('Content-Length', stat.size);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Cache-Control', 'no-cache');
+    
+    // Set appropriate cache headers based on file type
+    if (filename.endsWith('.ts') || filename.endsWith('.m4s')) {
+      // Cache segments for 1 hour - they don't change once created
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    } else if (filename.endsWith('.m3u8') || filename.endsWith('.mpd')) {
+      // Don't cache manifests during progressive streaming
+      res.setHeader('Cache-Control', 'no-cache');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
     
     // Stream the file
     fsSync.createReadStream(filePath).pipe(res);
@@ -3128,8 +3198,23 @@ async function startServer() {
   
   // Initialize media preview service
   try {
-    mediaPreviewService = new MediaPreviewService();
+    mediaPreviewService = new MediaPreviewService(broadcast);
     console.log('Media preview service initialized');
+    
+    // Schedule cleanup of old previews (runs daily)
+    setInterval(async () => {
+      try {
+        await mediaPreviewService.cleanupOldPreviews();
+        console.log('Cleaned up old preview files');
+      } catch (error) {
+        console.error('Error cleaning up old previews:', error);
+      }
+    }, 24 * 60 * 60 * 1000); // Run every 24 hours
+    
+    // Run initial cleanup on startup
+    mediaPreviewService.cleanupOldPreviews().catch(err => 
+      console.error('Error during initial preview cleanup:', err)
+    );
   } catch (error) {
     console.error('Failed to initialize media preview service:', error);
   }

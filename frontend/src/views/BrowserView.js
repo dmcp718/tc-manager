@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Tree } from 'react-arborist';
 import Hls from 'hls.js';
+import dashjs from 'dashjs';
 import TabNavigation from '../components/TabNavigation';
 import FileSystemAPI from '../services/FileSystemAPI';
 import { 
@@ -621,24 +622,116 @@ function VideoPlayer({ preview }) {
       return url;
     };
 
-    const playlistUrl = ensureFullUrl(preview?.playlistUrl || preview?.directStreamUrl || preview?.directUrl);
+    const streamUrl = ensureFullUrl(preview?.manifestUrl || preview?.playlistUrl || preview?.directStreamUrl || preview?.directUrl);
     
-    if (playlistUrl && (playlistUrl.includes('.m3u8') || preview?.isHLS)) {
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          xhrSetup: function (xhr, url) {
-            const token = localStorage.getItem('authToken');
+    // Use direct playback for web-compatible videos
+    if (preview?.streamType === 'direct' && streamUrl) {
+      // Direct playback - just set the video source
+      video.src = streamUrl;
+      return;
+    } else if (streamUrl && (streamUrl.includes('.mpd') || preview?.streamType === 'dash')) {
+      const player = dashjs.MediaPlayer().create();
+      const token = localStorage.getItem('authToken');
+      
+      // Configure DASH player with minimal settings
+      player.updateSettings({
+        streaming: {
+          buffer: {
+            stableBufferTime: 12,
+            bufferToKeep: 30,
+            initialBufferLevel: 8
+          },
+          abr: {
+            autoSwitchBitrate: { video: false, audio: false } // Disable ABR for single quality
+          }
+        },
+        debug: {
+          logLevel: dashjs.Debug.LOG_LEVEL_WARNING
+        }
+      });
+      
+      // Add authentication to requests
+      player.extend("RequestModifier", function () {
+        return {
+          modifyRequestHeader: function (xhr, { url }) {
             if (token) {
               xhr.setRequestHeader('Authorization', `Bearer ${token}`);
             }
+            return xhr;
+          },
+          modifyRequestURL: function (url) {
+            if (token && !url.includes('token=')) {
+              return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+            }
+            return url;
           }
+        };
+      });
+      
+      // Initialize player
+      player.initialize(video, streamUrl, true);
+      
+      // Set up error handling
+      player.on(dashjs.MediaPlayer.events.ERROR, function (e) {
+        console.error('DASH playback error:', e);
+      });
+      
+      // Cleanup on unmount
+      return () => {
+        player.destroy();
+      };
+    } else if (streamUrl && (streamUrl.includes('.m3u8') || preview?.streamType === 'hls')) {
+      if (Hls.isSupported()) {
+        const token = localStorage.getItem('authToken');
+        const hls = new Hls({
+          xhrSetup: function (xhr, url) {
+            // Add Bearer token to headers
+            if (token) {
+              xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            }
+          },
+          // Also append token to all URLs as query parameter for HLS segments
+          loader: class extends Hls.DefaultConfig.loader {
+            load(context, config, callbacks) {
+              const { url } = context;
+              if (token && url && !url.includes('token=')) {
+                context.url = `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+              }
+              return super.load(context, config, callbacks);
+            }
+          },
+          // Optimize based on analysis recommendations
+          maxBufferLength: 15,           // Recommended buffer length
+          maxMaxBufferLength: 60,        // Recommended max buffer
+          maxBufferSize: 60 * 1000 * 1000, // 60MB buffer size
+          maxBufferHole: 0.5,           // Allow small gaps to prevent stalls
+          lowBufferWatchdogPeriod: 0.5, // Check buffer every 0.5s
+          highBufferWatchdogPeriod: 3,  // Less frequent checks when healthy
+          nudgeMaxRetry: 3,             // Limited nudging for stalls
+          nudgeOffset: 0.1,             // Small nudge offset
+          maxFragLookUpTolerance: 0.25, // 250ms tolerance
+          startFragPrefetch: true,      // Prefetch start fragment
+          testBandwidth: false,         // Disable bandwidth test
+          progressive: false,           // Standard mode
+          lowLatencyMode: false,        // Better stability
+          backBufferLength: 60,         // Longer back buffer
+          liveSyncDurationCount: 4,     // 4 segments for better sync
+          manifestLoadingTimeOut: 10000,
+          manifestLoadingMaxRetry: 3,
+          manifestLoadingRetryDelay: 500,
+          fragLoadingTimeOut: 20000,    // 20s timeout for segments
+          fragLoadingMaxRetry: 6,       // More retries for segments
+          fragLoadingRetryDelay: 1000,  // 1s between retries
+          levelLoadingTimeOut: 10000,
+          levelLoadingMaxRetry: 4,
+          levelLoadingRetryDelay: 1000
         });
         
         hls.on(Hls.Events.ERROR, function (event, data) {
           console.error('HLS Error:', event, data);
         });
         
-        hls.loadSource(playlistUrl);
+        hls.loadSource(streamUrl);
         hls.attachMedia(video);
         
         return () => {
@@ -647,31 +740,40 @@ function VideoPlayer({ preview }) {
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Safari native HLS support - note: Safari can't add headers to video src requests
         const token = localStorage.getItem('authToken');
-        const playlistUrlWithToken = token ? 
-          `${playlistUrl}${playlistUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : 
-          playlistUrl;
-        video.src = playlistUrlWithToken;
+        const streamUrlWithToken = token ? 
+          `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : 
+          streamUrl;
+        video.src = streamUrlWithToken;
       }
-    } else if (playlistUrl) {
+    } else if (streamUrl) {
       // Direct video streaming (MP4, etc.) with auth token
-      video.src = playlistUrl;
+      video.src = streamUrl;
     }
   }, [preview]);
 
   return (
-    <video
-      ref={videoRef}
-      controls
-      autoPlay
-      style={{
-        width: '100%',
-        height: 'auto',
-        maxHeight: '80vh',
-        backgroundColor: '#000'
-      }}
-    >
-      Your browser does not support the video tag.
-    </video>
+    <div style={{
+      width: '100%',
+      maxWidth: '1200px',
+      aspectRatio: '16/9',
+      backgroundColor: '#000',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}>
+      <video
+        ref={videoRef}
+        controls
+        autoPlay
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain'
+        }}
+      >
+        Your browser does not support the video tag.
+      </video>
+    </div>
   );
 }
 
@@ -679,31 +781,48 @@ function VideoPlayer({ preview }) {
 function PreviewModal({ filePath, preview, type, onClose }) {
   const [isLoading, setIsLoading] = useState(preview?.status === 'processing');
   const [currentPreview, setCurrentPreview] = useState(preview);
-
+  
+  // Update currentPreview when preview prop changes (from WebSocket updates)
   useEffect(() => {
+    setCurrentPreview(preview);
+    if (preview?.status !== 'processing') {
+      setIsLoading(false);
+    }
+  }, [preview]);
+  
+  // Fallback polling only if WebSocket is not connected
+  useEffect(() => {
+    // Only start polling if status is still processing after 5 seconds (fallback for WebSocket failure)
     if (preview?.status === 'processing') {
-      const interval = setInterval(async () => {
-        try {
-          const response = await fetch(`${FileSystemAPI.baseURL}/preview/status/${preview?.cacheKey}`, {
-            headers: FileSystemAPI.getAuthHeaders()
-          });
-          const result = await response.json();
-          
-          // Update current preview data with latest status and progress
-          setCurrentPreview(result);
-          
-          if (result.status && result.status !== 'processing' && result.status !== 'progressive_ready') {
-            setIsLoading(false);
-            clearInterval(interval);
-          } else if (result.status === 'progressive_ready') {
-            // Keep polling for progress updates while progressive_ready
-            setIsLoading(false);
-          }
-        } catch (error) {
-          console.error('Error checking preview status:', error);
+      const fallbackTimer = setTimeout(() => {
+        if (currentPreview?.status === 'processing') {
+          console.log('Starting fallback polling for preview status');
+          const interval = setInterval(async () => {
+            try {
+              const response = await fetch(`${FileSystemAPI.baseURL}/preview/status/${preview?.cacheKey}`, {
+                headers: FileSystemAPI.getAuthHeaders()
+              });
+              const result = await response.json();
+              
+              // Update current preview data with latest status and progress
+              setCurrentPreview(result);
+              
+              if (result.status && result.status !== 'processing' && result.status !== 'progressive_ready') {
+                setIsLoading(false);
+                clearInterval(interval);
+              } else if (result.status === 'progressive_ready') {
+                // Keep polling for progress updates while progressive_ready
+                setIsLoading(false);
+              }
+            } catch (error) {
+              console.error('Error checking preview status:', error);
+            }
+          }, 2000);
+          return () => clearInterval(interval);
         }
-      }, 2000);
-      return () => clearInterval(interval);
+      }, 5000);
+      
+      return () => clearTimeout(fallbackTimer);
     }
   }, [preview?.cacheKey, preview?.status]);
 
@@ -924,8 +1043,8 @@ function PreviewModal({ filePath, preview, type, onClose }) {
         backgroundColor: '#1a1a1a',
         borderRadius: '12px',
         padding: '24px',
-        maxWidth: type === 'audio' ? '900px' : '90vw',
-        minWidth: type === 'audio' ? '800px' : 'auto',
+        maxWidth: type === 'audio' ? '900px' : type === 'video' ? '1250px' : '90vw',
+        minWidth: type === 'audio' ? '800px' : type === 'video' ? '800px' : 'auto',
         maxHeight: '90vh',
         overflow: 'auto',
         border: '1px solid #2a2a2a'
@@ -1177,6 +1296,14 @@ const BrowserView = ({ user, onLogout }) => {
                 totalSpace: data.totalSpace || 0,
                 loading: false
               });
+            } else if (data.type === 'preview-update') {
+              // Handle preview status updates via WebSocket
+              if (data.cacheKey && previewModal?.preview?.cacheKey === data.cacheKey) {
+                setPreviewModal(prev => ({
+                  ...prev,
+                  preview: data.data
+                }));
+              }
             } else if (data.type === 'rui-update') {
               setRuiStatus(prevStatus => {
                 const newStatus = new Map(prevStatus);
