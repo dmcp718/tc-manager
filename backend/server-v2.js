@@ -3369,10 +3369,10 @@ async function startServer() {
     console.log('Initializing video preview manager...');
     videoPreviewManager = new VideoPreviewManager({
       workerCount: parseInt(process.env.VIDEO_PREVIEW_WORKER_COUNT) || 1,
+      mediaPreviewService: mediaPreviewService,
       workerOptions: {
         maxConcurrentFiles: parseInt(process.env.VIDEO_PREVIEW_MAX_CONCURRENT) || 2,
-        pollInterval: parseInt(process.env.VIDEO_PREVIEW_POLL_INTERVAL) || 5000,
-        mediaPreviewService
+        pollInterval: parseInt(process.env.VIDEO_PREVIEW_POLL_INTERVAL) || 5000
       }
     });
     

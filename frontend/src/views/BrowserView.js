@@ -120,10 +120,12 @@ const styles = {
   },
   sidebar: {
     width: '320px',
+    minWidth: '320px',
     borderRight: '1px solid #2a2a2a',
     backgroundColor: '#111111',
     display: 'flex',
     flexDirection: 'column',
+    flexShrink: 0,
   },
   sidebarSection: {
     padding: '16px',
@@ -516,6 +518,11 @@ const JobPanel = ({ isOpen, onClose, jobs, onClearJobs, onCancelJob }) => {
                 <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>
                   Progress: {Math.round((job.completedFiles / job.totalFiles) * 100)}% 
                   ({job.completedFiles}/{job.totalFiles} files)
+                  {job.type === 'video-preview' && job.skippedFiles > 0 && (
+                    <span style={{ marginLeft: '8px', color: '#f59e0b' }}>
+                      ({job.skippedFiles} skipped)
+                    </span>
+                  )}
                 </div>
                 <div style={{
                   width: '100%',
@@ -1374,6 +1381,23 @@ const BrowserView = ({ user, onLogout }) => {
                 }
                 return newStatus;
               });
+            } else if (data.type === 'video-preview-job-started' || 
+                       data.type === 'video-preview-job-progress' || 
+                       data.type === 'video-preview-job-completed' ||
+                       data.type === 'video-preview-job-failed') {
+              // Handle video preview job updates
+              console.log('Video preview job event:', data.type, data);
+              if (data.jobId) {
+                // Refresh the job list to get updated status
+                loadJobs();
+              }
+              
+              // Show toast for completion/failure
+              if (data.type === 'video-preview-job-completed') {
+                showToast(`Video preview job completed`, 'success');
+              } else if (data.type === 'video-preview-job-failed') {
+                showToast(`Video preview job failed: ${data.error || 'Unknown error'}`, 'error');
+              }
             }
           } catch (error) {
             console.error('Error parsing WebSocket message:', error);
@@ -2570,6 +2594,11 @@ const BrowserView = ({ user, onLogout }) => {
             <TabNavigation />
           </div>
           <div style={styles.treeContainer}>
+            {treeData.length === 0 ? (
+              <div style={{ padding: '16px', color: '#666' }}>
+                Loading file tree...
+              </div>
+            ) : (
             <Tree
               ref={treeRef}
               data={treeData}
@@ -2603,6 +2632,7 @@ const BrowserView = ({ user, onLogout }) => {
             >
               {FileTreeNode}
             </Tree>
+            )}
           </div>
         </aside>
         
