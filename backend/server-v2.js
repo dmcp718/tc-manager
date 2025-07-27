@@ -2520,6 +2520,14 @@ app.post('/api/jobs/clear', authService.requireAuth, async (req, res) => {
     
     const deletedCacheJobs = result.rowCount;
     
+    // Delete completed and failed video preview jobs from database
+    const videoPreviewResult = await pool.query(`
+      DELETE FROM video_preview_jobs 
+      WHERE status IN ('completed', 'failed', 'cancelled')
+    `);
+    
+    const deletedVideoPreviewJobs = videoPreviewResult.rowCount;
+    
     // Delete completed and failed index jobs from database
     const indexResult = await pool.query(`
       DELETE FROM index_progress
@@ -2537,17 +2545,18 @@ app.post('/api/jobs/clear', authService.requireAuth, async (req, res) => {
       }
     }
     
-    const totalDeleted = deletedCacheJobs + deletedIndexJobs + deletedScriptJobs;
+    const totalDeleted = deletedCacheJobs + deletedVideoPreviewJobs + deletedIndexJobs + deletedScriptJobs;
     
     res.json({ 
-      message: `Cleared ${totalDeleted} completed jobs (${deletedCacheJobs} cache, ${deletedIndexJobs} index, ${deletedScriptJobs} script)`,
+      message: `Cleared ${totalDeleted} completed jobs (${deletedCacheJobs} cache, ${deletedVideoPreviewJobs} video preview, ${deletedIndexJobs} index, ${deletedScriptJobs} script)`,
       deletedCount: totalDeleted,
       cacheJobs: deletedCacheJobs,
+      videoPreviewJobs: deletedVideoPreviewJobs,
       indexJobs: deletedIndexJobs,
       scriptJobs: deletedScriptJobs
     });
     
-    console.log(`Cleared ${totalDeleted} completed jobs: ${deletedCacheJobs} cache jobs, ${deletedIndexJobs} index jobs, ${deletedScriptJobs} script jobs`);
+    console.log(`Cleared ${totalDeleted} completed jobs: ${deletedCacheJobs} cache jobs, ${deletedVideoPreviewJobs} video preview jobs, ${deletedIndexJobs} index jobs, ${deletedScriptJobs} script jobs`);
     
   } catch (error) {
     console.error('Error clearing jobs:', error);

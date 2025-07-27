@@ -25,8 +25,12 @@ collect_stats() {
         if [ ! -z "$BYTES_USED" ] && [ ! -z "$BYTES_UNUSED" ] && [ "$BYTES_USED" != "" ] && [ "$BYTES_UNUSED" != "" ]; then
             TOTAL_SPACE=$((BYTES_USED + BYTES_UNUSED))
             # Calculate percentage using shell arithmetic (multiplied by 100 for precision)
-            USAGE_PERCENTAGE_INT=$((BYTES_USED * 10000 / TOTAL_SPACE))
-            USAGE_PERCENTAGE=$((USAGE_PERCENTAGE_INT / 100)).$((USAGE_PERCENTAGE_INT % 100))
+            if [ "$TOTAL_SPACE" -gt 0 ]; then
+                USAGE_PERCENTAGE_INT=$((BYTES_USED * 10000 / TOTAL_SPACE))
+                USAGE_PERCENTAGE=$((USAGE_PERCENTAGE_INT / 100)).$((USAGE_PERCENTAGE_INT % 100))
+            else
+                USAGE_PERCENTAGE="0.0"
+            fi
             
             # Create JSON output
             cat > "$STATS_FILE" << EOF
