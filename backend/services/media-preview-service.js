@@ -462,12 +462,13 @@ class MediaPreviewService {
       // Use the higher of the two segment counts
       const totalSegments = Math.max(segmentCount, actualSegmentCount);
       
-      // If we have at least 1 segment and at least one quality playlist, enable progressive playback
-      if (qualityPlaylists.length > 0 && totalSegments >= 1) {
+      // Wait for at least 2 segments for smoother playback (4 seconds of video with 2-second segments)
+      // This helps prevent black frames, especially with MXF and other professional formats
+      if (qualityPlaylists.length > 0 && totalSegments >= 2) {
         previewData.status = 'progressive_ready';
         previewData.playlistUrl = `/api/preview/video/${cacheKey}/playlist.m3u8`;
         await this.storePreviewInCache(cacheKey, previewData);
-        // Progressive playback ready
+        // Progressive playback ready with sufficient buffer
       }
     } catch (error) {
       // Error checking progressive readiness
