@@ -117,9 +117,14 @@ const Terminal = ({ user }) => {
       
       // Use the same WebSocket URL but with /terminal path
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsHost = process.env.REACT_APP_WS_URL 
-        ? process.env.REACT_APP_WS_URL.replace(/^wss?:\/\//, '')
-        : `${window.location.hostname}:3002`;
+      
+      // In production, use the same host/port as the main app (nginx proxy)
+      // In development, use the direct WebSocket port
+      const wsHost = process.env.NODE_ENV === 'production' 
+        ? window.location.host
+        : (process.env.REACT_APP_WS_URL 
+          ? process.env.REACT_APP_WS_URL.replace(/^wss?:\/\//, '')
+          : `${window.location.hostname}:3002`);
       
       const wsUrl = `${wsProtocol}//${wsHost}/terminal`;
       
