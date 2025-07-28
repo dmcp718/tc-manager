@@ -277,6 +277,23 @@ class VideoPreviewWorker extends EventEmitter {
           preview.outputDir
         );
         
+        // Update files table with preview metadata
+        try {
+          await FileModel.updateMetadata(item.file_path, {
+            videoPreview: {
+              cacheKey: preview.cacheKey,
+              outputDir: preview.outputDir,
+              status: 'completed',
+              generatedAt: new Date().toISOString(),
+              jobId: job.id
+            }
+          });
+          console.log(`Updated file metadata for ${item.file_path} with preview info`);
+        } catch (error) {
+          console.error(`Failed to update file metadata for ${item.file_path}:`, error);
+          // Don't fail the job item for metadata update failure
+        }
+        
         this.emit('file-completed', {
           jobId: job.id,
           itemId: item.id,
@@ -324,6 +341,27 @@ class VideoPreviewWorker extends EventEmitter {
       } : null,
       activeOperations: this.activeOperations.size
     };
+  }
+
+  async cancelCurrentJob() {
+    if (!this.currentJob) {
+      console.log(`${this.workerId}: No job currently running to cancel`);
+      return;
+    }
+    
+    const jobId = this.currentJob.id;
+    console.log(`${this.workerId}: Cancelling current job ${jobId}`);
+    
+    // Set the stop flag to interrupt the job processing
+    this.shouldStop = true;
+    
+    // Wait a moment for the job to recognize the cancellation
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Reset the flag for future jobs
+    this.shouldStop = false;
+    
+    console.log(`${this.workerId}: Job ${jobId} cancellation requested`);
   }
 }
 

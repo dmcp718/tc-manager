@@ -149,6 +149,32 @@ class VideoPreviewManager extends EventEmitter {
     this.workerCount = newCount;
     this.emit('worker-count-changed', { newCount });
   }
+
+  async cancelJob(jobId) {
+    console.log(`VideoPreviewManager: Cancelling job ${jobId}`);
+    
+    // Notify all workers to cancel this job if they're working on it
+    const cancelPromises = [];
+    
+    for (const [workerId, worker] of this.workers) {
+      const workerStatus = worker.getStatus();
+      
+      // Check if this worker is currently processing the job we want to cancel
+      if (workerStatus.currentJob && workerStatus.currentJob.id === parseInt(jobId)) {
+        console.log(`Worker ${workerId} is processing job ${jobId}, requesting cancellation`);
+        cancelPromises.push(worker.cancelCurrentJob());
+      }
+    }
+    
+    if (cancelPromises.length > 0) {
+      await Promise.all(cancelPromises);
+      console.log(`Cancellation requested for job ${jobId} on ${cancelPromises.length} worker(s)`);
+    } else {
+      console.log(`No workers are currently processing job ${jobId}`);
+    }
+    
+    this.emit('job-cancelled', { jobId });
+  }
 }
 
 module.exports = VideoPreviewManager;
