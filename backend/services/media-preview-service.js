@@ -184,6 +184,37 @@ class MediaPreviewService {
       return cached;
     }
     
+    // Check if preview exists in files table metadata
+    try {
+      const { FileModel } = require('../database');
+      const file = await FileModel.findByPath(filePath);
+      if (file && file.metadata && file.metadata.videoPreview) {
+        const videoPreview = file.metadata.videoPreview;
+        if (videoPreview.status === 'completed' && videoPreview.cacheKey === cacheKey) {
+          // Reconstruct preview data from database
+          const previewData = {
+            type: 'video',
+            cacheKey: videoPreview.cacheKey,
+            originalFilePath: filePath,
+            outputDir: videoPreview.outputDir,
+            status: 'completed',
+            alreadyTranscoded: true,
+            manifestUrl: `/api/preview/video/${videoPreview.cacheKey}/manifest.mpd`,
+            streamType: 'dash',
+            createdAt: videoPreview.generatedAt
+          };
+          
+          // Store back in cache for faster access
+          await this.storePreviewInCache(cacheKey, previewData, 604800); // 7 days
+          
+          return previewData;
+        }
+      }
+    } catch (error) {
+      console.error('Error checking file metadata for preview:', error);
+      // Continue with normal preview generation if metadata check fails
+    }
+    
     // Check if this is an unsupported format BEFORE attempting to process
     const ext = path.extname(filePath).toLowerCase();
     if (ext === '.r3d' || ext === '.braw') {
@@ -784,15 +815,23 @@ class FFmpegTranscoder {
           // DASH doesn't need finalization like HLS
           resolve();
         } else {
-          // Check for specific professional format errors with user-friendly messages
-          // FFmpeg failed for input
-          const userFriendlyError = MediaPreviewService.generateUserFriendlyVideoError(inputPath, errorOutput);
-          const finalError = userFriendlyError || `FFmpeg exited with code ${code}: ${errorOutput}`;
-          
-          // User-friendly error prepared
-          // Final error prepared
-          
-          reject(new Error(finalError));
+          // Check if manifest file was actually created despite error code
+          const manifestPath = path.join(outputDir, 'manifest.mpd');
+          if (fs.existsSync(manifestPath)) {
+            // Files were created successfully despite FFmpeg error
+            console.log(`FFmpeg exited with code ${code} but manifest exists, considering it successful`);
+            resolve();
+          } else {
+            // Check for specific professional format errors with user-friendly messages
+            // FFmpeg failed for input
+            const userFriendlyError = MediaPreviewService.generateUserFriendlyVideoError(inputPath, errorOutput);
+            const finalError = userFriendlyError || `FFmpeg exited with code ${code}: ${errorOutput}`;
+            
+            // User-friendly error prepared
+            // Final error prepared
+            
+            reject(new Error(finalError));
+          }
         }
       });
 

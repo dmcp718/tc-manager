@@ -787,13 +787,14 @@ function VideoPlayer({ preview }) {
 
 // Preview Modal Component
 function PreviewModal({ filePath, preview, type, onClose }) {
-  const [isLoading, setIsLoading] = useState(preview?.status === 'processing');
+  const [isLoading, setIsLoading] = useState(preview?.status === 'processing' || !preview);
   const [currentPreview, setCurrentPreview] = useState(preview);
   
   // Update currentPreview when preview prop changes (from WebSocket updates)
   useEffect(() => {
     setCurrentPreview(preview);
-    if (preview?.status !== 'processing') {
+    // Only show loading if actually processing - ignore error field if status is completed
+    if (preview?.status && preview.status !== 'processing') {
       setIsLoading(false);
     }
   }, [preview]);
@@ -849,7 +850,8 @@ function PreviewModal({ filePath, preview, type, onClose }) {
       );
     }
 
-    if (isLoading || currentPreview.status === 'processing') {
+    // Only show processing if truly processing, not if completed with errors
+    if ((isLoading && currentPreview?.status !== 'completed') || currentPreview?.status === 'processing') {
       return (
         <div style={{
           display: 'flex',
