@@ -214,10 +214,10 @@ echo -e "${YELLOW}🚀 Next steps:${NC}"
 echo "   1. Verify configuration: ./scripts/verify-env.sh"
 echo "   2. Deploy TeamCache Manager:"
 if [ "$SSL_ENABLED" = "true" ]; then
-    echo "      ./scripts/deploy-production.sh        # Default: Caddy with auto-HTTPS"
+    echo "      ./scripts/deploy-production.sh        # Default: nginx with self-signed SSL"
     echo ""
     echo "      Alternative options:"
-    echo "      ./scripts/deploy-production.sh nginx  # Use nginx with manual SSL certs"
+    echo "      ./scripts/deploy-production.sh caddy  # Use Caddy for domain names"
 else
     echo "      ./scripts/deploy-production.sh none   # Without SSL (dev only)"
 fi

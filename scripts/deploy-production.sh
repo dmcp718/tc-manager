@@ -17,7 +17,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Default values
-SSL_MODE="${1:-caddy}"
+SSL_MODE="${1:-nginx}"
 SKIP_BUILD=false
 SKIP_DB_INIT=false
 
@@ -37,8 +37,8 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [ssl-mode] [options]"
             echo ""
             echo "SSL modes:"
-            echo "  caddy      Use Caddy with automatic HTTPS (default)"
-            echo "  nginx      Use nginx with SSL certificates"
+            echo "  nginx      Use nginx with self-signed SSL (default - works with IPs)"
+            echo "  caddy      Use Caddy with automatic HTTPS (best for domain names)"
             echo "  none       No SSL (development only)"
             echo ""
             echo "Options:"
@@ -47,8 +47,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --help          Show this help message"
             echo ""
             echo "Examples:"
-            echo "  ./deploy-production.sh              # Deploy with Caddy HTTPS (default)"
-            echo "  ./deploy-production.sh nginx        # Deploy with nginx SSL"
+            echo "  ./deploy-production.sh              # Deploy with nginx SSL (default)"
+            echo "  ./deploy-production.sh caddy        # Deploy with Caddy auto-SSL (domains)"
             echo "  ./deploy-production.sh none         # Deploy without SSL (dev only)"
             exit 0
             ;;
