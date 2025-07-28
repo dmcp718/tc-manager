@@ -179,7 +179,7 @@ services:
   # Redis Cache Service
   redis:
     image: redis:7-alpine
-    container_name: sc-mgr-redis
+    container_name: tc-mgr-redis
     ports:
       - "6379:6379"
     volumes:
