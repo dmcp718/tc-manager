@@ -135,7 +135,7 @@ This package contains Docker images and configuration files, but you should depl
 
 1. Clone the TeamCache Manager repository:
    \`\`\`bash
-   git clone https://github.com/dmcp718/tc-manager.git
+   git clone https://github.com/your-org/teamcache-manager.git
    cd teamcache-manager
    \`\`\`
 

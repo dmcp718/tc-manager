@@ -274,7 +274,7 @@ Use the automated deployment script that handles all steps including database in
 
 ```bash
 # Deploy without SSL (for testing)
-./scripts/deploy-production.sh
+./scripts/deploy-production.sh none
 
 # Deploy with nginx SSL (default)
 ./scripts/deploy-production.sh

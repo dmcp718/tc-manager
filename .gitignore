@@ -77,3 +77,15 @@ ssl/*.crt
 ssl/*.key
 ssl/*.pem
 .claude/
+
+# Build artifacts (never commit these large files)
+builds/**/*.tar
+builds/**/*.tar.gz
+builds/**/*.zip
+
+# But allow build metadata and scripts
+!builds/**/DEPLOY.md
+!builds/**/docker-compose*.yml
+!builds/**/schema/
+!builds/**/scripts/
+!builds/**/migrations/
