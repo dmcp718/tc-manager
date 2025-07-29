@@ -140,8 +140,9 @@ docker compose down --remove-orphans 2>/dev/null || true
 COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml"
 
 # Check if this is a package deployment (docker-compose.package.yml exists)
+PACKAGE_MODE=false
 if [ -f "$PROJECT_DIR/docker-compose.package.yml" ]; then
-    COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.package.yml"
+    PACKAGE_MODE=true
     echo -e "${BLUE}📦 Using pre-built package configuration${NC}"
     # Auto-skip build for package deployments
     if [ "$SKIP_BUILD" = false ]; then
@@ -191,6 +192,11 @@ case $SSL_MODE in
         exit 1
         ;;
 esac
+
+# Add package override LAST to ensure it overrides build configurations
+if [ "$PACKAGE_MODE" = true ]; then
+    COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.package.yml"
+fi
 
 # Step 5: Start core services
 echo ""
