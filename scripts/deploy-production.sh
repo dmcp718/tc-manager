@@ -143,12 +143,41 @@ COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.prod.yml -f 
 if [ -f "$PROJECT_DIR/docker-compose.package.yml" ]; then
     COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.package.yml"
     echo -e "${BLUE}📦 Using pre-built package configuration${NC}"
+    # Auto-skip build for package deployments
+    if [ "$SKIP_BUILD" = false ]; then
+        echo -e "${BLUE}📦 Package deployment detected - skipping build${NC}"
+        SKIP_BUILD=true
+    fi
 fi
 
 case $SSL_MODE in
     nginx)
         COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.ssl.yml"
         echo -e "${BLUE}🔐 Using nginx SSL configuration${NC}"
+        
+        # Check if SSL certificates exist
+        if [ ! -f "$PROJECT_DIR/ssl/sc-mgr.crt" ] || [ ! -f "$PROJECT_DIR/ssl/sc-mgr.key" ]; then
+            echo -e "${YELLOW}⚠️  SSL certificates not found, generating self-signed certificates...${NC}"
+            
+            # Create SSL directory if it doesn't exist
+            mkdir -p "$PROJECT_DIR/ssl"
+            
+            # Generate self-signed certificates
+            if [ -x "$PROJECT_DIR/scripts/generate-ssl-cert.sh" ]; then
+                "$PROJECT_DIR/scripts/generate-ssl-cert.sh" "${SERVER_HOST:-localhost}"
+                if [ $? -eq 0 ]; then
+                    echo -e "${GREEN}✅ SSL certificates generated${NC}"
+                else
+                    echo -e "${RED}❌ Failed to generate SSL certificates${NC}"
+                    exit 1
+                fi
+            else
+                echo -e "${RED}❌ generate-ssl-cert.sh script not found or not executable${NC}"
+                exit 1
+            fi
+        else
+            echo -e "${GREEN}✅ SSL certificates found${NC}"
+        fi
         ;;
     caddy)
         COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.caddy.yml"
