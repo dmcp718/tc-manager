@@ -290,6 +290,30 @@ class FileModel {
     });
   }
 
+  // Update metadata for a file
+  static async updateMetadata(path, metadataUpdate) {
+    try {
+      // Merge the new metadata with existing metadata
+      const result = await pool.query(
+        `UPDATE files 
+         SET metadata = COALESCE(metadata, '{}') || $2::jsonb,
+             updated_at = NOW()
+         WHERE path = $1
+         RETURNING *`,
+        [path, JSON.stringify(metadataUpdate)]
+      );
+      
+      if (result.rows.length === 0) {
+        console.warn(`No file found to update metadata for path: ${path}`);
+      }
+      
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error updating file metadata:', error);
+      throw error;
+    }
+  }
+
   // RUI (Remote Upload Indicator) Methods
   static async updateRUIStatus(path, ruiData) {
     try {

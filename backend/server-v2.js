@@ -2455,19 +2455,39 @@ app.post('/api/jobs/:id/pause', authService.requireAuth, async (req, res) => {
   }
 });
 
-// Cancel cache job
+// Cancel job (cache or video preview)
 app.post('/api/jobs/:id/cancel', authService.requireAuth, async (req, res) => {
   try {
     const jobId = req.params.id;
     console.log(`Attempting to cancel job: ${jobId}`);
     
-    const job = await CacheJobModel.findById(jobId);
+    // First try as cache job
+    let job = await CacheJobModel.findById(jobId);
+    let jobType = 'cache';
+    
     if (!job) {
+      // Try as video preview job
+      job = await VideoPreviewJobModel.findById(jobId);
+      jobType = 'video-preview';
+    }
+    
+    if (!job) {
+      // Try as index job (format: index-{id})
+      if (jobId.startsWith('index-')) {
+        const indexId = parseInt(jobId.replace('index-', ''));
+        await IndexProgressModel.updateStatus(indexId, 'stopped');
+        return res.json({
+          jobId: jobId,
+          status: 'stopped',
+          message: 'Index job stopped successfully'
+        });
+      }
+      
       console.log(`Job not found: ${jobId}`);
       return res.status(404).json({ error: 'Job not found' });
     }
     
-    console.log(`Found job ${jobId} with status: ${job.status}`);
+    console.log(`Found ${jobType} job ${jobId} with status: ${job.status}`);
     
     if (!['pending', 'running', 'paused'].includes(job.status)) {
       console.log(`Job ${jobId} cannot be cancelled, status: ${job.status}`);
@@ -2476,22 +2496,34 @@ app.post('/api/jobs/:id/cancel', authService.requireAuth, async (req, res) => {
       });
     }
     
-    console.log(`Updating job ${jobId} status to cancelled`);
-    // Update job status to cancelled
-    await CacheJobModel.updateStatus(jobId, 'cancelled');
-    console.log(`Successfully cancelled job ${jobId}`);
+    console.log(`Updating ${jobType} job ${jobId} status to cancelled`);
+    
+    // Update job status to cancelled based on type
+    if (jobType === 'cache') {
+      await CacheJobModel.updateStatus(jobId, 'cancelled');
+    } else if (jobType === 'video-preview') {
+      await VideoPreviewJobModel.updateStatus(jobId, 'cancelled');
+      
+      // Also notify the video preview manager to stop processing this job
+      if (videoPreviewManager) {
+        videoPreviewManager.cancelJob(jobId);
+      }
+    }
+    
+    console.log(`Successfully cancelled ${jobType} job ${jobId}`);
     
     res.json({ 
       jobId: job.id,
+      jobType: jobType,
       status: 'cancelled',
-      message: 'Job cancelled successfully'
+      message: `${jobType} job cancelled successfully`
     });
     
   } catch (error) {
-    console.error('Error cancelling cache job:', error);
+    console.error('Error cancelling job:', error);
     console.error('Error details:', error.message, error.stack);
     res.status(500).json({ 
-      error: 'Failed to cancel cache job',
+      error: 'Failed to cancel job',
       details: error.message 
     });
   }

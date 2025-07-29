@@ -52,21 +52,31 @@ This directory contains scripts for deployment, maintenance, and administration 
 **Complete production deployment script**
 - Verifies environment configuration
 - Builds Docker images (optional)
-- Initializes database automatically
+- **Automatically initializes database if users table is missing**
 - Starts all services in correct order
 - Performs health checks
 - Supports SSL configurations
 
+**SSL Modes:**
+- `nginx` (default) - Self-signed SSL, works with IP addresses
+- `caddy` - Automatic Let's Encrypt, best for domain names
+- `none` - No SSL (development only)
+
 ```bash
-# Deploy without SSL
+# Deploy with nginx SSL (default, recommended for IP addresses)
 ./scripts/deploy-production.sh
 
-# Deploy with nginx SSL
-./scripts/deploy-production.sh nginx
-
-# Deploy with Caddy auto-SSL
+# Deploy with Caddy auto-SSL (for domain names)
 ./scripts/deploy-production.sh caddy
+
+# Deploy without SSL (development only)
+./scripts/deploy-production.sh none
+
+# Skip automatic database initialization
+./scripts/deploy-production.sh nginx --skip-db-init
 ```
+
+**Note:** Database initialization is automatic. The script checks if the users table exists and runs init-database.sh if needed.
 
 ### `init-database.sh`
 **Database initialization script**
@@ -75,8 +85,20 @@ This directory contains scripts for deployment, maintenance, and administration 
 - Inserts default cache profiles
 - Handles existing database safely
 
+**When to use:**
+- Usually automatic via deploy-production.sh
+- Use manually if deployment was interrupted
+- Use to reset database to clean state
+
 ```bash
+# Interactive mode (prompts for confirmation)
 ./scripts/init-database.sh
+
+# Non-interactive mode (for automation)
+echo "y" | ./scripts/init-database.sh
+
+# After manual initialization, always restart backend:
+docker compose restart backend
 ```
 
 ### `setup-ssl.sh`

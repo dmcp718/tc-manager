@@ -2,7 +2,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: sc-mgr-postgres
+    container_name: tc-mgr-postgres
     environment:
       POSTGRES_DB: ${DB_NAME:-sitecache_db}
       POSTGRES_USER: ${DB_USER:-sitecache_user}
@@ -39,7 +39,7 @@ services:
     build:
       context: ..
       dockerfile: ./sc-manager-greenfield/backend/Dockerfile
-    container_name: sc-mgr-backend
+    container_name: tc-mgr-backend
     # Performance optimizations
     mem_limit: 4g
     cpus: 4.0
@@ -164,7 +164,7 @@ services:
         REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:3002}
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
         REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-}
-    container_name: sc-mgr-frontend
+    container_name: tc-mgr-frontend
     ports:
       - "8090:3000"
     depends_on:
@@ -195,7 +195,7 @@ services:
   # Elasticsearch Search Service
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    container_name: sc-mgr-elasticsearch
+    container_name: tc-mgr-elasticsearch
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -231,7 +231,7 @@ services:
     build:
       context: ./varnish-stats-collector
       dockerfile: Dockerfile
-    container_name: sc-mgr-varnish-stats
+    container_name: tc-mgr-varnish-stats
     environment:
       VARNISH_STATS_INTERVAL: ${VARNISH_STATS_INTERVAL:-60000}
       VARNISH_CONTAINER_NAME: ${VARNISH_CONTAINER_NAME:-sitecache-varnish-1}
@@ -256,4 +256,4 @@ volumes:
 
 networks:
   default:
-    name: sc-mgr-network
+    name: tc-mgr-network

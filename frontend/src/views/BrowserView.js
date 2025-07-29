@@ -232,9 +232,10 @@ const styles = {
     padding: '12px 16px',
     textAlign: 'left',
     fontWeight: '600',
-    color: '#e4e4e7',
+    color: '#a1a1aa',
     borderBottom: '1px solid #2a2a2a',
     whiteSpace: 'nowrap',
+    textTransform: 'uppercase',
   },
   tableRow: {
     borderBottom: '1px solid #2a2a2a',
@@ -2761,15 +2762,15 @@ const BrowserView = ({ user, onLogout }) => {
                       }}
                     />
                   </th>
-                  <th style={styles.tableHeaderCell}>File Name</th>
-                  <th style={{...styles.tableHeaderCell, width: '136px'}}>Date Created</th>
-                  <th style={{...styles.tableHeaderCell, width: '136px'}}>Last Modified</th>
-                  <th style={{...styles.tableHeaderCell, width: '60px'}}>Type</th>
-                  <th style={styles.tableHeaderCell}>Size</th>
-                  <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Cached</th>
+                  <th style={styles.tableHeaderCell}>FILE NAME</th>
+                  <th style={{...styles.tableHeaderCell, width: '136px'}}>DATE CREATED</th>
+                  <th style={{...styles.tableHeaderCell, width: '136px'}}>LAST MODIFIED</th>
+                  <th style={{...styles.tableHeaderCell, width: '60px'}}>TYPE</th>
+                  <th style={styles.tableHeaderCell}>SIZE</th>
+                  <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>CACHED</th>
                   <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>RUI</th>
-                  <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>Preview</th>
-                  <th style={{...styles.tableHeaderCell, width: '126px', textAlign: 'center'}}>Direct Link</th>
+                  <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>PREVIEW</th>
+                  <th style={{...styles.tableHeaderCell, width: '126px', textAlign: 'center'}}>DIRECT LINK</th>
                 </tr>
               </thead>
               <tbody>
