@@ -122,33 +122,57 @@ if [ -d "${PROJECT_DIR}/backend/migrations" ]; then
     cp -r "${PROJECT_DIR}/backend/migrations" "${BUILD_DIR}/"
 fi
 
+# Create necessary empty directories for volume mounts
+mkdir -p "${BUILD_DIR}/backend"
+mkdir -p "${BUILD_DIR}/frontend" 
+mkdir -p "${BUILD_DIR}/varnish-stats-collector"
+mkdir -p "${BUILD_DIR}/ssl"
+
+# Copy schema files to backend directory (where docker-compose expects them)
+cp "${BUILD_DIR}/schema"/*.sql "${BUILD_DIR}/backend/" 2>/dev/null || true
+
+# Copy nginx configs if they exist
+if [ -f "${PROJECT_DIR}/frontend/nginx.ssl.conf" ]; then
+    cp "${PROJECT_DIR}/frontend/nginx.ssl.conf" "${BUILD_DIR}/frontend/"
+fi
+
 # Create deployment instructions
 cat > "${BUILD_DIR}/DEPLOY.md" << EOF
 # TeamCache Manager v${BUILD_VERSION} Deployment
 
 Built on: ${BUILD_TIME}
 
-## IMPORTANT: Deployment Location
+## Package Contents
 
-This package contains Docker images and configuration files, but you should deploy from the main TeamCache Manager repository directory, NOT from this extracted directory.
+This is a self-contained deployment package that includes:
+- Pre-built Docker images (teamcache-backend-${BUILD_VERSION}.tar, teamcache-frontend-${BUILD_VERSION}.tar)
+- All configuration files (docker-compose.yml, etc.)
+- Database schema files
+- Deployment scripts
+- SSL certificate generation tools
 
-## For Fresh Installation on New Server
+## Deployment Instructions
 
-1. Clone the TeamCache Manager repository:
+1. Extract this package to your deployment directory:
    \`\`\`bash
-   git clone https://github.com/dmcp718/tc-manager.git
-   cd teamcache-manager
+   cd /opt  # or your preferred location
+   tar -xzf teamcache-${BUILD_VERSION}-*.tar.gz
+   cd ${BUILD_TIME}
    \`\`\`
 
-2. Load the Docker images from this package:
+2. Load the Docker images:
    \`\`\`bash
-   docker load -i /path/to/this/package/teamcache-backend-${BUILD_VERSION}.tar
-   docker load -i /path/to/this/package/teamcache-frontend-${BUILD_VERSION}.tar
+   docker load -i teamcache-backend-${BUILD_VERSION}.tar
+   docker load -i teamcache-frontend-${BUILD_VERSION}.tar
    \`\`\`
 
 3. Create your production .env file:
    \`\`\`bash
+   # Option 1: Generate new environment
    ./scripts/generate-production-env.sh
+   
+   # Option 2: Copy existing .env from your source
+   cp /path/to/your/.env .
    \`\`\`
 
 4. Verify configuration:
@@ -156,22 +180,26 @@ This package contains Docker images and configuration files, but you should depl
    ./scripts/verify-env.sh
    \`\`\`
 
-5. Set up SSL certificates (optional):
+5. Deploy the application:
    \`\`\`bash
-   ./scripts/setup-ssl.sh yourdomain.com your-email@domain.com
+   # IMPORTANT: Use --skip-build flag for package deployments
+   
+   # Deploy with nginx SSL (recommended for IP addresses)
+   ./scripts/deploy-production.sh nginx --skip-build
+   
+   # Deploy with Caddy (automatic HTTPS for domain names)
+   ./scripts/deploy-production.sh caddy --skip-build
+   
+   # Deploy without SSL (testing only)
+   ./scripts/deploy-production.sh none --skip-build
    \`\`\`
 
-6. Start the application:
-   \`\`\`bash
-   # Without SSL
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-   
-   # With SSL (nginx)
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ssl.yml up -d
-   
-   # With SSL (Caddy - automatic HTTPS)
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.caddy.yml up -d
-   \`\`\`
+The deployment script will automatically:
+- Generate SSL certificates if needed (nginx mode)
+- Initialize the database
+- Create admin user
+- Start all services
+- Verify deployment health
 
 ## Post-Deployment
 

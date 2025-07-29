@@ -202,8 +202,20 @@ cp schema/*.sql backend/
 # Note: All necessary scripts, schemas, and configurations are included in the package
 # No repository access required!
 
-# IMPORTANT: When deploying from package, use this command:
-# docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.package.yml up -d
+# Generate or copy your .env file
+# Option 1: Generate new environment
+./scripts/generate-production-env.sh
+
+# Option 2: Copy existing .env from source
+cp /path/to/your/.env .
+
+# Verify environment
+./scripts/verify-env.sh
+
+# IMPORTANT: Deploy using the automated script with --skip-build flag:
+./scripts/deploy-production.sh nginx --skip-build
+
+# The --skip-build flag is REQUIRED for package deployments to prevent build attempts
 ```
 
 ### Option B: Deploy from Repository (Build from Source)
@@ -310,10 +322,22 @@ nano .env
 
 Use the automated deployment script that handles all steps including database initialization:
 
+##### For Package Deployments (Pre-built Images):
 ```bash
-# Deploy without SSL (for testing)
-./scripts/deploy-production.sh none
+# REQUIRED: Use --skip-build flag when deploying from package
 
+# Deploy with nginx SSL (recommended for IP addresses)
+./scripts/deploy-production.sh nginx --skip-build
+
+# Deploy with Caddy (automatic HTTPS for domain names)
+./scripts/deploy-production.sh caddy --skip-build
+
+# Deploy without SSL (for testing only)
+./scripts/deploy-production.sh none --skip-build
+```
+
+##### For Source Deployments (Build from Code):
+```bash
 # Deploy with nginx SSL (default)
 ./scripts/deploy-production.sh
 # or explicitly:
@@ -322,15 +346,19 @@ Use the automated deployment script that handles all steps including database in
 # Deploy with Caddy (automatic HTTPS)
 ./scripts/deploy-production.sh caddy
 
-# The script will:
-# 1. Verify environment configuration
-# 2. Build Docker images (if needed)
-# 3. Start PostgreSQL
-# 4. Initialize database schema
-# 5. Create admin user
-# 6. Start all services
-# 7. Verify deployment health
+# Deploy without SSL (for testing)
+./scripts/deploy-production.sh none
 ```
+
+The deployment script will automatically:
+1. Verify environment configuration
+2. Build Docker images (if not using --skip-build)
+3. Generate SSL certificates if missing (nginx mode)
+4. Start PostgreSQL
+5. Initialize database schema if needed
+6. Create admin user
+7. Start all services
+8. Verify deployment health
 
 #### Manual Deployment (Alternative)
 
