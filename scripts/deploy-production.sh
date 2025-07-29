@@ -139,6 +139,12 @@ docker compose down --remove-orphans 2>/dev/null || true
 # Step 4: Determine compose files to use
 COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml"
 
+# Check if this is a package deployment (docker-compose.package.yml exists)
+if [ -f "$PROJECT_DIR/docker-compose.package.yml" ]; then
+    COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.package.yml"
+    echo -e "${BLUE}📦 Using pre-built package configuration${NC}"
+fi
+
 case $SSL_MODE in
     nginx)
         COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.ssl.yml"

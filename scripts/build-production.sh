@@ -106,6 +106,7 @@ cp "${PROJECT_DIR}/docker-compose.prod.yml" "${BUILD_DIR}/"
 cp "${PROJECT_DIR}/docker-compose.production.yml" "${BUILD_DIR}/"
 cp "${PROJECT_DIR}/docker-compose.ssl.yml" "${BUILD_DIR}/"
 cp "${PROJECT_DIR}/docker-compose.caddy.yml" "${BUILD_DIR}/"
+cp "${PROJECT_DIR}/docker-compose.package.yml" "${BUILD_DIR}/" 2>/dev/null || true
 cp -r "${PROJECT_DIR}/scripts" "${BUILD_DIR}/"
 
 # Copy schema files

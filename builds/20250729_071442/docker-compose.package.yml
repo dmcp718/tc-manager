@@ -1,0 +1,14 @@
+# Override for deployment from pre-built package
+# This removes build configurations and uses pre-loaded images
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.package.yml up -d
+
+services:
+  backend:
+    # Remove build configuration - use pre-loaded image
+    build: !reset
+    image: teamcache-backend:1.7.0
+    
+  frontend:
+    # Remove build configuration - use pre-loaded image  
+    build: !reset
+    image: teamcache-frontend:1.7.0

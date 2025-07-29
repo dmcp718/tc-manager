@@ -61,16 +61,33 @@ fi
 read -p "Grafana URL (default: $PROTOCOL://$SERVER_HOST:3000): " GRAFANA_URL
 GRAFANA_URL=${GRAFANA_URL:-$PROTOCOL://$SERVER_HOST:3000}
 
+# Set frontend URLs based on SSL configuration
+if [ "$SSL_ENABLED" = true ]; then
+    # For HTTPS, use path-based routing
+    REACT_APP_API_URL="$PROTOCOL://$SERVER_HOST/api"
+    REACT_APP_WS_URL="$WS_PROTOCOL://$SERVER_HOST/ws"
+else
+    # For non-SSL, use port-based routing
+    REACT_APP_API_URL="$PROTOCOL://$SERVER_HOST:3001/api"
+    REACT_APP_WS_URL="$WS_PROTOCOL://$SERVER_HOST:3002"
+fi
+
 # Create complete .env file
 cat > "$PROJECT_DIR/.env" << EOF
 # TeamCache Manager Production Environment Configuration
 # Generated on $(date)
 # Version: 1.7.0
 
+# Docker Compose Project Name
+COMPOSE_PROJECT_NAME=tc-mgr
+
 # Database Configuration
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 POSTGRES_USER=teamcache_user
 POSTGRES_DB=teamcache_db
+DB_NAME=teamcache_db
+DB_USER=teamcache_user
+DB_PASSWORD=$POSTGRES_PASSWORD
 DB_HOST=postgres
 DB_PORT=5432
 
@@ -102,15 +119,8 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 
 # Frontend Configuration
-if [ "$SSL_ENABLED" = true ]; then
-    # For HTTPS with Caddy, use path-based routing
-    REACT_APP_API_URL=$PROTOCOL://$SERVER_HOST/api
-    REACT_APP_WS_URL=$WS_PROTOCOL://$SERVER_HOST/ws
-else
-    # For non-SSL, use port-based routing
-    REACT_APP_API_URL=$PROTOCOL://$SERVER_HOST:3001/api
-    REACT_APP_WS_URL=$WS_PROTOCOL://$SERVER_HOST:3002
-fi
+REACT_APP_API_URL=$REACT_APP_API_URL
+REACT_APP_WS_URL=$REACT_APP_WS_URL
 REACT_APP_LUCIDLINK_MOUNT_POINT=/media/lucidlink-1
 REACT_APP_GRAFANA_URL=$GRAFANA_URL
 

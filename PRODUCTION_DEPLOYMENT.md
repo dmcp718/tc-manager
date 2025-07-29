@@ -195,8 +195,15 @@ cp -r 20250729_071442/* .  # Use your actual build timestamp
 docker load -i teamcache-backend-1.7.0.tar
 docker load -i teamcache-frontend-1.7.0.tar
 
+# Create backend directory and copy schema files
+mkdir -p backend
+cp schema/*.sql backend/
+
 # Note: All necessary scripts, schemas, and configurations are included in the package
 # No repository access required!
+
+# IMPORTANT: When deploying from package, use this command:
+# docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.package.yml up -d
 ```
 
 ### Option B: Deploy from Repository (Build from Source)
