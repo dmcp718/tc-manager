@@ -78,6 +78,17 @@ ssl/*.key
 ssl/*.pem
 .claude/
 
+# Sample/scratch/test files
+video_samples/
+rui_example.*
+*.backup
+*.original
+.env.backup.*
+
+# Test scripts that are development-specific
+backend/final-integration-test.sh
+backend/test-*.sh
+
 # Build artifacts (never commit these large files)
 builds/**/*.tar
 builds/**/*.tar.gz
