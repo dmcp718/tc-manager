@@ -1,6 +1,6 @@
 # TeamCache Manager
 
-A production-ready file system browser and cache management system for LucidLink cloud filesystems with advanced search capabilities, intelligent caching, real-time data verification, and Docker deployment.
+A production-ready file system browser and cache management system for LucidLink cloud filesystems with advanced search capabilities, intelligent caching, media preview generation, real-time data verification, and Docker deployment.
 
 ## 🚀 Key Features
 
@@ -10,6 +10,13 @@ A production-ready file system browser and cache management system for LucidLink
 - **Direct Link Generation**: Secure download links for files and directories
 - **Smart Indexing**: Efficient PostgreSQL-based file metadata indexing with automatic cleanup
 - **Real-time Verification**: Filesystem existence checks ensure sidebar-level accuracy
+
+### 🎬 Media Preview & Transcoding
+- **Video Preview Generation**: Automatic DASH transcoding for non-web formats
+- **Batch Processing**: Queue-based video preview generation with worker pools
+- **Smart Caching**: Redis-cached preview metadata with filesystem persistence
+- **Format Support**: Handles professional formats (ProRes, R3D, BRAW, etc.)
+- **Progressive Streaming**: DASH adaptive bitrate streaming
 
 ### 🔍 Advanced Search & Indexing
 - **Dual Search Engines**: PostgreSQL for reliability + Elasticsearch for performance
@@ -61,6 +68,15 @@ A production-ready file system browser and cache management system for LucidLink
          └─────────────────┼─────────────────┼─────────────────┘
                           │                 │
                   ┌───────┴─────────────────┴──────┐
+                  │        Redis Cache             │
+                  │    Preview Metadata            │
+                  │     Session Storage            │
+                  │       (Port 6379)              │
+                  └───────┬─────────────────┬──────┘
+         │                 │                 │                 │
+         └─────────────────┼─────────────────┼─────────────────┘
+                          │                 │
+                  ┌───────┴─────────────────┴──────┐
                   │      Data Synchronization      │
                   │   Real-time Verification       │
                   │   Stale Entry Cleanup          │
@@ -97,8 +113,8 @@ A production-ready file system browser and cache management system for LucidLink
 ### 1. Clone and Initial Setup
 
 ```bash
-git clone https://github.com/dmcp718/sc-manager.git
-cd sc-manager
+git clone https://github.com/your-org/teamcache-manager.git
+cd teamcache-manager
 
 # For a fresh setup (recommended for first time)
 ./scripts/setup-development.sh
@@ -244,6 +260,10 @@ LucidLink is automatically installed and configured within the Docker container.
 Create production environment file:
 
 ```bash
+# Use the production deployment script
+./scripts/generate-production-env.sh
+
+# Or manually:
 cp .env.production .env
 
 # Edit with your specific production values
@@ -253,6 +273,9 @@ nano .env
 **Critical Production Settings:**
 
 ```bash
+# REQUIRED: Server identification
+SERVER_HOST=your-server-ip-or-domain.com  # Critical for frontend URLs
+
 # Authentication Security
 JWT_SECRET=GENERATE_SECURE_JWT_SECRET_HERE
 JWT_EXPIRY=8h
@@ -279,6 +302,15 @@ REACT_APP_WS_URL=wss://your-domain.com/ws
 CACHE_WORKER_COUNT=4
 MAX_CONCURRENT_FILES=5
 NODE_OPTIONS=--max-old-space-size=3072
+
+# Video Preview Configuration
+VIDEO_PREVIEW_WORKER_COUNT=2
+VIDEO_PREVIEW_MAX_CONCURRENT=2
+TRANSCODE_VIDEO_BITRATE=1000k
+TRANSCODE_VIDEO_WIDTH=1280
+TRANSCODE_VIDEO_HEIGHT=720
+PREVIEW_CACHE_DIR=/app/preview-cache
+PREVIEW_CACHE_HOST_PATH=./data/previews
 
 # Security
 NODE_ENV=production
@@ -336,14 +368,13 @@ The script generates:
 # Deploy without SSL (HTTP only)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-# Deploy with HTTPS using Caddy (recommended - simpler SSL)
-# First, place SSL certificates in ./ssl/ directory:
-# - sc-mgr.crt (certificate file)  
-# - sc-mgr.key (private key file)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.caddy.yml up -d
+# Deploy with nginx SSL (default for IP addresses)
+./scripts/deploy-production.sh
+# or explicitly:
+./scripts/deploy-production.sh nginx
 
-# Alternative: Deploy with nginx SSL (more complex)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ssl.yml up -d
+# Alternative: Deploy with Caddy (for domain names with auto-HTTPS)
+./scripts/deploy-production.sh caddy
 
 # Verify all services are healthy
 docker compose ps
@@ -636,6 +667,7 @@ networks:
 - **3002**: WebSocket server (WS)
 - **3010**: Frontend development server (HTTP) - development only
 - **5432**: PostgreSQL database (internal only)
+- **6379**: Redis cache (internal only)
 - **8080**: Frontend web server (HTTP/HTTPS) - production
 - **9200**: Elasticsearch HTTP API (internal only)
 - **9229**: Node.js debugger port - development only
@@ -1423,7 +1455,7 @@ To test a completely clean deployment (recommended before production):
 
 #### Empty file tree in BROWSER tab
 - Verify LucidLink credentials in `.env`
-- Check mount: `docker exec sc-mgr-backend ls /media/lucidlink-1`
+- Check mount: `docker exec tc-mgr-backend ls /media/lucidlink-1`
 - Ensure you're logged in with admin credentials
 
 #### Terminal feature not working
@@ -1450,4 +1482,21 @@ If you encounter persistent issues:
 - Health check: `curl http://localhost:3001/health`
 - Documentation: See `DEVELOPMENT.md` for detailed troubleshooting
 
-This README provides complete instructions for successful greenfield deployment of the TeamCache Manager system, including all necessary configuration, security considerations, and troubleshooting guidance.
+## Recent Updates (v1.7.0)
+
+### New Features
+- **Video Preview System**: Batch video transcoding with DASH streaming
+- **Admin Terminal**: Web-based terminal access for system administration
+- **Enhanced Job Management**: Unified job panel with video preview integration
+- **Redis Caching**: Improved preview metadata caching
+- **nginx Default SSL**: Better support for IP-based deployments
+
+### Container Name Changes
+All containers now use the `tc-mgr-` prefix for consistency:
+- `tc-mgr-backend` (was sc-mgr-backend)
+- `tc-mgr-frontend` (was sc-mgr-frontend)
+- `tc-mgr-postgres` (was sc-mgr-postgres)
+- `tc-mgr-redis` (was sc-mgr-redis)
+- `tc-mgr-elasticsearch` (was sc-mgr-elasticsearch)
+
+This README provides complete instructions for successful deployment of the TeamCache Manager system, including all necessary configuration, security considerations, and troubleshooting guidance.

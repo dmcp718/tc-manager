@@ -1,6 +1,7 @@
 # TeamCache Manager Production Deployment Guide
 
 Version 1.7.0
+Last Updated: 2025-01-28
 
 ## Table of Contents
 
@@ -14,6 +15,7 @@ Version 1.7.0
 8. [Monitoring and Maintenance](#monitoring-and-maintenance)
 9. [Troubleshooting](#troubleshooting)
 10. [Backup and Recovery](#backup-and-recovery)
+11. [Video Preview Configuration](#video-preview-configuration)
 
 ## System Requirements
 
@@ -250,11 +252,18 @@ nano .env
 # - POSTGRES_PASSWORD (replace "your_very_strong_password_here")
 # - JWT_SECRET (replace "GENERATE_SECURE_JWT_SECRET_HERE")
 # - ADMIN_PASSWORD (replace "GENERATE_STRONG_ADMIN_PASSWORD_HERE")
-# - SERVER_HOST (set to your domain or IP)
+# - SERVER_HOST (set to your domain or IP) - REQUIRED for frontend URLs
 # - LUCIDLINK_FILESPACE (your LucidLink filespace)
 # - LUCIDLINK_USER (your LucidLink email)
 # - LUCIDLINK_PASSWORD (your LucidLink password)
 # - LUCID_S3_PROXY (http://YOUR_SERVER_IP:80)
+
+# Video Preview Configuration (optional):
+# - VIDEO_PREVIEW_WORKER_COUNT (default: 2)
+# - VIDEO_PREVIEW_MAX_CONCURRENT (default: 2)
+# - TRANSCODE_VIDEO_BITRATE (default: 1000k)
+# - TRANSCODE_VIDEO_WIDTH (default: 1280)
+# - TRANSCODE_VIDEO_HEIGHT (default: 720)
 ```
 
 ### 4. Deploy Application
@@ -267,7 +276,9 @@ Use the automated deployment script that handles all steps including database in
 # Deploy without SSL (for testing)
 ./scripts/deploy-production.sh
 
-# Deploy with nginx SSL
+# Deploy with nginx SSL (default)
+./scripts/deploy-production.sh
+# or explicitly:
 ./scripts/deploy-production.sh nginx
 
 # Deploy with Caddy (automatic HTTPS)
@@ -670,6 +681,84 @@ curl -X PUT "localhost:9200/teamcache-files/_settings" \
    - Store backups securely off-site
    - Encrypt sensitive backups
 
+## Video Preview Configuration
+
+### 1. Environment Variables
+
+```bash
+# Video Preview Workers
+VIDEO_PREVIEW_WORKER_COUNT=2      # Number of preview workers
+VIDEO_PREVIEW_MAX_CONCURRENT=2    # Max concurrent previews per worker
+VIDEO_PREVIEW_POLL_INTERVAL=5000  # Worker poll interval (ms)
+
+# Video Transcoding Settings
+TRANSCODE_VIDEO_BITRATE=1000k     # Video bitrate
+TRANSCODE_VIDEO_MAXRATE=1500k     # Max video bitrate
+TRANSCODE_VIDEO_BUFSIZE=2000k     # Buffer size
+TRANSCODE_VIDEO_WIDTH=1280        # Output width
+TRANSCODE_VIDEO_HEIGHT=720        # Output height
+
+# Audio Transcoding Settings
+TRANSCODE_AUDIO_BITRATE=128k      # Audio bitrate
+TRANSCODE_AUDIO_CODEC=aac         # Audio codec
+TRANSCODE_AUDIO_CHANNELS=2        # Audio channels
+TRANSCODE_AUDIO_SAMPLE_RATE=48000 # Sample rate
+
+# Preview Cache
+PREVIEW_CACHE_DIR=/app/preview-cache           # Container path
+PREVIEW_CACHE_HOST_PATH=./data/previews        # Host path
+```
+
+### 2. Preview Storage
+
+```bash
+# Create preview cache directory
+mkdir -p ./data/previews
+chown 1000:1000 ./data/previews
+
+# Verify preview storage
+docker exec tc-mgr-backend ls -la /app/preview-cache
+```
+
+### 3. Video Preview Database
+
+The video preview schema is automatically initialized with:
+- `video_preview_jobs` table for batch jobs
+- `video_preview_job_items` table for individual files
+- Metadata storage in files table JSONB column
+
+### 4. Troubleshooting Video Previews
+
+```bash
+# Check video preview workers
+curl http://localhost:3001/api/video-preview/status
+
+# Monitor preview jobs
+docker compose logs -f backend | grep -i preview
+
+# Clear preview cache if needed
+docker exec tc-mgr-backend rm -rf /app/preview-cache/*
+
+# Check FFmpeg installation
+docker exec tc-mgr-backend ffmpeg -version
+```
+
+### 5. Terminal WebSocket Configuration
+
+For the Admin Terminal feature to work properly with nginx SSL:
+
+```nginx
+# The nginx.ssl.conf includes this configuration:
+location /terminal {
+    proxy_pass http://backend:3002/terminal;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
 ## Support and Resources
 
 - Documentation: https://docs.teamcache.io
@@ -680,4 +769,4 @@ curl -X PUT "localhost:9200/teamcache-files/_settings" \
 ---
 
 **TeamCache Manager v1.7.0** - Production Deployment Guide
-Last Updated: 2024
+Last Updated: 2025-01-28
