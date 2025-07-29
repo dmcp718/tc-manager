@@ -187,8 +187,14 @@ docker compose logs -f
    - Monitor progress
 
 4. **Configure Video Previews** (Optional)
-   - Adjust settings in Admin > Settings
-   - Set worker count and transcoding parameters
+   - Video preview settings are configured in the .env file
+   - Key environment variables:
+     - VIDEO_PREVIEW_WORKER_COUNT (default: 2)
+     - VIDEO_PREVIEW_MAX_CONCURRENT (default: 2)
+     - TRANSCODE_VIDEO_BITRATE (default: 1000k)
+     - TRANSCODE_VIDEO_WIDTH (default: 1280)
+     - TRANSCODE_VIDEO_HEIGHT (default: 720)
+   - After changing settings, restart the backend: `docker compose restart backend`
 
 ## Troubleshooting
 
