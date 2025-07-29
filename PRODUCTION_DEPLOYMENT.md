@@ -168,7 +168,38 @@ sudo systemctl start fail2ban
 
 ## Application Deployment
 
-### 1. Clone Repository
+### Option A: Deploy from Pre-built Package
+
+If you have a pre-built deployment package (e.g., `teamcache-1.7.0-20250729_071442.tar.gz`), which contains:
+- Pre-built Docker images (teamcache-backend-1.7.0.tar, teamcache-frontend-1.7.0.tar)
+- All necessary configuration files (docker-compose.yml, etc.)
+- Database schema files
+- Deployment scripts
+
+Deploy as follows:
+
+```bash
+# Create application directory
+sudo mkdir -p /opt/teamcache-manager
+sudo chown $USER:$USER /opt/teamcache-manager
+cd /opt/teamcache-manager
+
+# Extract the deployment package
+tar -xzf /path/to/teamcache-1.7.0-*.tar.gz
+
+# The package creates a timestamped directory (e.g., 20250729_071442)
+# Copy all files to the main directory for easier management
+cp -r 20250729_071442/* .  # Use your actual build timestamp
+
+# Load the Docker images
+docker load -i teamcache-backend-1.7.0.tar
+docker load -i teamcache-frontend-1.7.0.tar
+
+# Note: All necessary scripts, schemas, and configurations are included in the package
+# No repository access required!
+```
+
+### Option B: Deploy from Repository (Build from Source)
 
 ```bash
 # Create application directory
@@ -177,11 +208,11 @@ sudo chown $USER:$USER /opt/teamcache-manager
 cd /opt/teamcache-manager
 
 # Clone repository
-git clone https://github.com/your-org/teamcache-manager.git .
+git clone https://github.com/dmcp718/tc-manager.git .
 git checkout v1.7.0
 ```
 
-### 2. Download LucidLink Binary
+### 2. Download LucidLink Binary (Required for Both Options)
 
 ```bash
 # Create directory for LucidLink binary
@@ -192,7 +223,7 @@ wget -O ../lucidlink-builds/lucidlink_3.2.6817_amd64.deb \
   https://your-lucidlink-download-url/lucidlink_3.2.6817_amd64.deb
 ```
 
-### 3. Generate and Configure Environment
+### 3. Generate and Configure Environment (Required for Both Options)
 
 ```bash
 # Generate complete .env file with all required values
