@@ -115,6 +115,8 @@ generate_certificate() {
     
     # Generate private key
     openssl genrsa -out "$key_file" 2048 2>/dev/null
+    # Set permissions so nginx user can read the key
+    chmod 644 "$key_file"
     log_success "Private key generated"
     
     # Generate certificate
