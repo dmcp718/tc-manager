@@ -114,9 +114,9 @@ class FileModel {
     
     const query = `
       UPDATE files AS f
-      SET cached = u.cached,
-          cached_at = u.cached_at,
-          cache_job_id = u.cache_job_id,
+      SET cached = u.cached::boolean,
+          cached_at = u.cached_at::timestamp,
+          cache_job_id = u.cache_job_id::uuid,
           updated_at = NOW()
       FROM (VALUES ${values.join(', ')}) AS u(path, cached, cached_at, cache_job_id)
       WHERE f.path = u.path

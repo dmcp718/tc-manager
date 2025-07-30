@@ -204,6 +204,9 @@ class CacheWorker extends EventEmitter {
                 cached: true,
                 cacheJobId: jobId
               });
+              if (pendingCacheUpdates.length % 10 === 0) {
+                console.log(`Queued ${pendingCacheUpdates.length} files for batch cache update`);
+              }
             })
             .catch(error => {
               console.error(`Error processing ${item.file_path}:`, error);
@@ -244,6 +247,7 @@ class CacheWorker extends EventEmitter {
       
       // Batch update cache status (every 10 seconds or 100 files)
       if (pendingCacheUpdates.length >= 100 || (pendingCacheUpdates.length > 0 && Date.now() - lastBatchUpdate > 10000)) {
+        console.log(`Triggering batch update: ${pendingCacheUpdates.length} files pending, time since last update: ${Date.now() - lastBatchUpdate}ms`);
         try {
           await FileModel.batchUpdateCacheStatus(pendingCacheUpdates);
           console.log(`Batch updated cache status for ${pendingCacheUpdates.length} files`);
@@ -251,6 +255,7 @@ class CacheWorker extends EventEmitter {
           lastBatchUpdate = Date.now();
         } catch (error) {
           console.error('Error batch updating cache status:', error);
+          console.error('Error details:', error.stack);
         }
       }
     }
@@ -263,12 +268,16 @@ class CacheWorker extends EventEmitter {
     
     // Process any remaining cache updates
     if (pendingCacheUpdates.length > 0) {
+      console.log(`Processing final batch update for ${pendingCacheUpdates.length} remaining files`);
       try {
         await FileModel.batchUpdateCacheStatus(pendingCacheUpdates);
         console.log(`Final batch updated cache status for ${pendingCacheUpdates.length} files`);
       } catch (error) {
         console.error('Error in final batch update:', error);
+        console.error('Error details:', error.stack);
       }
+    } else {
+      console.log('No pending cache updates to process at job completion');
     }
     
     // Final progress update
