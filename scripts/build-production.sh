@@ -135,6 +135,9 @@ cp "${BUILD_DIR}/schema"/*.sql "${BUILD_DIR}/backend/" 2>/dev/null || true
 if [ -f "${PROJECT_DIR}/frontend/nginx.ssl.conf" ]; then
     cp "${PROJECT_DIR}/frontend/nginx.ssl.conf" "${BUILD_DIR}/frontend/"
 fi
+if [ -f "${PROJECT_DIR}/frontend/nginx-base.conf" ]; then
+    cp "${PROJECT_DIR}/frontend/nginx-base.conf" "${BUILD_DIR}/frontend/"
+fi
 
 # Create deployment instructions
 cat > "${BUILD_DIR}/DEPLOY.md" << EOF

@@ -87,8 +87,16 @@ COPY --from=builder /app/build /usr/share/nginx/html
 # Copy custom nginx configuration
 COPY nginx.production.conf /etc/nginx/conf.d/default.conf
 
-# Create nginx user and set permissions
-RUN chown -R nginx:nginx /usr/share/nginx/html
+# Copy base nginx configuration to fix PID file permissions
+COPY nginx-base.conf /etc/nginx/nginx.conf
+
+# Set permissions and ensure we can write to PID location
+RUN chmod -R 755 /usr/share/nginx/html && \
+    mkdir -p /var/run && \
+    chmod 777 /var/run
+
+# Run as root user to avoid PID file permission issues
+USER root
 
 # Expose port
 EXPOSE 80

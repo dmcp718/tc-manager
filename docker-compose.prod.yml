@@ -10,8 +10,8 @@ services:
       target: production
     container_name: tc-mgr-backend-prod
     # Performance optimizations
-    mem_limit: 4g
-    cpus: 4.0
+    mem_limit: 8g
+    cpus: 8.0
     ulimits:
       nofile:
         soft: 65536
@@ -39,10 +39,10 @@ services:
       LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
       # Performance tuning
       UV_THREADPOOL_SIZE: 16
-      NODE_OPTIONS: "--max-old-space-size=1536"
+      NODE_OPTIONS: "--max-old-space-size=6144"
       # Cache worker optimizations
-      CACHE_WORKER_COUNT: ${CACHE_WORKER_COUNT:-2}
-      MAX_CONCURRENT_FILES: ${MAX_CONCURRENT_FILES:-5}
+      CACHE_WORKER_COUNT: ${CACHE_WORKER_COUNT:-4}
+      MAX_CONCURRENT_FILES: ${MAX_CONCURRENT_FILES:-10}
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-2000}
       # Elasticsearch configuration
       ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-elasticsearch}
@@ -58,8 +58,8 @@ services:
       # Configure S3 proxy for Varnish cache
       LUCID_S3_PROXY: ${LUCID_S3_PROXY}
       # Video preview worker configuration
-      VIDEO_PREVIEW_WORKER_COUNT: ${VIDEO_PREVIEW_WORKER_COUNT:-2}
-      VIDEO_PREVIEW_MAX_CONCURRENT: ${VIDEO_PREVIEW_MAX_CONCURRENT:-2}
+      VIDEO_PREVIEW_WORKER_COUNT: ${VIDEO_PREVIEW_WORKER_COUNT:-4}
+      VIDEO_PREVIEW_MAX_CONCURRENT: ${VIDEO_PREVIEW_MAX_CONCURRENT:-4}
       VIDEO_PREVIEW_POLL_INTERVAL: ${VIDEO_PREVIEW_POLL_INTERVAL:-5000}
     volumes:
       # Application logs
@@ -108,6 +108,8 @@ services:
     # Override any dev server command with nginx
     command: ["nginx", "-g", "daemon off;"]
     entrypoint: []
+    # Run as root to avoid nginx PID file permission issues
+    user: root
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/"]
       interval: 30s

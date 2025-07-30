@@ -442,8 +442,29 @@ class CacheWorker extends EventEmitter {
     
     const results = { validated: 0, failed: 0 };
     
-    for (const dirPath of directoryPaths) {
+    // Process directories from deepest to shallowest to ensure subdirs are marked first
+    const sortedPaths = [...directoryPaths].sort((a, b) => b.split('/').length - a.split('/').length);
+    
+    for (const dirPath of sortedPaths) {
       try {
+        // First, get all subdirectories of this path
+        const subdirs = await FileModel.findSubdirectories(dirPath);
+        console.log(`Found ${subdirs.length} subdirectories for ${dirPath}`);
+        
+        // Mark subdirectories first (deepest first)
+        const sortedSubdirs = subdirs.sort((a, b) => b.path.split('/').length - a.path.split('/').length);
+        for (const subdir of sortedSubdirs) {
+          try {
+            const isValid = await FileModel.updateDirectoryCacheIfValid(subdir.path, jobId);
+            if (isValid) {
+              console.log(`Subdirectory marked as cached: ${subdir.path}`);
+            }
+          } catch (error) {
+            console.error(`Failed to validate/mark subdirectory as cached: ${subdir.path}`, error);
+          }
+        }
+        
+        // Now mark the parent directory
         const isValid = await FileModel.updateDirectoryCacheIfValid(dirPath, jobId);
         if (isValid) {
           results.validated++;

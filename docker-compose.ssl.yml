@@ -12,6 +12,7 @@ services:
     volumes:
       - ./ssl:/etc/nginx/ssl:ro
       - ./frontend/nginx.ssl.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/nginx-base.conf:/etc/nginx/nginx.conf:ro
     environment:
       - ENABLE_SSL=true
     # Override any development command/entrypoint

@@ -125,7 +125,8 @@ generate_certificate() {
     log_success "Certificate generated"
     
     # Set appropriate permissions
-    chmod 600 "$key_file"
+    # Keep key readable by nginx user
+    chmod 644 "$key_file"
     chmod 644 "$cert_file"
     
     # Verify certificate

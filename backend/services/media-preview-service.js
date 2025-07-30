@@ -59,7 +59,15 @@ class MediaPreviewService {
   generateCacheKey(filePath, options = {}) {
     const hash = crypto.createHash('sha256');
     hash.update(filePath);
-    hash.update(JSON.stringify(options));
+    
+    // Only include options that affect the output, not processing flags
+    const relevantOptions = {};
+    if (options.quality) relevantOptions.quality = options.quality;
+    if (options.resolution) relevantOptions.resolution = options.resolution;
+    if (options.format) relevantOptions.format = options.format;
+    // Exclude: forceTranscode, profileId as they don't affect the output
+    
+    hash.update(JSON.stringify(relevantOptions));
     return hash.digest('hex');
   }
   
@@ -188,26 +196,44 @@ class MediaPreviewService {
     try {
       const { FileModel } = require('../database');
       const file = await FileModel.findByPath(filePath);
-      if (file && file.metadata && file.metadata.videoPreview) {
-        const videoPreview = file.metadata.videoPreview;
-        if (videoPreview.status === 'completed' && videoPreview.cacheKey === cacheKey) {
-          // Reconstruct preview data from database
-          const previewData = {
-            type: 'video',
-            cacheKey: videoPreview.cacheKey,
-            originalFilePath: filePath,
-            outputDir: videoPreview.outputDir,
-            status: 'completed',
-            alreadyTranscoded: true,
-            manifestUrl: `/api/preview/video/${videoPreview.cacheKey}/manifest.mpd`,
-            streamType: 'dash',
-            createdAt: videoPreview.generatedAt
-          };
-          
-          // Store back in cache for faster access
-          await this.storePreviewInCache(cacheKey, previewData, 604800); // 7 days
-          
-          return previewData;
+      console.log(`[VideoPreview] Checking metadata for ${filePath}, found file:`, file ? 'yes' : 'no');
+      if (file && file.metadata) {
+        console.log(`[VideoPreview] File metadata:`, JSON.stringify(file.metadata));
+        if (file.metadata.videoPreview) {
+          const videoPreview = file.metadata.videoPreview;
+          console.log(`[VideoPreview] Found videoPreview metadata:`, JSON.stringify(videoPreview));
+          console.log(`[VideoPreview] Comparing cacheKeys: metadata=${videoPreview.cacheKey}, requested=${cacheKey}`);
+          if (videoPreview.status === 'completed') {
+            // Check if the manifest file actually exists
+            const manifestPath = path.join(videoPreview.outputDir || path.join(this.PREVIEW_CACHE_DIR, videoPreview.cacheKey), 'manifest.mpd');
+            const manifestExists = fs.existsSync(manifestPath);
+            console.log(`[VideoPreview] Checking manifest at ${manifestPath}: ${manifestExists ? 'exists' : 'missing'}`);
+            
+            if (manifestExists) {
+              // Use the stored cache key from the database, not the newly generated one
+              const previewData = {
+                type: 'video',
+                cacheKey: videoPreview.cacheKey, // Use the actual cache key from DB
+                originalFilePath: filePath,
+                outputDir: videoPreview.outputDir,
+                status: 'completed',
+                alreadyTranscoded: true,
+                manifestUrl: `/api/preview/video/${videoPreview.cacheKey}/manifest.mpd`,
+                streamType: 'dash',
+                createdAt: videoPreview.generatedAt
+              };
+              
+              console.log(`[VideoPreview] Returning existing preview from metadata (using stored cacheKey: ${videoPreview.cacheKey})`);
+              // Store back in cache for faster access, using the DB cache key
+              await this.storePreviewInCache(videoPreview.cacheKey, previewData, 604800); // 7 days
+              
+              return previewData;
+            } else {
+              console.log(`[VideoPreview] Preview metadata exists but manifest file is missing, regenerating preview`);
+            }
+          } else {
+            console.log(`[VideoPreview] Preview metadata exists but not completed: status=${videoPreview.status}`);
+          }
         }
       }
     } catch (error) {

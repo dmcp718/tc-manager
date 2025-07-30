@@ -41,8 +41,8 @@ services:
       dockerfile: ./sc-manager-greenfield/backend/Dockerfile
     container_name: tc-mgr-backend
     # Performance optimizations
-    mem_limit: 4g
-    cpus: 4.0
+    mem_limit: 8g
+    cpus: 8.0
     ulimits:
       nofile:
         soft: 65536

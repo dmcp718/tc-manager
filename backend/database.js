@@ -20,6 +20,30 @@ class FileModel {
     );
     return result.rows;
   }
+  
+  static async findSubdirectories(parentPath) {
+    // Find all subdirectories recursively under the given path
+    const result = await pool.query(`
+      WITH RECURSIVE subdirs AS (
+        -- Direct children directories
+        SELECT path, name, parent_path, is_directory, 1 as depth
+        FROM files
+        WHERE parent_path = $1 AND is_directory = true
+        
+        UNION ALL
+        
+        -- Recursive subdirectories
+        SELECT f.path, f.name, f.parent_path, f.is_directory, s.depth + 1
+        FROM files f
+        INNER JOIN subdirs s ON f.parent_path = s.path
+        WHERE f.is_directory = true
+      )
+      SELECT path, name, parent_path FROM subdirs
+      ORDER BY depth DESC, name ASC
+    `, [parentPath]);
+    
+    return result.rows;
+  }
 
   static async findFilesRecursively(directoryPath) {
     // Recursively find all files (not directories) under a given directory
