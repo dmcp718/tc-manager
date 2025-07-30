@@ -172,6 +172,12 @@ EOF
 create_docker_ssl_override() {
     local ssl_override="$PROJECT_DIR/docker-compose.ssl.yml"
     
+    # Only create if it doesn't exist (package deployments should have it)
+    if [ -f "$ssl_override" ]; then
+        log_info "docker-compose.ssl.yml already exists, skipping creation"
+        return
+    fi
+    
     cat > "$ssl_override" << EOF
 # SSL/HTTPS Override for Production
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ssl.yml up
@@ -183,74 +189,9 @@ services:
       - "443:443"
     volumes:
       - ./ssl:/etc/nginx/ssl:ro
+      - ./frontend/nginx.ssl.conf:/etc/nginx/conf.d/default.conf:ro
     environment:
       - ENABLE_SSL=true
-    # Override nginx configuration to enable SSL
-    command: >
-      sh -c "
-        # Create SSL-enabled nginx config
-        cat > /etc/nginx/conf.d/default.conf << 'NGINX_EOF'
-        server {
-            listen 80;
-            server_name localhost;
-            return 301 https://\$$server_name\$$request_uri;
-        }
-
-        server {
-            listen 443 ssl http2;
-            server_name localhost;
-            
-            # SSL Configuration
-            ssl_certificate /etc/nginx/ssl/sc-mgr.crt;
-            ssl_certificate_key /etc/nginx/ssl/sc-mgr.key;
-            ssl_protocols TLSv1.2 TLSv1.3;
-            ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
-            ssl_prefer_server_ciphers off;
-            ssl_session_cache shared:SSL:10m;
-            ssl_session_timeout 10m;
-            
-            # Security Headers
-            add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;
-            add_header X-Content-Type-Options nosniff always;
-            add_header X-Frame-Options DENY always;
-            add_header X-XSS-Protection \"1; mode=block\" always;
-            
-            root /usr/share/nginx/html;
-            index index.html;
-            
-            # Frontend routes
-            location / {
-                try_files \$$uri \$$uri/ /index.html;
-            }
-            
-            # API proxy to backend
-            location /api/ {
-                proxy_pass http://backend:3001;
-                proxy_set_header Host \$$host;
-                proxy_set_header X-Real-IP \$$remote_addr;
-                proxy_set_header X-Forwarded-For \$$proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto \$$scheme;
-                proxy_set_header X-Forwarded-Host \$$host;
-                proxy_set_header X-Forwarded-Port \$$server_port;
-            }
-            
-            # WebSocket proxy
-            location /ws {
-                proxy_pass http://backend:3002;
-                proxy_http_version 1.1;
-                proxy_set_header Upgrade \$$http_upgrade;
-                proxy_set_header Connection \"upgrade\";
-                proxy_set_header Host \$$host;
-                proxy_set_header X-Real-IP \$$remote_addr;
-                proxy_set_header X-Forwarded-For \$$proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto \$$scheme;
-            }
-        }
-        NGINX_EOF
-        
-        # Start nginx
-        nginx -g 'daemon off;'
-      "
 
 volumes:
   ssl_certs:
@@ -259,6 +200,7 @@ EOF
 
     log_success "Docker Compose SSL override created"
 }
+
 
 # Create certificate installation script
 create_cert_install_script() {
