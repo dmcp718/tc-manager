@@ -167,9 +167,6 @@ The LucidLink client binary is required but not included in the repository due t
 # Create the required directory (in parent directory due to Docker build context)
 mkdir -p ../lucidlink-builds
 
-# Download LucidLink client from official source
-wget https://www.lucidlink.com/download/lucidlink_3.2.6817_amd64.deb -O ../lucidlink-builds/lucidlink_3.2.6817_amd64.deb
-
 # Or if you have the file locally, copy it to the correct directory:
 cp /path/to/lucidlink_3.2.6817_amd64.deb ../lucidlink-builds/
 ```
