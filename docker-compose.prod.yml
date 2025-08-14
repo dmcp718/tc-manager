@@ -8,7 +8,7 @@ services:
       context: ..
       dockerfile: ./sc-manager-greenfield/backend/Dockerfile
       target: production
-    container_name: tc-mgr-backend-prod
+    container_name: tc-mgr-backend
     # Performance optimizations
     mem_limit: 8g
     cpus: 8.0
@@ -95,19 +95,18 @@ services:
       dockerfile: Dockerfile
       target: production
       args:
-        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:3001/api}
-        REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:3002}
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
-        REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-}
     image: sc-manager-greenfield-frontend:latest
-    container_name: tc-mgr-frontend-prod
+    container_name: tc-mgr-frontend
     ports:
       - "8091:80"
     depends_on:
       - backend
-    # Override any dev server command with nginx
-    command: ["nginx", "-g", "daemon off;"]
-    entrypoint: []
+    environment:
+      # Runtime configuration - uses relative paths
+      - FRONTEND_API_URL=/api
+      - FRONTEND_WS_URL=/ws
+      - LUCIDLINK_MOUNT_POINT=${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
     # Run as root to avoid nginx PID file permission issues
     user: root
     healthcheck:

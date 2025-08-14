@@ -4,7 +4,7 @@
 # This service collects Varnish cache statistics and writes them to a shared volume
 
 STATS_FILE="/data/varnish-stats.json"
-CONTAINER_NAME="${VARNISH_CONTAINER_NAME:-sitecache-varnish-1}"
+CONTAINER_NAME="${VARNISH_CONTAINER_NAME:-varnish}"
 UPDATE_INTERVAL="${UPDATE_INTERVAL:-30}"
 
 echo "Starting Varnish Stats Collector..."
@@ -14,13 +14,15 @@ echo "Stats file: $STATS_FILE"
 
 # Function to collect and write stats
 collect_stats() {
-    # Get varnish storage stats
-    VARNISH_OUTPUT=$(docker exec $CONTAINER_NAME varnishstat -1 -f '*.g_bytes_used*' -f '*.g_bytes_unused*' 2>/dev/null)
+    # Get varnish storage stats - ONLY disk storage, NOT memory
+    # We want MSE4_STORE metrics, NOT MSE4_MEM metrics
+    VARNISH_OUTPUT=$(docker exec $CONTAINER_NAME varnishstat -1 -f 'MSE4_STORE.*.g_bytes_used' -f 'MSE4_STORE.*.g_bytes_unused' 2>/dev/null)
     
     if [ $? -eq 0 ]; then
         # Parse the output for storage statistics and sum all storage devices
-        BYTES_USED=$(echo "$VARNISH_OUTPUT" | grep "MSE4_STORE.*\.g_bytes_used[[:space:]]" | awk '{sum += $2} END {print sum}')
-        BYTES_UNUSED=$(echo "$VARNISH_OUTPUT" | grep "MSE4_STORE.*\.g_bytes_unused[[:space:]]" | awk '{sum += $2} END {print sum}')
+        # Match pattern: MSE4_STORE.book#.store#.g_bytes_used
+        BYTES_USED=$(echo "$VARNISH_OUTPUT" | grep -E "MSE4_STORE\.book[0-9]+\.store[0-9]+\.g_bytes_used[[:space:]]" | awk '{sum += $2} END {print sum}')
+        BYTES_UNUSED=$(echo "$VARNISH_OUTPUT" | grep -E "MSE4_STORE\.book[0-9]+\.store[0-9]+\.g_bytes_unused[[:space:]]" | awk '{sum += $2} END {print sum}')
         
         if [ ! -z "$BYTES_USED" ] && [ ! -z "$BYTES_UNUSED" ] && [ "$BYTES_USED" != "" ] && [ "$BYTES_UNUSED" != "" ]; then
             TOTAL_SPACE=$((BYTES_USED + BYTES_UNUSED))
