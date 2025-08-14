@@ -113,7 +113,7 @@ A production-ready file system browser and cache management system for LucidLink
 ### 1. Clone and Initial Setup
 
 ```bash
-git clone https://github.com/your-org/teamcache-manager.git
+git clone https://github.com/dmcp718/tc-manager.git
 cd teamcache-manager
 
 # For a fresh setup (recommended for first time)
