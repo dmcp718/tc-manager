@@ -42,9 +42,9 @@ services:
   # Frontend - Production overrides  
   frontend:
     container_name: tc-mgr-frontend
-    # Override ports - use only nginx port for production
+    # Override development ports - only expose nginx on 80
     ports:
-      - "8092:80"
+      - "8091:80"
     build:
       args:
         # Frontend URLs require SERVER_HOST to be set

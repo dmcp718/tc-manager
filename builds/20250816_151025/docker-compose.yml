@@ -1,0 +1,259 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: tc-mgr-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-sitecache_db}
+      POSTGRES_USER: ${DB_USER:-sitecache_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+      # Performance tuning
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
+      POSTGRES_MAINTENANCE_WORK_MEM: 64MB
+      POSTGRES_CHECKPOINT_COMPLETION_TARGET: 0.7
+      POSTGRES_WAL_BUFFERS: 16MB
+      POSTGRES_DEFAULT_STATISTICS_TARGET: 100
+    # Resource limits
+    mem_limit: 1g
+    cpus: 1.0
+    shm_size: 256mb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./backend/schema-profiles.sql:/docker-entrypoint-initdb.d/02-profiles.sql
+      - ./backend/schema-direct-links.sql:/docker-entrypoint-initdb.d/03-direct-links.sql
+      - ./backend/schema-video-preview.sql:/docker-entrypoint-initdb.d/04-video-preview.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sitecache_user -d sitecache_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Backend API Service
+  backend:
+    build:
+      context: ..
+      dockerfile: ./tc-manager/backend/Dockerfile
+    container_name: tc-mgr-backend
+    # Performance optimizations
+    mem_limit: 8g
+    cpus: 8.0
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3001}
+      SERVER_HOST: ${SERVER_HOST:-localhost}
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-sitecache_db}
+      DB_USER: ${DB_USER:-sitecache_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      POSTGRES_USER: ${POSTGRES_USER:-teamcache_user}
+      POSTGRES_DB: ${POSTGRES_DB:-teamcache_db}
+      PREVIEW_CACHE_DIR: /app/preview-cache
+      INDEX_ROOT_PATH: ${INDEX_ROOT_PATH:-/media/lucidlink-1}
+      ALLOWED_PATHS: ${ALLOWED_PATHS:-/media/lucidlink-1}
+      NETWORK_INTERFACE: ${NETWORK_INTERFACE:-eth0}
+      LUCIDLINK_FS_1_PORT: ${LUCIDLINK_FS_1_PORT:-7778}
+      ENABLE_NETWORK_STATS: "false"
+      ENABLE_LUCIDLINK_STATS: ${ENABLE_LUCIDLINK_STATS:-true}
+      LUCIDLINK_INCLUDE_GET_TIME: ${LUCIDLINK_INCLUDE_GET_TIME:-true}
+      LUCIDLINK_COMMAND: ${LUCIDLINK_COMMAND:-/usr/local/bin/lucid}
+      LUCIDLINK_REST_ENDPOINT: ${LUCIDLINK_REST_ENDPOINT:-}
+      # LucidLink daemon configuration
+      LUCIDLINK_FILESPACE: ${LUCIDLINK_FILESPACE}
+      LUCIDLINK_USER: ${LUCIDLINK_USER}
+      LUCIDLINK_PASSWORD: ${LUCIDLINK_PASSWORD}
+      LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
+      # Performance tuning
+      UV_THREADPOOL_SIZE: 16
+      NODE_OPTIONS: "--max-old-space-size=1536"
+      # Cache worker optimizations
+      CACHE_WORKER_COUNT: ${CACHE_WORKER_COUNT:-2}
+      MAX_CONCURRENT_FILES: ${MAX_CONCURRENT_FILES:-5}
+      WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-2000}
+      # Elasticsearch configuration
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-elasticsearch}
+      ELASTICSEARCH_PORT: ${ELASTICSEARCH_PORT:-9200}
+      ELASTICSEARCH_INDEX: ${ELASTICSEARCH_INDEX:-sitecache-files}
+      # Authentication configuration
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-key-change-in-production}
+      JWT_EXPIRY: ${JWT_EXPIRY:-8h}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      # Use host.docker.internal to access host machine from container
+      LUCIDLINK_API_HOST: ${LUCIDLINK_API_HOST:-host.docker.internal}
+      LUCIDLINK_API_PORT: ${LUCIDLINK_API_PORT:-9780}
+      # Configure S3 proxy for Varnish cache  
+      LUCID_S3_PROXY: ${LUCID_S3_PROXY}
+      # RUI Configuration
+      ENABLE_RUI: ${ENABLE_RUI:-false}
+      RUI_SCAN_INTERVAL: ${RUI_SCAN_INTERVAL:-30000}
+      RUI_MONITOR_INTERVAL: ${RUI_MONITOR_INTERVAL:-2000}
+      RUI_BATCH_SIZE: ${RUI_BATCH_SIZE:-100}
+      RUI_MAX_CONCURRENT_MONITORS: ${RUI_MAX_CONCURRENT_MONITORS:-10}
+      ENABLE_RUI_FILESYSTEM_SCANNER: ${ENABLE_RUI_FILESYSTEM_SCANNER:-false}
+      RUI_FS_SCAN_INTERVAL: ${RUI_FS_SCAN_INTERVAL:-60000}
+      RUI_HOT_DIR_INTERVAL: ${RUI_HOT_DIR_INTERVAL:-15000}
+      RUI_MAX_CONCURRENT: ${RUI_MAX_CONCURRENT:-10}
+      # Video transcoding configuration
+      TRANSCODE_VIDEO_BITRATE: ${TRANSCODE_VIDEO_BITRATE:-1000k}
+      TRANSCODE_VIDEO_MAXRATE: ${TRANSCODE_VIDEO_MAXRATE:-1500k}
+      TRANSCODE_VIDEO_BUFSIZE: ${TRANSCODE_VIDEO_BUFSIZE:-2000k}
+      TRANSCODE_VIDEO_WIDTH: ${TRANSCODE_VIDEO_WIDTH:-1280}
+      TRANSCODE_VIDEO_HEIGHT: ${TRANSCODE_VIDEO_HEIGHT:-720}
+      TRANSCODE_AUDIO_BITRATE: ${TRANSCODE_AUDIO_BITRATE:-128k}
+      TRANSCODE_AUDIO_CODEC: ${TRANSCODE_AUDIO_CODEC:-aac}
+      TRANSCODE_AUDIO_CHANNELS: ${TRANSCODE_AUDIO_CHANNELS:-2}
+      TRANSCODE_AUDIO_SAMPLE_RATE: ${TRANSCODE_AUDIO_SAMPLE_RATE:-48000}
+      TRANSCODE_HLS_SEGMENT_TIME: ${TRANSCODE_HLS_SEGMENT_TIME:-2}
+      TRANSCODE_CONTAINER_FORMAT: ${TRANSCODE_CONTAINER_FORMAT:-hls}
+      # Video preview worker configuration
+      VIDEO_PREVIEW_WORKER_COUNT: ${VIDEO_PREVIEW_WORKER_COUNT:-2}
+      VIDEO_PREVIEW_MAX_CONCURRENT: ${VIDEO_PREVIEW_MAX_CONCURRENT:-2}
+      VIDEO_PREVIEW_POLL_INTERVAL: ${VIDEO_PREVIEW_POLL_INTERVAL:-5000}
+    volumes:
+      # Application logs
+      - backend_logs:/app/logs
+      # Create mount point for LucidLink (will be mounted by daemon inside container)
+      - lucidlink_mount:/media/lucidlink-1
+      # Shared volume for varnish stats
+      - varnish_stats:/data
+      # Persistent preview cache
+      - ${PREVIEW_CACHE_HOST_PATH:-./data/previews}:/app/preview-cache
+    ports:
+      - "3001:3001"
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    # Add host machine access (for LucidLink API)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # LucidLink FUSE filesystem requirements
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - "/dev/fuse"
+    security_opt:
+      - "apparmor:unconfined"
+
+  # Frontend Web Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:3001/api}
+        REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:3002}
+        REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
+        REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-}
+    container_name: tc-mgr-frontend
+    ports:
+      - "8090:3000"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Redis Cache Service
+  redis:
+    image: redis:7-alpine
+    container_name: tc-mgr-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru
+
+  # Elasticsearch Search Service
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: tc-mgr-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - cluster.name=sitecache-cluster
+      - node.name=sitecache-node
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    mem_limit: 2g
+    cpus: 2.0
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+
+  # Varnish Stats Collection Service
+  varnish-stats:
+    build:
+      context: ./varnish-stats-collector
+      dockerfile: Dockerfile
+    container_name: tc-mgr-varnish-stats
+    environment:
+      VARNISH_STATS_INTERVAL: ${VARNISH_STATS_INTERVAL:-60000}
+      VARNISH_CONTAINER_NAME: ${VARNISH_CONTAINER_NAME:-varnish}
+    volumes:
+      - varnish_stats:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_logs:
+    driver: local
+  lucidlink_mount:
+    driver: local
+  varnish_stats:
+    driver: local
+  redis_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+
+networks:
+  default:
+    name: tc-mgr-network

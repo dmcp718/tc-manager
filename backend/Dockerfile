@@ -23,10 +23,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy and install custom LucidLink build (if available)
 COPY lucidlink-builds/ /tmp/lucidlink-builds/
-RUN if [ -f /tmp/lucidlink-builds/lucidlink_3.2.6817_amd64.deb ]; then \
+RUN if ls /tmp/lucidlink-builds/lucidlink*.deb 1> /dev/null 2>&1; then \
         echo "Installing LucidLink package..." \
         && apt-get update \
-        && apt-get install -y /tmp/lucidlink-builds/lucidlink_3.2.6817_amd64.deb \
+        && apt-get install -y /tmp/lucidlink-builds/lucidlink*.deb \
         && rm -rf /tmp/lucidlink-builds \
         && rm -rf /var/lib/apt/lists/*; \
     else \
@@ -97,10 +97,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy and install custom LucidLink build (if available)
 COPY lucidlink-builds/ /tmp/lucidlink-builds/
-RUN if [ -f /tmp/lucidlink-builds/lucidlink_3.2.6817_amd64.deb ]; then \
+RUN if ls /tmp/lucidlink-builds/lucidlink*.deb 1> /dev/null 2>&1; then \
         echo "Installing LucidLink package..." \
         && apt-get update \
-        && apt-get install -y /tmp/lucidlink-builds/lucidlink_3.2.6817_amd64.deb \
+        && apt-get install -y /tmp/lucidlink-builds/lucidlink*.deb \
         && rm -rf /tmp/lucidlink-builds \
         && rm -rf /var/lib/apt/lists/*; \
     else \

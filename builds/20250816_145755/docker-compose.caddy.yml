@@ -1,0 +1,32 @@
+# Caddy-based frontend with auto HTTPS
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.caddy.yml up
+
+services:
+  frontend:
+    build:
+      context: ..
+      dockerfile: ./tc-manager/frontend/Dockerfile.caddy
+      args:
+        # Use HTTPS URLs with SERVER_HOST variable
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-https://${SERVER_HOST:-localhost}/api}
+        REACT_APP_WS_URL: ${REACT_APP_WS_URL:-wss://${SERVER_HOST:-localhost}/ws}
+        REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
+        REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-https://${SERVER_HOST:-localhost}:3000}
+    image: tc-mgr-frontend-caddy
+    container_name: tc-mgr-frontend-caddy
+    ports:
+      - "443:443"   # HTTPS with auto certificates
+      # Port 80 is handled internally by Caddy for HTTP->HTTPS redirects
+    volumes:
+      - ./ssl:/etc/ssl/certs:ro  # Mount SSL certificates (optional override)
+    environment:
+      # Runtime environment for Caddy
+      - SERVER_HOST=${SERVER_HOST:-localhost}
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

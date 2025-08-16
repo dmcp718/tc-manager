@@ -1,0 +1,29 @@
+# Override for deployment from pre-built package
+# This removes build configurations and uses pre-loaded images
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.package.yml up -d
+
+services:
+  backend:
+    # Remove build configuration - use pre-loaded image
+    build: !reset
+    image: tc-mgr-backend:${BUILD_VERSION:-1.7.0}
+    
+  frontend:
+    # Remove build configuration - use pre-loaded image  
+    build: !reset
+    image: tc-mgr-frontend:${BUILD_VERSION:-1.7.0}
+    # Add runtime configuration environment variables
+    environment:
+      - FRONTEND_API_URL=${FRONTEND_API_URL:-/api}
+      - FRONTEND_WS_URL=${FRONTEND_WS_URL:-/ws}
+      - FRONTEND_GRAFANA_URL=${FRONTEND_GRAFANA_URL:-}
+      - LUCIDLINK_MOUNT_POINT=${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
+    # Mount nginx configuration files
+    volumes:
+      - ./frontend/nginx-base.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/nginx.production.conf:/etc/nginx/conf.d/default.conf:ro
+  
+  varnish-stats:
+    # Remove build configuration - use pre-loaded image
+    build: !reset
+    image: tc-mgr-varnish-stats:${BUILD_VERSION:-1.7.0}
