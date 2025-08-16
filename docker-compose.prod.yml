@@ -99,7 +99,7 @@ services:
     image: sc-manager-greenfield-frontend:latest
     container_name: tc-mgr-frontend
     ports:
-      - "8091:80"
+      - "8090:80"  # Nginx production server
     depends_on:
       - backend
     environment:

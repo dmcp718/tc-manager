@@ -87,6 +87,8 @@ services:
       dockerfile: Dockerfile
       target: development  # We'll add this target to Dockerfile
     container_name: sc-mgr-frontend-dev
+    ports:
+      - "8090:3000"  # React dev server
     user: root
     volumes:
       # Mount source code for live reload

@@ -165,8 +165,7 @@ services:
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
         REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-}
     container_name: tc-mgr-frontend
-    ports:
-      - "8090:3000"
+    # Port mapping defined in docker-compose.dev.yml or docker-compose.prod.yml
     depends_on:
       - backend
     healthcheck:

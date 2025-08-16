@@ -42,15 +42,13 @@ services:
   # Frontend - Production overrides  
   frontend:
     container_name: tc-mgr-frontend
-    # Override ports - use only nginx port for production
-    ports:
-      - "8092:80"
+    # Port is defined in docker-compose.prod.yml
     build:
       args:
-        # Frontend URLs require SERVER_HOST to be set
-        REACT_APP_API_URL: ${REACT_APP_API_URL:-https://${SERVER_HOST}/api}
-        REACT_APP_WS_URL: ${REACT_APP_WS_URL:-wss://${SERVER_HOST}}
-        REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-https://${SERVER_HOST}:3000}
+        # Frontend URLs from environment (no defaults - must be set in .env)
+        REACT_APP_API_URL: ${REACT_APP_API_URL}
+        REACT_APP_WS_URL: ${REACT_APP_WS_URL}
+        REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL}
     # Override health check to use nginx port
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/"]
