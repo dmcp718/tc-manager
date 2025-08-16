@@ -191,7 +191,7 @@ NETWORK_INTERFACE=eth0
 # Varnish Stats (optional)
 ENABLE_VARNISH_STATS=false
 VARNISH_STATS_INTERVAL=60000
-VARNISH_CONTAINER_NAME=sitecache-varnish-1
+VARNISH_CONTAINER_NAME=varnish
 EOF
 
 # Set proper permissions
