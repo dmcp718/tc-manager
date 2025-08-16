@@ -220,7 +220,7 @@ USE_LETSENCRYPT=true ./scripts/setup-ssl.sh yourdomain.com your-email@domain.com
 3. **Deploy with automatic setup:**
    ```bash
    # Without SSL (for testing)
-   ./scripts/deploy-production.sh
+   ./scripts/deploy-production.sh none
    
    # With SSL (for production)
    ./scripts/deploy-production.sh nginx
@@ -261,6 +261,10 @@ USE_LETSENCRYPT=true ./scripts/setup-ssl.sh yourdomain.com your-email@domain.com
 
 5. **Start services:**
    ```bash
+   # Without SSL (for testing)
+   ./scripts/deploy-production.sh none
+   
+   # Or manually with docker compose:
    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
    ```
 

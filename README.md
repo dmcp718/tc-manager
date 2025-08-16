@@ -363,7 +363,7 @@ The script generates:
 
 ```bash
 # Deploy without SSL (HTTP only)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+./scripts/deploy-production.sh none
 
 # Deploy with nginx SSL (default for IP addresses)
 ./scripts/deploy-production.sh
