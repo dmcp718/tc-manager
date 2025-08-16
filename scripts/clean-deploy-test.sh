@@ -40,13 +40,13 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml down -v 2>/dev/nu
 
 # List and remove any remaining project volumes
 echo "   Removing specific project volumes..."
-docker volume ls | grep sc-mgr | awk '{print $2}' | xargs -r docker volume rm 2>/dev/null || true
+docker volume ls | grep tc-mgr | awk '{print $2}' | xargs -r docker volume rm 2>/dev/null || true
 
 echo ""
 echo "3. Removing all project images..."
 # Remove images with project name
-docker images | grep sc-manager-greenfield | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
-docker images | grep sc-mgr | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+docker images | grep tc-mgr | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+docker images | grep tc-manager | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
 
 echo ""
 echo "4. Pruning Docker system..."
@@ -82,9 +82,9 @@ rm -f backend/host-info.json
 
 echo ""
 echo "8. Checking for any remaining Docker resources..."
-remaining_containers=$(docker ps -a | grep -E "sc-mgr|sc-manager" | wc -l || echo "0")
-remaining_images=$(docker images | grep -E "sc-mgr|sc-manager" | wc -l || echo "0")
-remaining_volumes=$(docker volume ls | grep -E "sc-mgr|sc-manager" | wc -l || echo "0")
+remaining_containers=$(docker ps -a | grep -E "tc-mgr|tc-manager" | wc -l || echo "0")
+remaining_images=$(docker images | grep -E "tc-mgr|tc-manager" | wc -l || echo "0")
+remaining_volumes=$(docker volume ls | grep -E "tc-mgr|tc-manager" | wc -l || echo "0")
 
 if [ "$remaining_containers" -gt 0 ] || [ "$remaining_images" -gt 0 ] || [ "$remaining_volumes" -gt 0 ]; then
     echo "   ⚠️  Found remaining resources:"

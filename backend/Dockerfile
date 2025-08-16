@@ -38,7 +38,7 @@ WORKDIR /app
 ENV NODE_ENV=development
 
 # Copy package files
-COPY ./sc-manager-greenfield/backend/package*.json ./
+COPY tc-manager/backend/package*.json ./
 
 # Install all dependencies (including dev dependencies)
 RUN npm ci
@@ -49,13 +49,13 @@ RUN mkdir -p /root/.ssh && \
     chmod 600 /root/.ssh/id_rsa
 
 # Copy source code (for development, this will be overridden by volume mount)
-COPY ./sc-manager-greenfield/backend/ .
+COPY tc-manager/backend/ .
 
 # Make startup script executable
 RUN chmod +x start-lucidlink.sh
 
 # Copy and use development entrypoint
-COPY ./sc-manager-greenfield/backend/docker-entrypoint-dev.sh /usr/local/bin/
+COPY tc-manager/backend/docker-entrypoint-dev.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint-dev.sh
 
 # Expose ports (including debugger port)
@@ -106,7 +106,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Copy package files
-COPY ./sc-manager-greenfield/backend/package*.json ./
+COPY tc-manager/backend/package*.json ./
 
 # Install dependencies with optimization flags
 RUN npm ci --only=production --no-audit --no-fund
@@ -117,7 +117,7 @@ RUN mkdir -p /root/.ssh && \
     chmod 600 /root/.ssh/id_rsa
 
 # Copy source code
-COPY ./sc-manager-greenfield/backend/ .
+COPY tc-manager/backend/ .
 
 # Make startup script executable
 RUN chmod +x start-lucidlink.sh

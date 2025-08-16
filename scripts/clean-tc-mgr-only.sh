@@ -68,7 +68,7 @@ docker volume ls --format "{{.Name}}" | grep "tc-mgr" | while read volume; do
 done
 
 # Also remove volumes that might have different naming patterns
-docker volume ls --format "{{.Name}}" | grep -E "teamcache_|sc-manager-greenfield" | while read volume; do
+docker volume ls --format "{{.Name}}" | grep -E "teamcache_|tc-manager" | while read volume; do
     # Skip if it contains the varnish container itself, grafana, or prometheus
     # BUT DO remove varnish_stats volume (contains stale cache data)
     if echo "$volume" | grep -q "varnish_stats"; then

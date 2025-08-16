@@ -72,8 +72,8 @@ docker build \
     --target production \
     --build-arg BUILD_VERSION="$BUILD_VERSION" \
     --build-arg BUILD_TIME="$BUILD_TIME" \
-    --tag teamcache-backend:${BUILD_VERSION} \
-    --tag teamcache-backend:latest \
+    --tag tc-mgr-backend:${BUILD_VERSION} \
+    --tag tc-mgr-backend:latest \
     --file "${PROJECT_DIR}/backend/Dockerfile" \
     --no-cache \
     "${PROJECT_DIR}/.."
@@ -85,8 +85,8 @@ docker build \
     --build-arg REACT_APP_WS_URL="${WS_PROTOCOL}://${SERVER_HOST}" \
     --build-arg REACT_APP_LUCIDLINK_MOUNT_POINT="/media/lucidlink-1" \
     --build-arg REACT_APP_GRAFANA_URL="http://${SERVER_HOST}:3000" \
-    --tag teamcache-frontend:${BUILD_VERSION} \
-    --tag teamcache-frontend:latest \
+    --tag tc-mgr-frontend:${BUILD_VERSION} \
+    --tag tc-mgr-frontend:latest \
     --file "${PROJECT_DIR}/frontend/Dockerfile.optimized" \
     --no-cache \
     "${PROJECT_DIR}/frontend"
@@ -96,8 +96,8 @@ echo -e "${GREEN}✅ Docker images built successfully${NC}"
 
 # Export images for deployment
 echo -e "${BLUE}📦 Exporting Docker images...${NC}"
-docker save -o "${BUILD_DIR}/teamcache-backend-${BUILD_VERSION}.tar" teamcache-backend:${BUILD_VERSION}
-docker save -o "${BUILD_DIR}/teamcache-frontend-${BUILD_VERSION}.tar" teamcache-frontend:${BUILD_VERSION}
+docker save -o "${BUILD_DIR}/tc-mgr-backend-${BUILD_VERSION}.tar" tc-mgr-backend:${BUILD_VERSION}
+docker save -o "${BUILD_DIR}/tc-mgr-frontend-${BUILD_VERSION}.tar" tc-mgr-frontend:${BUILD_VERSION}
 
 # Create deployment package
 echo -e "${BLUE}📦 Creating deployment package...${NC}"

@@ -38,7 +38,7 @@ services:
   backend:
     build:
       context: ..
-      dockerfile: ./sc-manager-greenfield/backend/Dockerfile
+      dockerfile: ./tc-manager/backend/Dockerfile
     container_name: tc-mgr-backend
     # Performance optimizations
     mem_limit: 8g

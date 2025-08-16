@@ -41,11 +41,11 @@ if [ "$CLEAN_MODE" = true ]; then
     # Remove volumes
     echo "  - Removing volumes..."
     docker compose down -v 2>/dev/null || true
-    docker volume ls | grep sc-mgr | awk '{print $2}' | xargs -r docker volume rm 2>/dev/null || true
+    docker volume ls | grep tc-mgr | awk '{print $2}' | xargs -r docker volume rm 2>/dev/null || true
     
     # Remove project images
     echo "  - Removing project images..."
-    docker images | grep -E "sc-manager-greenfield|sc-mgr" | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+    docker images | grep -E "tc-manager|tc-mgr" | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
     
     # Clean local directories
     echo "  - Cleaning local directories..."
