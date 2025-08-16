@@ -2,6 +2,12 @@
 # Development stage
 FROM node:18-bullseye-slim AS development
 
+# Set npm configuration for better network handling
+ENV NPM_CONFIG_RETRY=10
+ENV NPM_CONFIG_FETCH_RETRIES=10
+ENV NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=60000
+ENV NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
+
 # Install development dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
@@ -41,7 +47,7 @@ ENV NODE_ENV=development
 COPY tc-manager/backend/package*.json ./
 
 # Install all dependencies (including dev dependencies)
-RUN npm ci
+RUN npm ci || (npm cache clean --force && npm ci)
 
 # Generate SSH key for host access
 RUN mkdir -p /root/.ssh && \
@@ -69,6 +75,12 @@ CMD ["dumb-init", "./start-lucidlink.sh", "npm", "run", "dev"]
 
 # Production stage
 FROM node:18-bullseye-slim AS production
+
+# Set npm configuration for better network handling
+ENV NPM_CONFIG_RETRY=10
+ENV NPM_CONFIG_FETCH_RETRIES=10
+ENV NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=60000
+ENV NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
 
 # Install production dependencies for better performance
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -109,7 +121,9 @@ ENV NODE_ENV=production
 COPY tc-manager/backend/package*.json ./
 
 # Install dependencies with optimization flags
-RUN npm ci --only=production --no-audit --no-fund
+# Note: node-pty requires python3 and build-essential which are already installed
+RUN npm ci --omit=dev --no-audit --no-fund || \
+    (npm cache clean --force && npm ci --omit=dev --no-audit --no-fund)
 
 # Generate SSH key for host access
 RUN mkdir -p /root/.ssh && \
