@@ -258,7 +258,8 @@ fi
 # Step 7: Start all services
 echo ""
 echo -e "${BLUE}🚀 Starting all services...${NC}"
-$COMPOSE_CMD up -d
+# Use --build to ensure varnish-stats and other services with build definitions are built
+$COMPOSE_CMD up -d --build
 
 # Step 8: Wait for services to be healthy
 echo ""

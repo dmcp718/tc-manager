@@ -91,6 +91,14 @@ docker build \
     --no-cache \
     "${PROJECT_DIR}/frontend"
 
+# Build varnish-stats collector
+echo -e "${YELLOW}Building varnish-stats collector...${NC}"
+docker build \
+    --tag tc-mgr-varnish-stats:${BUILD_VERSION} \
+    --tag tc-mgr-varnish-stats:latest \
+    --file "${PROJECT_DIR}/varnish-stats-collector/Dockerfile" \
+    --no-cache \
+    "${PROJECT_DIR}/varnish-stats-collector"
 
 echo -e "${GREEN}✅ Docker images built successfully${NC}"
 
@@ -98,6 +106,7 @@ echo -e "${GREEN}✅ Docker images built successfully${NC}"
 echo -e "${BLUE}📦 Exporting Docker images...${NC}"
 docker save -o "${BUILD_DIR}/tc-mgr-backend-${BUILD_VERSION}.tar" tc-mgr-backend:${BUILD_VERSION}
 docker save -o "${BUILD_DIR}/tc-mgr-frontend-${BUILD_VERSION}.tar" tc-mgr-frontend:${BUILD_VERSION}
+docker save -o "${BUILD_DIR}/tc-mgr-varnish-stats-${BUILD_VERSION}.tar" tc-mgr-varnish-stats:${BUILD_VERSION}
 
 # Create deployment package
 echo -e "${BLUE}📦 Creating deployment package...${NC}"
