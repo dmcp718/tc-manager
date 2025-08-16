@@ -32,7 +32,6 @@ fi
 
 # Generate secure values
 JWT_SECRET=$(openssl rand -hex 32)
-ADMIN_PASSWORD=$(openssl rand -base64 12 | tr -d "=")
 POSTGRES_PASSWORD=$(openssl rand -base64 18 | tr -d "=")
 
 # Get user input for required values
@@ -44,6 +43,14 @@ read -p "LucidLink Filespace (e.g., filespace.domain): " LUCIDLINK_FILESPACE
 read -p "LucidLink username (email): " LUCIDLINK_USER
 read -sp "LucidLink password: " LUCIDLINK_PASSWORD
 echo ""
+read -sp "Admin user password (press Enter to generate random): " ADMIN_PASSWORD
+echo ""
+if [ -z "$ADMIN_PASSWORD" ]; then
+    ADMIN_PASSWORD=$(openssl rand -base64 12 | tr -d "=")
+    echo -e "${GREEN}✅ Generated random admin password${NC}"
+else
+    echo -e "${GREEN}✅ Using provided admin password${NC}"
+fi
 read -p "Disable SSL/HTTPS? (For development only) (y/N): " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
