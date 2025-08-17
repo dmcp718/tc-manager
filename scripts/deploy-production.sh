@@ -149,6 +149,8 @@ if [ -f "$PROJECT_DIR/docker-compose.package.yml" ]; then
         echo -e "${BLUE}📦 Package deployment detected - skipping build${NC}"
         SKIP_BUILD=true
     fi
+    # Add package configuration BEFORE SSL so SSL can override nginx config
+    COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.package.yml"
 fi
 
 case $SSL_MODE in
@@ -193,10 +195,6 @@ case $SSL_MODE in
         ;;
 esac
 
-# Add package override LAST to ensure it overrides build configurations
-if [ "$PACKAGE_MODE" = true ]; then
-    COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.package.yml"
-fi
 
 # Step 5: Start core services
 echo ""
