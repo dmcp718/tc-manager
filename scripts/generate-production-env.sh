@@ -68,6 +68,16 @@ fi
 read -p "Grafana URL (default: $PROTOCOL://$SERVER_HOST:3000): " GRAFANA_URL
 GRAFANA_URL=${GRAFANA_URL:-$PROTOCOL://$SERVER_HOST:3000}
 
+# Varnish configuration (required for LucidLink S3 proxy)
+read -p "Varnish server endpoint (e.g., http://192.168.1.100:80): " VARNISH_SERVER
+if [ -z "$VARNISH_SERVER" ]; then
+    echo -e "${RED}❌ Varnish server endpoint is required for LucidLink S3 proxy${NC}"
+    exit 1
+fi
+VARNISH_CONTAINER_NAME=varnish
+VARNISH_STATS_INTERVAL=60000
+echo -e "${GREEN}✅ Varnish configuration set${NC}"
+
 # Set frontend URLs based on SSL configuration
 if [ "$SSL_ENABLED" = true ]; then
     # For HTTPS, use path-based routing
@@ -115,7 +125,7 @@ LUCIDLINK_API_PORT=9780
 LUCIDLINK_FILESPACE=$LUCIDLINK_FILESPACE
 LUCIDLINK_USER=$LUCIDLINK_USER
 LUCIDLINK_PASSWORD=$LUCIDLINK_PASSWORD
-LUCID_S3_PROXY=http://$SERVER_HOST:80
+LUCID_S3_PROXY=$VARNISH_SERVER
 ENABLE_LUCIDLINK_STATS=true
 LUCIDLINK_INCLUDE_GET_TIME=true
 
@@ -188,10 +198,11 @@ ENABLE_RUI_FILESYSTEM_SCANNER=false
 ENABLE_NETWORK_STATS=false
 NETWORK_INTERFACE=eth0
 
-# Varnish Stats (optional)
-ENABLE_VARNISH_STATS=false
-VARNISH_STATS_INTERVAL=60000
-VARNISH_CONTAINER_NAME=varnish
+# Varnish Stats
+ENABLE_VARNISH_STATS=true
+VARNISH_STATS_INTERVAL=$VARNISH_STATS_INTERVAL
+VARNISH_CONTAINER_NAME=$VARNISH_CONTAINER_NAME
+VARNISH_SERVER=$VARNISH_SERVER
 EOF
 
 # Set proper permissions
@@ -218,6 +229,7 @@ else
 fi
 echo "   LucidLink Filespace: $LUCIDLINK_FILESPACE"
 echo "   LucidLink User: $LUCIDLINK_USER"
+echo "   Varnish Server (S3 Proxy): $VARNISH_SERVER"
 echo ""
 echo -e "${GREEN}🔒 Security notes:${NC}"
 echo "   - The .env file has been created with restricted permissions (600)"
