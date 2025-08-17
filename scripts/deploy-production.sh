@@ -301,19 +301,13 @@ source <(grep -v '^#' .env | grep -v '^$')
 # Determine URLs based on configuration
 if [ "$SSL_MODE" = "none" ]; then
     FRONTEND_URL="http://${SERVER_HOST:-localhost}:8090"
-    API_URL="http://${SERVER_HOST:-localhost}:3001"
-    WS_URL="ws://${SERVER_HOST:-localhost}:3002"
+    API_URL="http://${SERVER_HOST:-localhost}:8090/api"
+    WS_URL="ws://${SERVER_HOST:-localhost}:8090/ws"
 else
     FRONTEND_URL="https://${SERVER_HOST:-localhost}"
-    # For Caddy, API and WS go through the same HTTPS port
-    if [ "$SSL_MODE" = "caddy" ]; then
-        API_URL="https://${SERVER_HOST:-localhost}/api"
-        WS_URL="wss://${SERVER_HOST:-localhost}/ws"
-    else
-        # For nginx with separate ports
-        API_URL="https://${SERVER_HOST:-localhost}:3001"
-        WS_URL="wss://${SERVER_HOST:-localhost}:3002"
-    fi
+    # Both Caddy and nginx proxy API and WS through the main HTTPS port
+    API_URL="https://${SERVER_HOST:-localhost}/api"
+    WS_URL="wss://${SERVER_HOST:-localhost}/ws"
 fi
 
 echo -n "   Testing frontend ($FRONTEND_URL)... "

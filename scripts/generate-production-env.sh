@@ -74,9 +74,9 @@ if [ "$SSL_ENABLED" = true ]; then
     REACT_APP_API_URL="$PROTOCOL://$SERVER_HOST/api"
     REACT_APP_WS_URL="$WS_PROTOCOL://$SERVER_HOST/ws"
 else
-    # For non-SSL, use port-based routing
-    REACT_APP_API_URL="$PROTOCOL://$SERVER_HOST:3001/api"
-    REACT_APP_WS_URL="$WS_PROTOCOL://$SERVER_HOST:3002"
+    # For non-SSL, use nginx proxy on port 8090
+    REACT_APP_API_URL="$PROTOCOL://$SERVER_HOST:8090/api"
+    REACT_APP_WS_URL="$WS_PROTOCOL://$SERVER_HOST:8090/ws"
 fi
 
 # Create complete .env file
@@ -213,8 +213,8 @@ if [ "$SSL_ENABLED" = true ]; then
     echo "   API URL: $PROTOCOL://$SERVER_HOST/api"
     echo "   WebSocket URL: $WS_PROTOCOL://$SERVER_HOST/ws"
 else
-    echo "   API URL: $PROTOCOL://$SERVER_HOST:3001/api"
-    echo "   WebSocket URL: $WS_PROTOCOL://$SERVER_HOST:3002"
+    echo "   API URL: $PROTOCOL://$SERVER_HOST:8090/api"
+    echo "   WebSocket URL: $WS_PROTOCOL://$SERVER_HOST:8090/ws"
 fi
 echo "   LucidLink Filespace: $LUCIDLINK_FILESPACE"
 echo "   LucidLink User: $LUCIDLINK_USER"
