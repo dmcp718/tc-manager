@@ -4,9 +4,9 @@ services:
     image: postgres:15-alpine
     container_name: tc-mgr-postgres
     environment:
-      POSTGRES_DB: ${DB_NAME:-sitecache_db}
-      POSTGRES_USER: ${DB_USER:-sitecache_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      POSTGRES_DB: ${DB_NAME:-teamcache_db}
+      POSTGRES_USER: ${DB_USER:-teamcache_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-teamcache_password}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
       # Performance tuning
       POSTGRES_SHARED_BUFFERS: 256MB
@@ -28,7 +28,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sitecache_user -d sitecache_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-teamcache_user} -d ${DB_NAME:-teamcache_db}"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -53,10 +53,10 @@ services:
       SERVER_HOST: ${SERVER_HOST:-localhost}
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
-      DB_NAME: ${DB_NAME:-sitecache_db}
-      DB_USER: ${DB_USER:-sitecache_user}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      DB_NAME: ${DB_NAME:-teamcache_db}
+      DB_USER: ${DB_USER:-teamcache_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-teamcache_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-teamcache_password}
       POSTGRES_USER: ${POSTGRES_USER:-teamcache_user}
       POSTGRES_DB: ${POSTGRES_DB:-teamcache_db}
       PREVIEW_CACHE_DIR: /app/preview-cache

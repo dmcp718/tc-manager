@@ -22,9 +22,9 @@ services:
       PORT: ${PORT:-3001}
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
-      DB_NAME: ${DB_NAME:-sitecache_db}
-      DB_USER: ${DB_USER:-sitecache_user}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-sitecache_password}
+      DB_NAME: ${DB_NAME:-teamcache_db}
+      DB_USER: ${DB_USER:-teamcache_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-teamcache_password}
       INDEX_ROOT_PATH: ${INDEX_ROOT_PATH:-/media/lucidlink-1}
       ALLOWED_PATHS: ${ALLOWED_PATHS:-/media/lucidlink-1}
       NETWORK_INTERFACE: ${NETWORK_INTERFACE:-eth0}
@@ -96,7 +96,7 @@ services:
       target: production
       args:
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
-    image: sc-manager-greenfield-frontend:latest
+    image: tc-mgr-frontend:latest
     container_name: tc-mgr-frontend
     ports:
       - "8090:80"  # Nginx production server

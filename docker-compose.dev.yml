@@ -29,8 +29,8 @@ services:
       SERVER_HOST: ${SERVER_HOST:-localhost}
       DB_HOST: postgres  # Use service name with bridge networking
       DB_PORT: 5432
-      DB_NAME: sitecache_db
-      DB_USER: sitecache_user
+      DB_NAME: teamcache_db
+      DB_USER: teamcache_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}  # Use env var or default to admin123 for dev
       INDEX_ROOT_PATH: /media/lucidlink-1
       ALLOWED_PATHS: /media/lucidlink-1
