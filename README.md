@@ -320,27 +320,43 @@ VARNISH_CONTAINER_NAME=sitecache-varnish-1
 VARNISH_STATS_INTERVAL=60000
 ```
 
-### 2. SSL Certificate Setup (Optional but Recommended)
+### 2. SSL Certificate Setup (Automatic with nginx deployment)
 
-For HTTPS access, generate self-signed certificates:
+**🔐 SSL certificates are generated automatically** when using nginx deployment:
 
 ```bash
-# Generate SSL certificates with auto-detected host IP
+# Deploy with nginx SSL (recommended) - certificates auto-generated if needed
+./scripts/deploy-production.sh nginx
+
+# Deploy with Caddy auto-SSL (for domain names)
+./scripts/deploy-production.sh caddy
+
+# Deploy without SSL (development only)
+./scripts/deploy-production.sh none
+```
+
+The nginx deployment automatically:
+- Checks for existing SSL certificates in `./ssl/`
+- **Generates self-signed certificates if none exist**
+- Uses existing certificates if already present
+
+#### Manual Certificate Generation (Optional)
+
+Only needed if you want to generate certificates separately or use custom certificates:
+
+```bash
+# Generate SSL certificates manually with auto-detected host IP
 ./scripts/generate-ssl-cert.sh
 
-<<<<<<< HEAD
 # Or specify host IP manually
 SSL_HOST_IP=192.168.1.100 ./scripts/generate-ssl-cert.sh
 ```
 
-**After running the script, update your `.env` file with the generated certificate paths:**
-
-```bash
-# Update these lines in your .env file
-SSL_CERT_PATH=./ssl/sc-mgr.crt
-SSL_KEY_PATH=./ssl/sc-mgr.key
-DOMAIN_NAME=YOUR_SERVER_IP
-```
+To use custom CA-signed certificates:
+1. Place your certificates in `./ssl/`:
+   - Certificate: `./ssl/sc-mgr.crt`
+   - Private key: `./ssl/sc-mgr.key`
+2. Run deployment: `./scripts/deploy-production.sh nginx`
 
 **Install certificate in browsers to avoid security warnings:**
 ```bash
@@ -348,16 +364,10 @@ DOMAIN_NAME=YOUR_SERVER_IP
 ./ssl/install-cert.sh
 ```
 
-The script generates:
-- **Self-signed certificate** with proper SAN entries for host IP
-- **Docker Compose SSL override** (`docker-compose.ssl.yml`)
-- **Nginx SSL configuration** with security headers
-- **Browser installation instructions**
-
 **SSL Certificate Types:**
-- **Self-signed certificates**: Use IP address in `DOMAIN_NAME` (works with script-generated certs)
-- **Let's Encrypt certificates**: Requires domain name in `DOMAIN_NAME` (cannot use IP addresses)
-- **Commercial CA certificates**: Usually require domain name in `DOMAIN_NAME`
+- **Self-signed certificates**: Auto-generated or manually created (works with IP addresses)
+- **Let's Encrypt certificates**: Use Caddy deployment for automatic Let's Encrypt
+- **Commercial CA certificates**: Place in `./ssl/` directory before deployment
 
 ### 3. Deploy Production Stack
 
