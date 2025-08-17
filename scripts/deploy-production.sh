@@ -18,17 +18,12 @@ NC='\033[0m'
 
 # Default values
 SSL_MODE="${1:-nginx}"
-SKIP_BUILD=false
 SKIP_DB_INIT=false
 
 # Parse command line arguments
 shift || true
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --skip-build)
-            SKIP_BUILD=true
-            shift
-            ;;
         --skip-db-init)
             SKIP_DB_INIT=true
             shift
@@ -42,7 +37,6 @@ while [[ $# -gt 0 ]]; do
             echo "  none       No SSL (development only)"
             echo ""
             echo "Options:"
-            echo "  --skip-build    Skip building Docker images"
             echo "  --skip-db-init  Skip database initialization"
             echo "  --help          Show this help message"
             echo ""
@@ -116,19 +110,31 @@ else
     exit 1
 fi
 
-# Step 2: Build images (if needed)
-if [ "$SKIP_BUILD" = false ]; then
+# Step 2: Check if images exist, build if needed
+echo ""
+echo -e "${BLUE}🔍 Checking Docker images...${NC}"
+IMAGES_MISSING=false
+for IMAGE in tc-mgr-backend tc-mgr-frontend; do
+    if ! docker image inspect $IMAGE >/dev/null 2>&1; then
+        echo -e "${YELLOW}⚠️  Image $IMAGE not found${NC}"
+        IMAGES_MISSING=true
+    fi
+done
+
+if [ "$IMAGES_MISSING" = true ]; then
     echo ""
-    echo -e "${BLUE}🔨 Building Docker images...${NC}"
-    if ./scripts/build-production.sh; then
+    echo -e "${BLUE}🔨 Building required Docker images...${NC}"
+    echo -e "${YELLOW}ℹ️  This may take several minutes for first-time deployment${NC}"
+    
+    # Build images using docker compose (without compression/packaging)
+    if docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache; then
         echo -e "${GREEN}✅ Images built successfully${NC}"
     else
         echo -e "${RED}❌ Build failed${NC}"
         exit 1
     fi
 else
-    echo ""
-    echo -e "${YELLOW}⚠️  Skipping Docker image build${NC}"
+    echo -e "${GREEN}✅ Required images found${NC}"
 fi
 
 # Step 3: Stop any existing deployment
@@ -144,11 +150,6 @@ PACKAGE_MODE=false
 if [ -f "$PROJECT_DIR/docker-compose.package.yml" ]; then
     PACKAGE_MODE=true
     echo -e "${BLUE}📦 Using pre-built package configuration${NC}"
-    # Auto-skip build for package deployments
-    if [ "$SKIP_BUILD" = false ]; then
-        echo -e "${BLUE}📦 Package deployment detected - skipping build${NC}"
-        SKIP_BUILD=true
-    fi
     # Add package configuration BEFORE SSL so SSL can override nginx config
     COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.package.yml"
 fi
