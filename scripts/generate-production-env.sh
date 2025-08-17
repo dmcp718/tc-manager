@@ -65,8 +65,8 @@ else
     echo -e "${GREEN}✅ Using HTTPS with automatic certificates (default)${NC}"
 fi
 
-read -p "Grafana URL (default: $PROTOCOL://$SERVER_HOST:3000): " GRAFANA_URL
-GRAFANA_URL=${GRAFANA_URL:-$PROTOCOL://$SERVER_HOST:3000}
+read -p "Grafana URL (default: http://$SERVER_HOST:3000): " GRAFANA_URL
+GRAFANA_URL=${GRAFANA_URL:-http://$SERVER_HOST:3000}
 
 # Varnish configuration (required for LucidLink S3 proxy)
 DEFAULT_VARNISH_SERVER="http://$SERVER_HOST:80"
