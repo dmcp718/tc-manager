@@ -43,7 +43,7 @@ read -p "LucidLink Filespace (e.g., filespace.domain): " LUCIDLINK_FILESPACE
 read -p "LucidLink username (email): " LUCIDLINK_USER
 read -sp "LucidLink password: " LUCIDLINK_PASSWORD
 echo ""
-read -sp "Admin user password (press Enter to generate random): " ADMIN_PASSWORD
+read -sp "Web app admin user password (press Enter to generate random): " ADMIN_PASSWORD
 echo ""
 if [ -z "$ADMIN_PASSWORD" ]; then
     ADMIN_PASSWORD=$(openssl rand -base64 12 | tr -d "=")
@@ -69,14 +69,12 @@ read -p "Grafana URL (default: $PROTOCOL://$SERVER_HOST:3000): " GRAFANA_URL
 GRAFANA_URL=${GRAFANA_URL:-$PROTOCOL://$SERVER_HOST:3000}
 
 # Varnish configuration (required for LucidLink S3 proxy)
-read -p "Varnish server endpoint (e.g., http://192.168.1.100:80): " VARNISH_SERVER
-if [ -z "$VARNISH_SERVER" ]; then
-    echo -e "${RED}❌ Varnish server endpoint is required for LucidLink S3 proxy${NC}"
-    exit 1
-fi
+DEFAULT_VARNISH_SERVER="http://$SERVER_HOST:80"
+read -p "Varnish server endpoint (default: $DEFAULT_VARNISH_SERVER): " VARNISH_SERVER
+VARNISH_SERVER=${VARNISH_SERVER:-$DEFAULT_VARNISH_SERVER}
 VARNISH_CONTAINER_NAME=varnish
 VARNISH_STATS_INTERVAL=60000
-echo -e "${GREEN}✅ Varnish configuration set${NC}"
+echo -e "${GREEN}✅ Varnish configuration set: $VARNISH_SERVER${NC}"
 
 # Set frontend URLs based on SSL configuration
 if [ "$SSL_ENABLED" = true ]; then
