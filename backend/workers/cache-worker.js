@@ -176,14 +176,21 @@ class CacheWorker extends EventEmitter {
       completedFiles: 0,
       failedFiles: 0,
       completedSizeBytes: 0,
+      lastDbUpdateFiles: 0,  // Track last DB update count
       lastEmitted: Date.now()
     };
     
+    // Get job info to determine if it's a small job
+    const jobInfo = await CacheJobModel.findById(jobId);
+    const isSmallJob = jobInfo && jobInfo.total_files < 100;
+    
     // Configurable thresholds for progress updates
-    const fileThreshold = parseInt(process.env.CACHE_PROGRESS_FILE_THRESHOLD || '10', 10);
-    const timeThreshold = parseInt(process.env.CACHE_PROGRESS_TIME_THRESHOLD || '2000', 10); // 2 seconds
+    // For small jobs, update on every file. For large jobs, use thresholds
+    const fileThreshold = isSmallJob ? 1 : parseInt(process.env.CACHE_PROGRESS_FILE_THRESHOLD || '10', 10);
+    const timeThreshold = isSmallJob ? 100 : parseInt(process.env.CACHE_PROGRESS_TIME_THRESHOLD || '2000', 10);
     
     console.log(`Worker ${this.workerId} starting continuous processing for job ${jobId} with ${maxConcurrent} concurrent slots`);
+    console.log(`Job has ${jobInfo?.total_files || 0} files - using ${isSmallJob ? 'per-file' : 'batched'} updates (threshold: ${fileThreshold} files or ${timeThreshold}ms)`);
     
     while (!this.shouldStop) {
       // Check job status periodically (every 5 seconds) instead of every iteration
@@ -232,22 +239,28 @@ class CacheWorker extends EventEmitter {
               });
               
               // Check if we should update database based on thresholds
+              const filesSinceLastUpdate = inMemoryProgress.completedFiles - inMemoryProgress.lastDbUpdateFiles;
+              const timeSinceLastUpdate = Date.now() - inMemoryProgress.lastEmitted;
+              
               const shouldUpdateDb = 
-                (inMemoryProgress.completedFiles - completedCount >= fileThreshold) ||
-                (Date.now() - inMemoryProgress.lastEmitted >= timeThreshold);
+                (filesSinceLastUpdate >= fileThreshold) ||
+                (timeSinceLastUpdate >= timeThreshold);
+              
+              // Debug logging for small jobs
+              if (isSmallJob && inMemoryProgress.completedFiles <= 5) {
+                console.log(`Progress check: ${inMemoryProgress.completedFiles} files done, ${filesSinceLastUpdate} since update, threshold=${fileThreshold}, updating=${shouldUpdateDb}`);
+              }
               
               if (shouldUpdateDb) {
                 try {
-                  // Use incremental update
-                  const sizeIncrement = inMemoryProgress.completedSizeBytes - 
-                    (await CacheJobModel.findById(jobId))?.completed_size_bytes || 0;
-                  
+                  // Use incremental update with exact count since last update
                   await CacheJobModel.updateProgressIncremental(
                     jobId, 
-                    sizeIncrement,
+                    item.file_size_bytes || 0,
                     false // not failed
                   );
                   
+                  inMemoryProgress.lastDbUpdateFiles = inMemoryProgress.completedFiles;
                   inMemoryProgress.lastEmitted = Date.now();
                   
                   // Emit aggregated progress event
