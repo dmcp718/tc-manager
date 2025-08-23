@@ -63,54 +63,59 @@ echo ""
 echo "---"
 echo ""
 
-# Test 2: Create job with files only
+# Test 2: Create job with relative paths (recommended)
 api_call "POST" "/api/v1/cache/jobs" '{
     "files": [
-        "/media/lucidlink-1/test/video1.mp4",
-        "/media/lucidlink-1/test/video2.mov",
-        "/media/lucidlink-1/test/image.jpg"
+        "test/video1.mp4",
+        "test/video2.mov",
+        "test/image.jpg"
     ]
-}' "Create job with files only"
+}' "Create job with relative paths"
 
 # Save first job ID
 FIRST_JOB_ID=$JOB_ID
 
-# Test 3: Create job with directories
+# Test 3: Create job with directories (relative paths)
 api_call "POST" "/api/v1/cache/jobs" '{
     "directories": [
-        "/media/lucidlink-1/projects/project1",
-        "/media/lucidlink-1/projects/project2"
+        "projects/project1",
+        "projects/project2"
     ],
     "recursive": true
-}' "Create job with directories"
+}' "Create job with directories (relative paths)"
 
-# Test 4: Create job with both files and directories
+# Test 4: Create job with macOS absolute paths (auto-normalized)
 api_call "POST" "/api/v1/cache/jobs" '{
     "files": [
-        "/media/lucidlink-1/important.doc"
+        "/Volumes/dmpfs/tc-east-1/Transcode_demo/source_01/video.mp4"
     ],
     "directories": [
-        "/media/lucidlink-1/archive"
+        "/Volumes/dmpfs/tc-east-1/Transcode_demo/source_01/Farm"
+    ],
+    "recursive": true
+}' "Create job with macOS absolute paths"
+
+# Test 5: Create job with Windows paths (auto-normalized)
+api_call "POST" "/api/v1/cache/jobs" '{
+    "files": [
+        "C:\\dmpfs\\tc-east-1\\Projects\\2024\\render.exr"
+    ],
+    "directories": [
+        "C:\\dmpfs\\tc-east-1\\Projects\\2024\\Assets"
     ],
     "recursive": false
-}' "Create job with files and directories"
+}' "Create job with Windows paths"
 
-# Test 5: Get job status
+# Test 6: Get job status
 if [ -n "$FIRST_JOB_ID" ]; then
     api_call "GET" "/api/v1/cache/jobs/$FIRST_JOB_ID" "" "Get job status"
 fi
 
-# Test 6: List jobs
+# Test 7: List jobs
 api_call "GET" "/api/v1/cache/jobs?limit=5" "" "List recent jobs"
 
-# Test 7: List pending jobs only
+# Test 8: List pending jobs only
 api_call "GET" "/api/v1/cache/jobs?status=pending&limit=5" "" "List pending jobs"
-
-# Test 8: Test invalid path (should fail)
-echo -e "${BLUE}Test 8: Invalid Path (Should Fail)${NC}"
-api_call "POST" "/api/v1/cache/jobs" '{
-    "files": ["/invalid/path/file.txt"]
-}' "Create job with invalid path"
 
 # Test 9: Test missing API key (should fail)
 echo -e "${BLUE}Test 9: Missing API Key (Should Fail)${NC}"

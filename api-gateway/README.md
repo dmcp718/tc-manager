@@ -33,12 +33,23 @@ curl http://localhost:8095/api/v1/health
 ### 3. Submit a cache job
 
 ```bash
+# Using relative paths (recommended)
 curl -X POST http://localhost:8095/api/v1/cache/jobs \
   -H "X-API-Key: demo-api-key-2024" \
   -H "Content-Type: application/json" \
   -d '{
-    "files": ["/media/lucidlink-1/video.mp4"],
-    "directories": ["/media/lucidlink-1/folder"],
+    "files": ["Transcode_demo/source_01/video.mp4"],
+    "directories": ["Transcode_demo/source_01/Farm"],
+    "recursive": true
+  }'
+
+# Or from a macOS client with absolute paths (auto-normalized)
+curl -X POST http://localhost:8095/api/v1/cache/jobs \
+  -H "X-API-Key: demo-api-key-2024" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "files": ["/Volumes/dmpfs/tc-east-1/Transcode_demo/source_01/video.mp4"],
+    "directories": ["/Volumes/dmpfs/tc-east-1/Transcode_demo/source_01/Farm"],
     "recursive": true
   }'
 ```
@@ -90,8 +101,8 @@ Headers:
 
 Body:
 {
-  "files": ["/media/lucidlink-1/file1.mp4", "/media/lucidlink-1/file2.mov"],
-  "directories": ["/media/lucidlink-1/folder1", "/media/lucidlink-1/folder2"],
+  "files": ["Transcode_demo/source_01/video1.mp4", "Projects/2024/file2.mov"],
+  "directories": ["Transcode_demo/source_01/Farm/ProRes", "Archive/2024"],
   "recursive": true
 }
 ```
@@ -100,6 +111,20 @@ Body:
 - `files` (array, optional): List of file paths to cache
 - `directories` (array, optional): List of directory paths to cache
 - `recursive` (boolean, optional): Recursively cache subdirectories (default: true)
+
+**Path Handling:**
+
+The API accepts both relative and absolute paths from any client OS:
+
+1. **Relative paths (recommended)**: Paths relative to the LucidLink filespace root
+   - Example: `"Transcode_demo/source_01/Farm/ProRes"`
+   
+2. **Absolute paths**: Automatically normalized to container mount point
+   - macOS: `/Volumes/dmpfs/tc-east-1/Transcode_demo/...` → `/media/lucidlink-1/Transcode_demo/...`
+   - Windows: `C:\dmpfs\tc-east-1\Transcode_demo\...` → `/media/lucidlink-1/Transcode_demo/...`
+   - Linux: `/mnt/lucidlink/tc-east-1/Transcode_demo/...` → `/media/lucidlink-1/Transcode_demo/...`
+
+The API automatically maps all paths to the TeamCache container's mount point (`/media/lucidlink-1`).
 
 **Response:**
 ```json
@@ -254,7 +279,7 @@ DB_USER=teamcache_user
 DB_PASSWORD=teamcache_password
 
 # Path Configuration
-ALLOWED_PATHS=/media/lucidlink-1   # Allowed file path prefix
+CONTAINER_MOUNT_POINT=/media/lucidlink-1   # Container mount point for LucidLink filespace
 ```
 
 ## Rate Limiting
@@ -289,15 +314,32 @@ See the `test-api.sh` script for example API calls:
 # Run test script
 ./api-gateway/test-api.sh
 
-# Or test individual endpoints
+# Or test individual endpoints with relative paths
 curl -X POST http://localhost:8095/api/v1/cache/jobs \
   -H "X-API-Key: demo-api-key-2024" \
   -H "Content-Type: application/json" \
   -d '{
     "files": [
-      "/media/lucidlink-1/test/video1.mp4",
-      "/media/lucidlink-1/test/video2.mov"
+      "test/video1.mp4",
+      "test/video2.mov"
     ]
+  }'
+
+# Or from different client OS with absolute paths
+# macOS example:
+curl -X POST http://localhost:8095/api/v1/cache/jobs \
+  -H "X-API-Key: demo-api-key-2024" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "files": ["/Volumes/dmpfs/tc-east-1/test/video1.mp4"]
+  }'
+
+# Windows example:
+curl -X POST http://localhost:8095/api/v1/cache/jobs \
+  -H "X-API-Key: demo-api-key-2024" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "files": ["C:\\dmpfs\\tc-east-1\\test\\video1.mp4"]
   }'
 ```
 

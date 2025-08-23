@@ -30,6 +30,13 @@ const pool = new Pool({
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 
+// Request logging middleware
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${req.method} ${req.path} - IP: ${req.ip}`);
+  next();
+});
+
 // Rate limiting - 10 requests per minute
 const limiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -116,11 +123,65 @@ app.post('/api/v1/cache/jobs', authenticateApiKey, async (req, res) => {
     
     const { files = [], directories = [], recursive } = value;
     
-    // Combine files and directory contents
-    let allFiles = [...files];
+    // Map relative paths to container mount point
+    const containerMountPoint = process.env.CONTAINER_MOUNT_POINT || '/media/lucidlink-1';
     
-    if (directories.length > 0) {
-      const dirFiles = await getFilesFromDirectories(directories, recursive);
+    // Helper function to normalize paths
+    const normalizePath = (path) => {
+      // Remove leading slash if present (making it relative)
+      let relativePath = path.startsWith('/') ? path.substring(1) : path;
+      
+      // If path already starts with the mount point, return as-is
+      if (path.startsWith(containerMountPoint)) {
+        return path;
+      }
+      
+      // If path starts with common OS mount patterns, extract the relative part
+      // Handle Windows paths (e.g., C:\dmpfs\tc-east-1\...)
+      if (/^[A-Za-z]:[\\/]/.test(path)) {
+        // Extract after the filespace name
+        const parts = path.replace(/\\/g, '/').split('/');
+        const filespaceIndex = parts.findIndex(p => p.match(/^tc-/i) || p.match(/^lucidlink/i));
+        if (filespaceIndex !== -1 && filespaceIndex < parts.length - 1) {
+          relativePath = parts.slice(filespaceIndex + 1).join('/');
+        } else {
+          // If no recognizable filespace, take everything after drive letter and first folder
+          relativePath = parts.slice(2).join('/');
+        }
+      }
+      // Handle macOS paths (e.g., /Volumes/dmpfs/tc-east-1/...)
+      else if (path.startsWith('/Volumes/')) {
+        const parts = path.split('/');
+        const filespaceIndex = parts.findIndex(p => p.match(/^tc-/i) || p.match(/^lucidlink/i));
+        if (filespaceIndex !== -1 && filespaceIndex < parts.length - 1) {
+          relativePath = parts.slice(filespaceIndex + 1).join('/');
+        } else {
+          // If no recognizable filespace, take everything after /Volumes/xxx/
+          relativePath = parts.slice(3).join('/');
+        }
+      }
+      // Handle Linux paths that might have different mount points
+      else if (path.startsWith('/mnt/') || path.startsWith('/media/')) {
+        const parts = path.split('/');
+        const filespaceIndex = parts.findIndex(p => p.match(/^tc-/i) || p.match(/^lucidlink/i));
+        if (filespaceIndex !== -1 && filespaceIndex < parts.length - 1) {
+          relativePath = parts.slice(filespaceIndex + 1).join('/');
+        }
+      }
+      
+      // Combine with container mount point
+      return `${containerMountPoint}/${relativePath}`;
+    };
+    
+    // Normalize all paths
+    const normalizedFiles = files.map(normalizePath);
+    const normalizedDirectories = directories.map(normalizePath);
+    
+    // Combine files and directory contents
+    let allFiles = [...normalizedFiles];
+    
+    if (normalizedDirectories.length > 0) {
+      const dirFiles = await getFilesFromDirectories(normalizedDirectories, recursive);
       allFiles = allFiles.concat(dirFiles.map(f => f.path));
     }
     
@@ -131,25 +192,13 @@ app.post('/api/v1/cache/jobs', authenticateApiKey, async (req, res) => {
       });
     }
     
-    // Validate paths start with allowed prefix
-    const allowedPath = process.env.ALLOWED_PATHS || '/media/lucidlink-1';
-    const invalidPaths = allFiles.filter(p => !p.startsWith(allowedPath));
-    
-    if (invalidPaths.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid paths detected. All paths must start with ${allowedPath}`,
-        invalidPaths: invalidPaths.slice(0, 5) // Show first 5 invalid paths
-      });
-    }
-    
     // Create job in database
     const jobId = uuidv4();
     const result = await pool.query(
       `INSERT INTO cache_jobs (id, file_paths, directory_paths, total_files, status, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
        RETURNING *`,
-      [jobId, files, directories, allFiles.length, 'pending']
+      [jobId, normalizedFiles, normalizedDirectories, allFiles.length, 'pending']
     );
     
     const job = result.rows[0];
@@ -166,6 +215,8 @@ app.post('/api/v1/cache/jobs', authenticateApiKey, async (req, res) => {
         );
       }
     }
+    
+    console.log(`[${new Date().toISOString()}] Job created: ${job.id} with ${job.total_files} files`);
     
     res.status(201).json({
       success: true,
