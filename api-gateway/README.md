@@ -1,19 +1,25 @@
 # TeamCache Manager API Gateway
 
-External API service for submitting cache jobs to TeamCache Manager.
+External REST API for submitting cache jobs to TeamCache Manager with advanced progress tracking.
 
 ## Overview
 
-The API Gateway provides a simple REST API for external services to submit files and directories to be cached by TeamCache Manager. It's designed for development and demo purposes with simple API key authentication.
+The API Gateway provides a comprehensive REST API for external services to submit files and directories to be cached by TeamCache Manager. It features enhanced progress tracking with file-based and size-based metrics, plus real-time throughput statistics.
 
 ## Features
 
-- Simple REST API for cache job submission
-- API key authentication
-- Rate limiting (10 requests per minute)
-- Direct database integration
-- Health check endpoint
-- Job status tracking
+- **REST API for cache job submission**
+- **API key authentication** for security
+- **Rate limiting** (10 requests per minute)
+- **Enhanced Progress Tracking:**
+  - File-based progress (X of Y files completed)
+  - Size-based progress (GB completed / GB total)
+  - Real-time LucidLink throughput stats (MB/s)
+  - Human-readable size formatting
+- **Cross-platform path support** (Windows, macOS, Linux)
+- **Automatic path normalization**
+- **Direct database integration** with file indexing
+- **WebSocket connection** for real-time stats
 
 ## Quick Start
 
@@ -38,42 +44,20 @@ curl -X POST http://localhost:8095/api/v1/cache/jobs \
   -H "X-API-Key: demo-api-key-2024" \
   -H "Content-Type: application/json" \
   -d '{
-    "files": ["Transcode_demo/source_01/video.mp4"],
-    "directories": ["Transcode_demo/source_01/Farm"],
-    "recursive": true
-  }'
-
-# Or from a macOS client with absolute paths (auto-normalized)
-curl -X POST http://localhost:8095/api/v1/cache/jobs \
-  -H "X-API-Key: demo-api-key-2024" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "files": ["/Volumes/dmpfs/tc-east-1/Transcode_demo/source_01/video.mp4"],
-    "directories": ["/Volumes/dmpfs/tc-east-1/Transcode_demo/source_01/Farm"],
+    "files": ["00_Media/Farm/ProRes422/Farm00103.mov"],
+    "directories": ["00_Media/Farm/ProRes422"],
     "recursive": true
   }'
 ```
 
-## API Documentation
+## API Endpoints
 
-### Authentication
+### Health Check
 
-All API endpoints (except health) require an API key in the request headers:
-
-```
-X-API-Key: <your-api-key>
-```
-
-Default API key: `demo-api-key-2024`
-
-### Endpoints
-
-#### Health Check
-
-Check if the API Gateway is running and database is connected.
+Check if the API service is running and database is connected.
 
 **Request:**
-```
+```http
 GET /api/v1/health
 ```
 
@@ -84,116 +68,107 @@ GET /api/v1/health
   "status": "healthy",
   "service": "api-gateway",
   "database": "connected",
-  "timestamp": "2024-08-17T10:30:00.000Z"
+  "timestamp": "2025-08-23T02:40:00.000Z"
 }
 ```
 
-#### Create Cache Job
+### Create Cache Job
 
 Submit files and/or directories to be cached.
 
 **Request:**
-```
+```http
 POST /api/v1/cache/jobs
 Headers:
-  X-API-Key: <api-key>
+  X-API-Key: demo-api-key-2024
   Content-Type: application/json
 
 Body:
 {
-  "files": ["Transcode_demo/source_01/video1.mp4", "Projects/2024/file2.mov"],
-  "directories": ["Transcode_demo/source_01/Farm/ProRes", "Archive/2024"],
-  "recursive": true
+  "files": ["file1.mp4", "file2.mov"],     // Optional: List of files
+  "directories": ["folder1", "folder2"],    // Optional: List of directories
+  "recursive": true                         // Optional: Scan directories recursively (default: true)
 }
 ```
 
-**Parameters:**
-- `files` (array, optional): List of file paths to cache
-- `directories` (array, optional): List of directory paths to cache
-- `recursive` (boolean, optional): Recursively cache subdirectories (default: true)
-
-**Path Handling:**
-
-The API accepts both relative and absolute paths from any client OS:
-
-1. **Relative paths (recommended)**: Paths relative to the LucidLink filespace root
-   - Example: `"Transcode_demo/source_01/Farm/ProRes"`
-   
-2. **Absolute paths**: Automatically normalized to container mount point
-   - macOS: `/Volumes/dmpfs/tc-east-1/Transcode_demo/...` → `/media/lucidlink-1/Transcode_demo/...`
-   - Windows: `C:\dmpfs\tc-east-1\Transcode_demo\...` → `/media/lucidlink-1/Transcode_demo/...`
-   - Linux: `/mnt/lucidlink/tc-east-1/Transcode_demo/...` → `/media/lucidlink-1/Transcode_demo/...`
-
-The API automatically maps all paths to the TeamCache container's mount point (`/media/lucidlink-1`).
-
-**Response:**
+**Response (Enhanced with Size Information):**
 ```json
 {
   "success": true,
-  "jobId": "123e4567-e89b-12d3-a456-426614174000",
+  "jobId": "6bb4629b-1487-477c-96fe-b762d82a099b",
   "status": "pending",
-  "totalFiles": 150,
+  "totalFiles": 2,
+  "totalSize": {
+    "bytes": 1013645672,
+    "readable": "966.69 MB"
+  },
   "message": "Cache job created successfully",
-  "createdAt": "2024-08-17T10:30:00.000Z"
+  "createdAt": "2025-08-23T02:38:17.048Z"
 }
 ```
 
-#### Get Job Status
+### Get Job Status
 
-Check the status and progress of a cache job.
+Retrieve detailed status and progress for a cache job.
 
 **Request:**
-```
-GET /api/v1/cache/jobs/:id
+```http
+GET /api/v1/cache/jobs/{jobId}
 Headers:
-  X-API-Key: <api-key>
+  X-API-Key: demo-api-key-2024
 ```
 
-**Response:**
+**Response (Enhanced with Detailed Progress):**
 ```json
 {
   "success": true,
   "job": {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "status": "running",
-    "totalFiles": 150,
+    "id": "6bb4629b-1487-477c-96fe-b762d82a099b",
+    "status": "running",  // pending | running | completed | failed | cancelled
+    "totalFiles": 20,
     "progress": {
-      "completed": 75,
-      "failed": 2,
-      "total": 150,
-      "percentage": 50
+      // File-based progress tracking
+      "files": {
+        "completed": 15,
+        "failed": 0,
+        "total": 20,
+        "percentage": 75
+      },
+      // Size-based progress tracking
+      "size": {
+        "completedBytes": 64424509440,
+        "totalBytes": 85899345920,
+        "completedReadable": "60.0 GB",
+        "totalReadable": "80.0 GB",
+        "percentage": 75
+      },
+      // Overall percentage (average of file and size progress)
+      "percentage": 75
     },
-    "createdAt": "2024-08-17T10:30:00.000Z",
-    "startedAt": "2024-08-17T10:31:00.000Z",
+    // Real-time throughput statistics (when available)
+    "throughput": {
+      "mbps": 125.5,
+      "readable": "125.5 MB/s",
+      "timestamp": "2025-08-23T02:41:33.451Z"
+    },
+    "createdAt": "2025-08-23T02:38:17.048Z",
+    "startedAt": "2025-08-23T02:38:22.035Z",
     "completedAt": null,
     "error": null
   }
 }
 ```
 
-**Status Values:**
-- `pending`: Job created but not started
-- `running`: Job is being processed
-- `completed`: Job finished successfully
-- `failed`: Job failed with error
-- `cancelled`: Job was cancelled
-- `paused`: Job is paused
+### List Jobs
 
-#### List Jobs
-
-Get a list of recent cache jobs.
+Get a list of all cache jobs with their status.
 
 **Request:**
-```
-GET /api/v1/cache/jobs?limit=10&offset=0&status=pending
+```http
+GET /api/v1/cache/jobs
 Headers:
-  X-API-Key: <api-key>
+  X-API-Key: demo-api-key-2024
 ```
-
-**Query Parameters:**
-- `limit` (number, optional): Number of jobs to return (max: 100, default: 10)
-- `offset` (number, optional): Pagination offset (default: 0)
-- `status` (string, optional): Filter by status
 
 **Response:**
 ```json
@@ -201,75 +176,105 @@ Headers:
   "success": true,
   "jobs": [
     {
-      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "id": "6bb4629b-1487-477c-96fe-b762d82a099b",
       "status": "completed",
-      "totalFiles": 150,
-      "createdAt": "2024-08-17T10:30:00.000Z",
-      "completedAt": "2024-08-17T10:45:00.000Z"
+      "totalFiles": 2,
+      "totalSizeBytes": 1013645672,
+      "totalSizeReadable": "966.69 MB",
+      "completedFiles": 2,
+      "completedSizeBytes": 1013645672,
+      "completedSizeReadable": "966.69 MB",
+      "createdAt": "2025-08-23T02:38:17.048Z",
+      "completedAt": "2025-08-23T02:38:23.334Z"
     }
   ],
-  "pagination": {
-    "limit": 10,
-    "offset": 0,
-    "total": 1
-  }
+  "total": 1
 }
 ```
 
-#### Cancel Job
+### Cancel Job
 
 Cancel a pending or running cache job.
 
 **Request:**
-```
-DELETE /api/v1/cache/jobs/:id
+```http
+DELETE /api/v1/cache/jobs/{jobId}
 Headers:
-  X-API-Key: <api-key>
+  X-API-Key: demo-api-key-2024
 ```
 
 **Response:**
 ```json
 {
   "success": true,
-  "message": "Job cancelled successfully",
-  "job": {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "status": "cancelled"
-  }
+  "message": "Job cancelled successfully"
 }
 ```
 
-## Error Responses
+## Path Handling
 
-All error responses follow this format:
+The API intelligently handles paths from different operating systems:
 
+### Relative Paths (Recommended)
 ```json
 {
-  "success": false,
-  "error": "Error message",
-  "details": "Additional error details (optional)"
+  "files": ["00_Media/video.mp4"],
+  "directories": ["00_Media/Farm"]
 }
 ```
 
-**Common HTTP Status Codes:**
-- `200 OK`: Success
-- `201 Created`: Job created successfully
-- `400 Bad Request`: Invalid input
-- `401 Unauthorized`: Invalid or missing API key
-- `404 Not Found`: Resource not found
-- `429 Too Many Requests`: Rate limit exceeded
-- `500 Internal Server Error`: Server error
-- `503 Service Unavailable`: Service unhealthy
+### Absolute Paths (Auto-normalized)
+
+**From macOS:**
+```json
+{
+  "files": ["/Volumes/dmpfs/tc-east-1/00_Media/video.mp4"]
+}
+```
+
+**From Windows:**
+```json
+{
+  "files": ["C:\\dmpfs\\tc-east-1\\00_Media\\video.mp4"]
+}
+```
+
+**From Linux:**
+```json
+{
+  "files": ["/mnt/lucidlink/tc-east-1/00_Media/video.mp4"]
+}
+```
+
+All paths are automatically normalized to work with the container's mount point.
+
+## Progress Tracking Details
+
+### File-Based Progress
+- Tracks number of files completed vs total files
+- Useful for understanding job completion rate
+- Percentage based on file count
+
+### Size-Based Progress
+- Tracks bytes completed vs total bytes
+- Better representation for jobs with varied file sizes
+- Human-readable format (KB, MB, GB, TB)
+- More accurate for bandwidth estimation
+
+### Throughput Statistics
+- Real-time download speed from LucidLink
+- Updated via WebSocket connection to backend
+- Only shown when data is fresh (< 10 seconds old)
+- Helps estimate completion time
 
 ## Configuration
 
 Environment variables for the API Gateway:
 
 ```bash
-# API Gateway Configuration
-API_GATEWAY_PORT=8095              # External port
+# API Configuration
+API_GATEWAY_PORT=8095              # External port for API access
 API_GATEWAY_KEY=demo-api-key-2024  # API key for authentication
-API_GATEWAY_ENABLED=true           # Enable/disable service
 
 # Database Configuration
 DB_HOST=postgres
@@ -278,116 +283,209 @@ DB_NAME=teamcache_db
 DB_USER=teamcache_user
 DB_PASSWORD=teamcache_password
 
-# Path Configuration
-CONTAINER_MOUNT_POINT=/media/lucidlink-1   # Container mount point for LucidLink filespace
+# Backend WebSocket (for real-time stats)
+BACKEND_WS_URL=ws://backend:3002
 ```
 
-## Rate Limiting
+## Error Responses
 
-The API Gateway implements rate limiting to prevent abuse:
-- **Limit**: 10 requests per minute per IP
-- **Window**: 60 seconds sliding window
-- **Response**: HTTP 429 when limit exceeded
+### Authentication Error
+```json
+{
+  "success": false,
+  "error": "Invalid or missing API key"
+}
+```
 
-## Security Considerations
+### Rate Limit Error
+```json
+{
+  "success": false,
+  "error": "Too many requests, please try again later"
+}
+```
 
-This API Gateway is designed for development and demo purposes:
+### Invalid Job ID
+```json
+{
+  "success": false,
+  "error": "Invalid job ID format"
+}
+```
 
-1. **Simple Authentication**: Uses basic API key authentication
-2. **Path Validation**: Only allows files under configured paths
-3. **Rate Limiting**: Prevents request flooding
-4. **Input Validation**: Validates all input parameters
-5. **No Sensitive Data**: Doesn't expose internal system details
-
-For production use, consider:
-- Implementing OAuth2 or JWT authentication
-- Adding HTTPS/TLS encryption
-- Implementing request signing
-- Adding audit logging
-- Using API gateway solutions like Kong or Traefik
+### Job Not Found
+```json
+{
+  "success": false,
+  "error": "Job not found"
+}
+```
 
 ## Testing
 
-See the `test-api.sh` script for example API calls:
+A test script is included for easy testing:
 
 ```bash
-# Run test script
+# Run all tests
 ./api-gateway/test-api.sh
 
-# Or test individual endpoints with relative paths
+# Test specific endpoint
 curl -X POST http://localhost:8095/api/v1/cache/jobs \
   -H "X-API-Key: demo-api-key-2024" \
   -H "Content-Type: application/json" \
   -d '{
-    "files": [
-      "test/video1.mp4",
-      "test/video2.mov"
-    ]
-  }'
-
-# Or from different client OS with absolute paths
-# macOS example:
-curl -X POST http://localhost:8095/api/v1/cache/jobs \
-  -H "X-API-Key: demo-api-key-2024" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "files": ["/Volumes/dmpfs/tc-east-1/test/video1.mp4"]
-  }'
-
-# Windows example:
-curl -X POST http://localhost:8095/api/v1/cache/jobs \
-  -H "X-API-Key: demo-api-key-2024" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "files": ["C:\\dmpfs\\tc-east-1\\test\\video1.mp4"]
+    "directories": ["00_Media/Farm/ProRes422"],
+    "recursive": false
   }'
 ```
 
-## Monitoring
+## Integration Examples
 
-Monitor the API Gateway:
+### Python Client Example
+```python
+import requests
+import json
+import time
 
-```bash
-# View logs
-docker logs tc-mgr-api-gateway -f
+API_URL = "http://localhost:8095/api/v1"
+API_KEY = "demo-api-key-2024"
 
-# Check health
-curl http://localhost:8095/api/v1/health
+# Submit a cache job
+def create_cache_job(files=None, directories=None):
+    headers = {
+        "X-API-Key": API_KEY,
+        "Content-Type": "application/json"
+    }
+    
+    data = {}
+    if files:
+        data["files"] = files
+    if directories:
+        data["directories"] = directories
+    
+    response = requests.post(
+        f"{API_URL}/cache/jobs",
+        headers=headers,
+        json=data
+    )
+    return response.json()
 
-# View container stats
-docker stats tc-mgr-api-gateway
+# Monitor job progress
+def get_job_progress(job_id):
+    headers = {"X-API-Key": API_KEY}
+    response = requests.get(
+        f"{API_URL}/cache/jobs/{job_id}",
+        headers=headers
+    )
+    return response.json()
+
+# Example usage
+job = create_cache_job(directories=["00_Media/Farm"])
+print(f"Created job: {job['jobId']}")
+print(f"Total size: {job['totalSize']['readable']}")
+
+# Poll for progress
+while True:
+    status = get_job_progress(job['jobId'])
+    progress = status['job']['progress']
+    
+    print(f"Progress: {progress['size']['completedReadable']} / {progress['size']['totalReadable']}")
+    
+    if status['job']['throughput']:
+        print(f"Speed: {status['job']['throughput']['readable']}")
+    
+    if status['job']['status'] in ['completed', 'failed', 'cancelled']:
+        break
+    
+    time.sleep(5)
 ```
+
+### Node.js Client Example
+```javascript
+const axios = require('axios');
+
+const API_URL = 'http://localhost:8095/api/v1';
+const API_KEY = 'demo-api-key-2024';
+
+async function createCacheJob(files = [], directories = []) {
+  try {
+    const response = await axios.post(
+      `${API_URL}/cache/jobs`,
+      { files, directories },
+      {
+        headers: {
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    console.log(`Job created: ${response.data.jobId}`);
+    console.log(`Total size: ${response.data.totalSize.readable}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error creating job:', error.response?.data || error.message);
+  }
+}
+
+async function monitorJob(jobId) {
+  try {
+    const response = await axios.get(
+      `${API_URL}/cache/jobs/${jobId}`,
+      {
+        headers: { 'X-API-Key': API_KEY }
+      }
+    );
+    
+    const job = response.data.job;
+    const progress = job.progress;
+    
+    console.log(`Files: ${progress.files.completed}/${progress.files.total}`);
+    console.log(`Size: ${progress.size.completedReadable}/${progress.size.totalReadable}`);
+    
+    if (job.throughput) {
+      console.log(`Speed: ${job.throughput.readable}`);
+    }
+    
+    return job;
+  } catch (error) {
+    console.error('Error getting job status:', error.response?.data || error.message);
+  }
+}
+```
+
+## Security Notes
+
+⚠️ **Important:** This API uses simple API key authentication suitable for development and demo purposes. For production use, consider:
+
+- Implementing OAuth 2.0 or JWT authentication
+- Using HTTPS/TLS encryption
+- Implementing user-based access control
+- Adding request signing
+- Implementing more sophisticated rate limiting
+- Adding audit logging
 
 ## Troubleshooting
 
 ### Connection Refused
-- Check if the container is running: `docker ps | grep api-gateway`
-- Check port mapping: `docker port tc-mgr-api-gateway`
-
-### Database Connection Failed
-- Ensure PostgreSQL is running: `docker ps | grep postgres`
-- Check database credentials in environment variables
+- Ensure the API Gateway container is running: `docker ps | grep api-gateway`
+- Check the port mapping: default is 8095
+- Verify network connectivity
 
 ### Invalid API Key
-- Verify the API key in your request matches the configured key
-- Check environment variable: `docker exec tc-mgr-api-gateway env | grep API_KEY`
+- Check the API key in your `.env` file
+- Ensure you're sending the `X-API-Key` header
 
-### Rate Limit Exceeded
-- Wait 60 seconds before retrying
-- Consider increasing the rate limit for development
+### No Files Found
+- Verify files exist in the database (indexed by backend)
+- Check path format and normalization
+- Ensure the backend has completed indexing
 
-## Architecture
+### No Throughput Stats
+- WebSocket connection to backend may be disconnected
+- Stats are only shown when actively downloading
+- Check backend is running and WebSocket port (3002) is accessible
 
-The API Gateway connects directly to the PostgreSQL database to create cache jobs:
+## Support
 
-```
-External Service
-      ↓
-API Gateway (:8095)
-      ↓
-PostgreSQL Database
-      ↓
-Cache Workers (automatic processing)
-```
-
-Jobs created through the API are automatically picked up by the cache workers for processing.
+For issues or questions, please refer to the main TeamCache Manager documentation or create an issue in the repository.

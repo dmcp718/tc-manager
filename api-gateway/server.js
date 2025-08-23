@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const Joi = require('joi');
 const fs = require('fs').promises;
 const path = require('path');
+const WebSocket = require('ws');
 
 // Load environment variables
 require('dotenv').config();
@@ -13,6 +14,54 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.API_GATEWAY_PORT || 8095;
 const API_KEY = process.env.API_GATEWAY_KEY || 'demo-api-key-2024';
+
+// Store latest LucidLink stats in memory
+let latestLucidLinkStats = {
+  throughputMbps: 0,
+  timestamp: null
+};
+
+// WebSocket connection to backend for real-time stats
+let ws = null;
+const BACKEND_WS_URL = process.env.BACKEND_WS_URL || 'ws://backend:3002';
+
+function connectWebSocket() {
+  console.log(`Connecting to backend WebSocket at ${BACKEND_WS_URL}...`);
+  
+  ws = new WebSocket(BACKEND_WS_URL);
+  
+  ws.on('open', () => {
+    console.log('Connected to backend WebSocket for LucidLink stats');
+  });
+  
+  ws.on('message', (data) => {
+    try {
+      const message = JSON.parse(data);
+      
+      // Update stats if it's a LucidLink stats message
+      if (message.type === 'lucidlink-stats' && message.getMibps !== undefined) {
+        latestLucidLinkStats = {
+          throughputMbps: parseFloat(message.getMibps) || 0,
+          timestamp: new Date().toISOString()
+        };
+      }
+    } catch (error) {
+      console.error('Error parsing WebSocket message:', error);
+    }
+  });
+  
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error.message);
+  });
+  
+  ws.on('close', () => {
+    console.log('WebSocket connection closed, reconnecting in 5 seconds...');
+    setTimeout(connectWebSocket, 5000);
+  });
+}
+
+// Connect to WebSocket when server starts
+setTimeout(connectWebSocket, 2000); // Delay to ensure backend is ready
 
 // Database connection
 const pool = new Pool({
@@ -67,20 +116,87 @@ const createJobSchema = Joi.object({
   recursive: Joi.boolean().default(true)
 }).or('files', 'directories');
 
-// Helper function to get all files from directories
+// Helper function to get file size from database
+async function getFileSize(filePath) {
+  try {
+    // Query the files table for the file size
+    const result = await pool.query(
+      'SELECT size FROM files WHERE path = $1 OR path = $2',
+      [filePath, '/media/lucidlink-1/' + filePath]
+    );
+    
+    if (result.rows.length > 0) {
+      return parseInt(result.rows[0].size) || 0;
+    }
+    return 0;
+  } catch (error) {
+    console.error(`Error getting size for ${filePath}:`, error);
+    return 0;
+  }
+}
+
+// Helper function to format bytes to human readable
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Helper function to get files from directory using database
 async function getFilesFromDirectories(directories, recursive = true) {
   const allFiles = [];
   
   for (const dir of directories) {
     try {
-      // For simplicity in dev/demo, we'll just add the directory path
-      // In production, this would scan the actual filesystem
-      allFiles.push({
-        path: dir,
-        isDirectory: true
-      });
+      let query;
+      let params;
+      
+      if (recursive) {
+        // Get all files under the directory recursively
+        query = `
+          SELECT path, size 
+          FROM files 
+          WHERE is_directory = false 
+          AND (path LIKE $1 OR path LIKE $2)
+          ORDER BY path
+        `;
+        params = [
+          `/media/lucidlink-1/${dir}/%`,
+          `${dir}/%`
+        ];
+      } else {
+        // Get only direct children files
+        query = `
+          SELECT path, size 
+          FROM files 
+          WHERE is_directory = false 
+          AND (parent_path = $1 OR parent_path = $2)
+          ORDER BY path
+        `;
+        params = [
+          `/media/lucidlink-1/${dir}`,
+          dir
+        ];
+      }
+      
+      const result = await pool.query(query, params);
+      
+      for (const row of result.rows) {
+        // Normalize path to remove /media/lucidlink-1/ prefix if present
+        let filePath = row.path;
+        if (filePath.startsWith('/media/lucidlink-1/')) {
+          filePath = filePath.substring('/media/lucidlink-1/'.length);
+        }
+        
+        allFiles.push({
+          path: filePath,
+          size: parseInt(row.size) || 0
+        });
+      }
     } catch (error) {
-      console.error(`Error scanning directory ${dir}:`, error);
+      console.error(`Error querying files for directory ${dir}:`, error);
     }
   }
   
@@ -177,52 +293,78 @@ app.post('/api/v1/cache/jobs', authenticateApiKey, async (req, res) => {
     const normalizedFiles = files.map(normalizePath);
     const normalizedDirectories = directories.map(normalizePath);
     
-    // Combine files and directory contents
-    let allFiles = [...normalizedFiles];
+    // Get files with sizes
+    let fileDetails = [];
     
-    if (normalizedDirectories.length > 0) {
-      const dirFiles = await getFilesFromDirectories(normalizedDirectories, recursive);
-      allFiles = allFiles.concat(dirFiles.map(f => f.path));
+    // Add individual files with their sizes
+    for (const file of normalizedFiles) {
+      const relativePath = file.replace(containerMountPoint + '/', '');
+      const size = await getFileSize(relativePath);
+      fileDetails.push({ path: file, size });
     }
     
-    if (allFiles.length === 0) {
+    // Scan directories and get files with sizes
+    if (normalizedDirectories.length > 0) {
+      const dirFiles = await getFilesFromDirectories(
+        normalizedDirectories.map(d => d.replace(containerMountPoint + '/', '')), 
+        recursive
+      );
+      for (const file of dirFiles) {
+        fileDetails.push({ 
+          path: `${containerMountPoint}/${file.path}`, 
+          size: file.size 
+        });
+      }
+    }
+    
+    if (fileDetails.length === 0) {
       return res.status(400).json({
         success: false,
         error: 'No files or directories provided'
       });
     }
     
+    // Calculate total size
+    const totalSizeBytes = fileDetails.reduce((sum, file) => sum + file.size, 0);
+    const allFiles = fileDetails.map(f => f.path);
+    
     // Create job in database
     const jobId = uuidv4();
     const result = await pool.query(
-      `INSERT INTO cache_jobs (id, file_paths, directory_paths, total_files, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
+      `INSERT INTO cache_jobs (id, file_paths, directory_paths, total_files, total_size_bytes, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
        RETURNING *`,
-      [jobId, normalizedFiles, normalizedDirectories, allFiles.length, 'pending']
+      [jobId, allFiles, normalizedDirectories, allFiles.length, totalSizeBytes, 'pending']
     );
     
     const job = result.rows[0];
     
-    // Create job items for tracking
-    if (allFiles.length > 0) {
+    // Create job items with file sizes for tracking
+    if (fileDetails.length > 0) {
       const batchSize = 1000;
-      for (let i = 0; i < allFiles.length; i += batchSize) {
-        const batch = allFiles.slice(i, i + batchSize);
-        const values = batch.map(path => `('${jobId}', '${path.replace(/'/g, "''")}')`).join(',');
+      for (let i = 0; i < fileDetails.length; i += batchSize) {
+        const batch = fileDetails.slice(i, i + batchSize);
+        const values = batch.map(file => 
+          `('${jobId}', '${file.path.replace(/'/g, "''")}', ${file.size})`
+        ).join(',');
         
         await pool.query(
-          `INSERT INTO cache_job_items (job_id, file_path) VALUES ${values}`
+          `INSERT INTO cache_job_items (job_id, file_path, file_size_bytes) VALUES ${values}`
         );
       }
     }
     
-    console.log(`[${new Date().toISOString()}] Job created: ${job.id} with ${job.total_files} files`);
+    console.log(`[${new Date().toISOString()}] Job created: ${job.id} with ${job.total_files} files (${formatBytes(totalSizeBytes)})`);
     
     res.status(201).json({
       success: true,
       jobId: job.id,
       status: job.status,
       totalFiles: job.total_files,
+      totalSize: {
+        bytes: totalSizeBytes,
+        readable: formatBytes(totalSizeBytes)
+      },
       message: 'Cache job created successfully',
       createdAt: job.created_at
     });
@@ -266,18 +408,43 @@ app.get('/api/v1/cache/jobs/:id', authenticateApiKey, async (req, res) => {
     
     const job = jobResult.rows[0];
     
-    // Get job progress
+    // Get job progress with size information
     const progressResult = await pool.query(
       `SELECT 
         COUNT(*) FILTER (WHERE status = 'completed') as completed,
         COUNT(*) FILTER (WHERE status = 'failed') as failed,
-        COUNT(*) as total
+        COUNT(*) as total,
+        COALESCE(SUM(file_size_bytes) FILTER (WHERE status = 'completed'), 0) as completed_size,
+        COALESCE(SUM(file_size_bytes) FILTER (WHERE status = 'failed'), 0) as failed_size,
+        COALESCE(SUM(file_size_bytes), 0) as total_size
        FROM cache_job_items 
        WHERE job_id = $1`,
       [jobId]
     );
     
     const progress = progressResult.rows[0];
+    
+    // Get current LucidLink stats from WebSocket connection
+    let throughput = null;
+    
+    // Only include stats if they're recent (within last 10 seconds)
+    if (latestLucidLinkStats.timestamp) {
+      const statsAge = Date.now() - new Date(latestLucidLinkStats.timestamp).getTime();
+      if (statsAge < 10000) { // 10 seconds
+        throughput = {
+          mbps: latestLucidLinkStats.throughputMbps,
+          readable: `${latestLucidLinkStats.throughputMbps.toFixed(1)} MB/s`,
+          timestamp: latestLucidLinkStats.timestamp
+        };
+      }
+    }
+    
+    // Calculate size-based progress
+    const completedSizeBytes = parseInt(progress.completed_size) || 0;
+    const totalSizeBytes = job.total_size_bytes || parseInt(progress.total_size) || 0;
+    const sizePercentage = totalSizeBytes > 0 
+      ? Math.round((completedSizeBytes / totalSizeBytes) * 100) 
+      : 0;
     
     res.json({
       success: true,
@@ -286,13 +453,29 @@ app.get('/api/v1/cache/jobs/:id', authenticateApiKey, async (req, res) => {
         status: job.status,
         totalFiles: job.total_files,
         progress: {
-          completed: parseInt(progress.completed) || 0,
-          failed: parseInt(progress.failed) || 0,
-          total: parseInt(progress.total) || 0,
-          percentage: progress.total > 0 
-            ? Math.round((progress.completed / progress.total) * 100) 
-            : 0
+          // File-based progress
+          files: {
+            completed: parseInt(progress.completed) || 0,
+            failed: parseInt(progress.failed) || 0,
+            total: parseInt(progress.total) || 0,
+            percentage: progress.total > 0 
+              ? Math.round((progress.completed / progress.total) * 100) 
+              : 0
+          },
+          // Size-based progress
+          size: {
+            completedBytes: completedSizeBytes,
+            totalBytes: totalSizeBytes,
+            completedReadable: formatBytes(completedSizeBytes),
+            totalReadable: formatBytes(totalSizeBytes),
+            percentage: sizePercentage
+          },
+          // Overall percentage (average of file and size progress)
+          percentage: Math.round(
+            ((parseInt(progress.completed) || 0) / (parseInt(progress.total) || 1) * 100 + sizePercentage) / 2
+          )
         },
+        throughput: throughput,
         createdAt: job.created_at,
         startedAt: job.started_at,
         completedAt: job.completed_at,
