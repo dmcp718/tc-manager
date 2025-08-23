@@ -250,22 +250,34 @@ All paths are automatically normalized to work with the container's mount point.
 
 ## Progress Tracking Details
 
+### Enhanced Real-Time Progress
+The API provides granular, real-time progress updates with configurable thresholds for optimal performance:
+
 ### File-Based Progress
 - Tracks number of files completed vs total files
 - Useful for understanding job completion rate
 - Percentage based on file count
+- Updates incrementally as files complete
 
 ### Size-Based Progress
 - Tracks bytes completed vs total bytes
 - Better representation for jobs with varied file sizes
 - Human-readable format (KB, MB, GB, TB)
 - More accurate for bandwidth estimation
+- Updates in real-time with configurable thresholds
 
 ### Throughput Statistics
 - Real-time download speed from LucidLink
 - Updated via WebSocket connection to backend
 - Only shown when data is fresh (< 10 seconds old)
 - Helps estimate completion time
+
+### Progress Update Frequency
+Progress updates are optimized for performance with configurable thresholds:
+- **File Threshold**: Updates after N files complete (default: 10)
+- **Time Threshold**: Updates after N milliseconds (default: 2000ms)
+- Updates trigger when either threshold is met
+- Per-file events available via WebSocket for real-time monitoring
 
 ## Configuration
 
@@ -285,6 +297,10 @@ DB_PASSWORD=teamcache_password
 
 # Backend WebSocket (for real-time stats)
 BACKEND_WS_URL=ws://backend:3002
+
+# Progress Update Thresholds (optional)
+CACHE_PROGRESS_FILE_THRESHOLD=10     # Update after N files (default: 10)
+CACHE_PROGRESS_TIME_THRESHOLD=2000   # Update after N ms (default: 2000)
 ```
 
 ## Error Responses

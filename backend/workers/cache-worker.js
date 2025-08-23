@@ -19,6 +19,12 @@ class CacheWorker extends EventEmitter {
     this.activeOperations = new Set();
     this.pollInterval = options.pollInterval || 5000; // 5 seconds
     this.pollTimer = null;
+    
+    // Configurable progress update thresholds
+    this.progressFileThreshold = options.progressFileThreshold || 
+      parseInt(process.env.CACHE_PROGRESS_FILE_THRESHOLD || '10', 10);
+    this.progressTimeThreshold = options.progressTimeThreshold || 
+      parseInt(process.env.CACHE_PROGRESS_TIME_THRESHOLD || '2000', 10);
   }
 
   async start() {
@@ -165,6 +171,18 @@ class CacheWorker extends EventEmitter {
     const pendingCacheUpdates = []; // Batch cache status updates
     let lastBatchUpdate = Date.now();
     
+    // In-memory progress tracking
+    const inMemoryProgress = {
+      completedFiles: 0,
+      failedFiles: 0,
+      completedSizeBytes: 0,
+      lastEmitted: Date.now()
+    };
+    
+    // Configurable thresholds for progress updates
+    const fileThreshold = parseInt(process.env.CACHE_PROGRESS_FILE_THRESHOLD || '10', 10);
+    const timeThreshold = parseInt(process.env.CACHE_PROGRESS_TIME_THRESHOLD || '2000', 10); // 2 seconds
+    
     console.log(`Worker ${this.workerId} starting continuous processing for job ${jobId} with ${maxConcurrent} concurrent slots`);
     
     while (!this.shouldStop) {
@@ -195,9 +213,56 @@ class CacheWorker extends EventEmitter {
         for (const item of claimedItems) {
           const operationId = `${jobId}-${item.file_path}`;
           const promise = this.processJobItem(jobId, item)
-            .then(() => {
+            .then(async () => {
               activePromises.delete(operationId);
               completedCount++;
+              
+              // Update in-memory progress
+              inMemoryProgress.completedFiles++;
+              inMemoryProgress.completedSizeBytes += item.file_size_bytes || 0;
+              
+              // Emit per-file progress event
+              this.emit('file-progress', {
+                workerId: this.workerId,
+                jobId: jobId,
+                filePath: item.file_path,
+                fileSize: item.file_size_bytes || 0,
+                totalCompleted: inMemoryProgress.completedFiles,
+                totalCompletedBytes: inMemoryProgress.completedSizeBytes
+              });
+              
+              // Check if we should update database based on thresholds
+              const shouldUpdateDb = 
+                (inMemoryProgress.completedFiles - completedCount >= fileThreshold) ||
+                (Date.now() - inMemoryProgress.lastEmitted >= timeThreshold);
+              
+              if (shouldUpdateDb) {
+                try {
+                  // Use incremental update
+                  const sizeIncrement = inMemoryProgress.completedSizeBytes - 
+                    (await CacheJobModel.findById(jobId))?.completed_size_bytes || 0;
+                  
+                  await CacheJobModel.updateProgressIncremental(
+                    jobId, 
+                    sizeIncrement,
+                    false // not failed
+                  );
+                  
+                  inMemoryProgress.lastEmitted = Date.now();
+                  
+                  // Emit aggregated progress event
+                  this.emit('job-progress', {
+                    workerId: this.workerId,
+                    jobId: jobId,
+                    completedFiles: inMemoryProgress.completedFiles,
+                    completedSizeBytes: inMemoryProgress.completedSizeBytes,
+                    failedFiles: inMemoryProgress.failedFiles
+                  });
+                } catch (error) {
+                  console.error(`Error updating incremental progress: ${error.message}`);
+                }
+              }
+              
               // Queue cache status update for batch processing
               pendingCacheUpdates.push({
                 path: item.file_path,
@@ -208,9 +273,19 @@ class CacheWorker extends EventEmitter {
                 console.log(`Queued ${pendingCacheUpdates.length} files for batch cache update`);
               }
             })
-            .catch(error => {
+            .catch(async error => {
               console.error(`Error processing ${item.file_path}:`, error);
               activePromises.delete(operationId);
+              
+              // Update in-memory progress for failed files
+              inMemoryProgress.failedFiles++;
+              
+              // Update database for failures immediately
+              try {
+                await CacheJobModel.updateProgressIncremental(jobId, 0, true);
+              } catch (dbError) {
+                console.error(`Error updating failed file progress: ${dbError.message}`);
+              }
             });
           
           activePromises.set(operationId, promise);

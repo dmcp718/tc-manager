@@ -3293,6 +3293,14 @@ async function startServer() {
       broadcast({ type: 'cache-job-progress', ...data });
     });
     
+    cacheManager.on('file-progress', (data) => {
+      // Only log every 100th file to reduce console spam
+      if (data.totalCompleted % 100 === 0) {
+        console.log(`Cache file progress: ${data.totalCompleted} files (${(data.totalCompletedBytes / 1e9).toFixed(2)} GB)`);
+      }
+      broadcast({ type: 'cache-file-progress', ...data });
+    });
+    
     await cacheManager.start();
     console.log('Cache worker manager started');
   }
