@@ -408,21 +408,16 @@ app.get('/api/v1/cache/jobs/:id', authenticateApiKey, async (req, res) => {
     
     const job = jobResult.rows[0];
     
-    // Get job progress with size information
-    const progressResult = await pool.query(
-      `SELECT 
-        COUNT(*) FILTER (WHERE status = 'completed') as completed,
-        COUNT(*) FILTER (WHERE status = 'failed') as failed,
-        COUNT(*) as total,
-        COALESCE(SUM(file_size_bytes) FILTER (WHERE status = 'completed'), 0) as completed_size,
-        COALESCE(SUM(file_size_bytes) FILTER (WHERE status = 'failed'), 0) as failed_size,
-        COALESCE(SUM(file_size_bytes), 0) as total_size
-       FROM cache_job_items 
-       WHERE job_id = $1`,
-      [jobId]
-    );
-    
-    const progress = progressResult.rows[0];
+    // Use pre-calculated progress values from cache_jobs table for better performance
+    // These values are updated incrementally by the cache workers
+    const progress = {
+      completed: job.completed_files || 0,
+      failed: job.failed_files || 0,
+      total: job.total_files || 0,
+      completed_size: job.completed_size_bytes || 0,
+      failed_size: 0, // We don't track failed size in the main table yet
+      total_size: job.total_size_bytes || 0
+    };
     
     // Get current LucidLink stats from WebSocket connection
     let throughput = null;
@@ -452,6 +447,11 @@ app.get('/api/v1/cache/jobs/:id', authenticateApiKey, async (req, res) => {
         id: job.id,
         status: job.status,
         totalFiles: job.total_files,
+        // Direct access to current values for simpler client code
+        completed_files: job.completed_files || 0,
+        failed_files: job.failed_files || 0,
+        completed_size_bytes: job.completed_size_bytes || 0,
+        total_size_bytes: job.total_size_bytes || 0,
         progress: {
           // File-based progress
           files: {
