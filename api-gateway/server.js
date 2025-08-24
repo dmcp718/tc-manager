@@ -7,7 +7,6 @@ const Joi = require('joi');
 const fs = require('fs').promises;
 const path = require('path');
 const WebSocket = require('ws');
-const { S3Client, HeadBucketCommand } = require('@aws-sdk/client-s3');
 
 // Load environment variables
 require('dotenv').config();
@@ -29,7 +28,7 @@ let s3HealthMetrics = {
   isHealthy: false,
   lastCheck: null,
   checkCount: 0,
-  latencyHistory: [] // Keep last 60 samples (5 minutes at 5-second intervals)
+  latencyHistory: [] // Keep last 3 samples for dynamic average
 };
 
 // WebSocket connection to backend for real-time stats
@@ -116,24 +115,53 @@ function broadcastMetrics(type, data) {
 }
 
 // S3 health check configuration
-const S3_BUCKET = process.env.S3_HEALTH_BUCKET || 'your-s3-bucket';
+const S3_BUCKET = process.env.S3_HEALTH_BUCKET || 'lucid-fs-33d44ea3-beef-4604-bd02-edfe5d4216e2';
+const S3_ENDPOINT = process.env.S3_ENDPOINT || 'https://s3.us-east-1.amazonaws.com';
 const S3_REGION = process.env.S3_REGION || 'us-east-1';
 const S3_CHECK_INTERVAL = parseInt(process.env.S3_CHECK_INTERVAL) || 5000; // 5 seconds
-
-// Initialize S3 client
-const s3Client = new S3Client({
-  region: S3_REGION,
-  // AWS credentials will be loaded from environment or IAM role
-});
+const https = require('https');
+const http = require('http');
 
 // Function to perform S3 health check
 async function checkS3Health() {
   const startTime = Date.now();
   
   try {
-    // Use HeadBucket to check S3 connectivity and measure latency
-    const command = new HeadBucketCommand({ Bucket: S3_BUCKET });
-    await s3Client.send(command);
+    // Parse the endpoint URL and add bucket path
+    const url = new URL(`${S3_ENDPOINT}/${S3_BUCKET}`);
+    const protocol = url.protocol === 'https:' ? https : http;
+    
+    // Perform a HEAD request to check if bucket exists
+    await new Promise((resolve, reject) => {
+      const req = protocol.request({
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: `/${S3_BUCKET}`,
+        method: 'HEAD',
+        timeout: 3000,
+        headers: {
+          'Host': url.hostname
+        }
+      }, (res) => {
+        // We expect 200, 403, or 404 from S3 bucket HEAD request
+        // 200 = bucket exists and is accessible
+        // 403 = bucket exists but no access (still means S3 is responding)
+        // 404 = bucket doesn't exist (but S3 is responding)
+        if (res.statusCode === 200 || res.statusCode === 403 || res.statusCode === 404) {
+          resolve();
+        } else {
+          reject(new Error(`Unexpected status: ${res.statusCode}`));
+        }
+      });
+      
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+      
+      req.end();
+    });
     
     const latency = Date.now() - startTime;
     
@@ -143,13 +171,13 @@ async function checkS3Health() {
     s3HealthMetrics.lastCheck = new Date().toISOString();
     s3HealthMetrics.checkCount++;
     
-    // Maintain latency history (keep last 60 samples)
+    // Maintain latency history (keep last 3 samples for dynamic average)
     s3HealthMetrics.latencyHistory.push(latency);
-    if (s3HealthMetrics.latencyHistory.length > 60) {
+    if (s3HealthMetrics.latencyHistory.length > 3) {
       s3HealthMetrics.latencyHistory.shift();
     }
     
-    // Calculate running average
+    // Calculate running average of last 3 samples
     const sum = s3HealthMetrics.latencyHistory.reduce((a, b) => a + b, 0);
     s3HealthMetrics.averageLatency = Math.round(sum / s3HealthMetrics.latencyHistory.length);
     
@@ -160,7 +188,7 @@ async function checkS3Health() {
         averageLatency: s3HealthMetrics.averageLatency,
         isHealthy: s3HealthMetrics.isHealthy,
         lastCheck: s3HealthMetrics.lastCheck,
-        region: S3_REGION
+        endpoint: S3_ENDPOINT
       }
     });
     
@@ -185,15 +213,11 @@ async function checkS3Health() {
   }
 }
 
-// Start S3 health monitoring if bucket is configured
-if (S3_BUCKET && S3_BUCKET !== 'your-s3-bucket') {
-  console.log(`Starting S3 health monitoring for bucket: ${S3_BUCKET} in region: ${S3_REGION}`);
-  setInterval(checkS3Health, S3_CHECK_INTERVAL);
-  // Initial check
-  setTimeout(checkS3Health, 1000);
-} else {
-  console.log('S3 health monitoring disabled (S3_HEALTH_BUCKET not configured)');
-}
+// Start S3 health monitoring
+console.log(`Starting S3 health monitoring for bucket: ${S3_BUCKET} at ${S3_ENDPOINT}`);
+setInterval(checkS3Health, S3_CHECK_INTERVAL);
+// Initial check
+setTimeout(checkS3Health, 1000);
 
 // Database connection
 const pool = new Pool({

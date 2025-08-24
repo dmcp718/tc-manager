@@ -19,7 +19,7 @@ The API Gateway provides a comprehensive REST API for external services to submi
 - **S3 Health Monitoring:**
   - Automatic health checks every 5 seconds
   - Round-trip latency measurement
-  - Running average latency calculation
+  - Dynamic 3-sample running average (more responsive)
   - Real-time WebSocket broadcasts
 - **Real-time Metrics via WebSocket:**
   - Push-based updates for dashboards

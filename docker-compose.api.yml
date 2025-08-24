@@ -9,7 +9,7 @@ services:
     container_name: tc-mgr-api-gateway
     environment:
       NODE_ENV: ${NODE_ENV:-development}
-      API_GATEWAY_PORT: 3000
+      API_GATEWAY_PORT: 8095
       API_GATEWAY_KEY: ${API_GATEWAY_KEY:-demo-api-key-2024}
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
@@ -18,7 +18,7 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:-teamcache_password}
       ALLOWED_PATHS: ${ALLOWED_PATHS:-/media/lucidlink-1}
     ports:
-      - "${API_GATEWAY_PORT:-8095}:3000"
+      - "${API_GATEWAY_PORT:-8095}:8095"
     depends_on:
       postgres:
         condition: service_healthy
