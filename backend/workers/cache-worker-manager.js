@@ -88,6 +88,10 @@ class CacheWorkerManager extends EventEmitter {
     worker.on('file-failed', (data) => {
       this.emit('file-failed', data);
     });
+    
+    worker.on('file-progress', (data) => {
+      this.emit('file-progress', data);
+    });
 
     worker.on('job-progress', (data) => {
       this.emit('job-progress', data);

@@ -45,6 +45,12 @@ A production-ready file system browser and cache management system for LucidLink
 - **Application Logs**: View and search through application logs in real-time
 - **Service Monitoring**: Track SiteCache jobs, indexing status, and worker health
 
+### 🔌 API Gateway (Optional)
+- **External API**: REST API for submitting cache jobs from external services
+- **Simple Authentication**: API key-based authentication for dev/demo use
+- **Rate Limiting**: Built-in rate limiting to prevent abuse
+- **Job Management**: Create, monitor, and cancel cache jobs via API
+
 ### 🔒 Production Security
 - **Authentication**: JWT-based authentication with user management
 - **Role-Based Access**: Admin and user roles with different permission levels
@@ -1488,6 +1494,43 @@ If you encounter persistent issues:
 - Check logs: `docker compose logs -f [service]`
 - Health check: `curl http://localhost:3001/health`
 - Documentation: See `DEVELOPMENT.md` for detailed troubleshooting
+
+## API Gateway (Optional)
+
+Enable the external API gateway to allow other services to submit cache jobs:
+
+### Quick Start
+
+```bash
+# Start API gateway with the stack
+docker compose -f docker-compose.yml -f docker-compose.api.yml up -d
+
+# Test the API
+curl http://localhost:8095/api/v1/health
+```
+
+### Submit a Cache Job
+
+```bash
+curl -X POST http://localhost:8095/api/v1/cache/jobs \
+  -H "X-API-Key: demo-api-key-2024" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "files": ["/media/lucidlink-1/video.mp4"],
+    "directories": ["/media/lucidlink-1/folder"]
+  }'
+```
+
+### Configuration
+
+Add to your `.env` file:
+```bash
+API_GATEWAY_ENABLED=true
+API_GATEWAY_PORT=8095
+API_GATEWAY_KEY=your-secure-api-key
+```
+
+See `api-gateway/README.md` for complete API documentation.
 
 ## Recent Updates (v1.7.0)
 

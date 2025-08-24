@@ -1,0 +1,32 @@
+# API Gateway Service Configuration
+# Usage: docker compose -f docker-compose.yml -f docker-compose.api.yml up
+
+services:
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: tc-mgr-api-gateway
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      API_GATEWAY_PORT: 3000
+      API_GATEWAY_KEY: ${API_GATEWAY_KEY:-demo-api-key-2024}
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-teamcache_db}
+      DB_USER: ${DB_USER:-teamcache_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-teamcache_password}
+      ALLOWED_PATHS: ${ALLOWED_PATHS:-/media/lucidlink-1}
+    ports:
+      - "${API_GATEWAY_PORT:-8095}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -794,10 +794,30 @@ class CacheJobModel {
          failed_files = (
            SELECT COUNT(*) FROM cache_job_items 
            WHERE job_id = $1 AND status = 'failed'
+         ),
+         completed_size_bytes = (
+           SELECT COALESCE(SUM(file_size_bytes), 0) 
+           FROM cache_job_items 
+           WHERE job_id = $1 AND status = 'completed'
          )
        WHERE id = $1
        RETURNING *`,
       [jobId]
+    );
+    return result.rows[0];
+  }
+
+  // New method for incremental progress updates - more efficient
+  static async updateProgressIncremental(jobId, completedFileSize, failed = false) {
+    const result = await pool.query(
+      `UPDATE cache_jobs 
+       SET 
+         completed_files = CASE WHEN $3 = false THEN completed_files + 1 ELSE completed_files END,
+         failed_files = CASE WHEN $3 = true THEN failed_files + 1 ELSE failed_files END,
+         completed_size_bytes = CASE WHEN $3 = false THEN completed_size_bytes + $2 ELSE completed_size_bytes END
+       WHERE id = $1
+       RETURNING *`,
+      [jobId, completedFileSize || 0, failed]
     );
     return result.rows[0];
   }
