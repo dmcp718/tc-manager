@@ -39,6 +39,13 @@ const loginStyles = {
     fontWeight: 'bold',
     color: '#ffffff',
     textAlign: 'center',
+    marginBottom: '8px',
+  },
+  serverHost: {
+    fontSize: '14px',
+    fontWeight: '300',
+    color: '#9ca3af',
+    textAlign: 'center',
     marginBottom: '32px',
   },
   loginInput: {
@@ -83,6 +90,9 @@ function LoginScreen({ onLogin }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Get server host from environment variable or use current hostname
+  const serverHost = process.env.REACT_APP_SERVER_HOST || window.location.hostname;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -120,6 +130,7 @@ function LoginScreen({ onLogin }) {
     <div style={loginStyles.loginContainer}>
       <div style={loginStyles.loginForm}>
         <h1 style={loginStyles.loginTitle}>TeamCache Manager</h1>
+        <div style={loginStyles.serverHost}>{serverHost}</div>
         {error && <div style={loginStyles.loginError}>{error}</div>}
         <form onSubmit={handleSubmit}>
           <input
