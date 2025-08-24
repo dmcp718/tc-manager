@@ -16,10 +16,18 @@ The API Gateway provides a comprehensive REST API for external services to submi
   - Size-based progress (GB completed / GB total)
   - Real-time LucidLink throughput stats (MB/s)
   - Human-readable size formatting
+- **S3 Health Monitoring:**
+  - Automatic health checks every 5 seconds
+  - Round-trip latency measurement
+  - Running average latency calculation
+  - Real-time WebSocket broadcasts
+- **Real-time Metrics via WebSocket:**
+  - Push-based updates for dashboards
+  - LucidLink throughput stats
+  - S3 health and latency metrics
 - **Cross-platform path support** (Windows, macOS, Linux)
 - **Automatic path normalization**
 - **Direct database integration** with file indexing
-- **WebSocket connection** for real-time stats
 
 ## Quick Start
 
@@ -211,6 +219,63 @@ Headers:
 }
 ```
 
+### Get Metrics
+
+Retrieve current system metrics including LucidLink throughput and S3 health status.
+
+**Request:**
+```http
+GET /api/v1/metrics
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "metrics": {
+    "lucidLink": {
+      "throughputMbps": 125.5,
+      "timestamp": "2025-08-23T03:00:00.000Z"
+    },
+    "s3Health": {
+      "latency": 45,
+      "averageLatency": 52,
+      "isHealthy": true,
+      "lastCheck": "2025-08-23T03:00:00.000Z",
+      "checkCount": 360,
+      "region": "us-east-1"
+    }
+  },
+  "timestamp": "2025-08-23T03:00:00.000Z"
+}
+```
+
+### Get S3 Health Metrics
+
+Retrieve detailed S3 health metrics with latency history.
+
+**Request:**
+```http
+GET /api/v1/metrics/s3
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "s3Health": {
+    "latency": 45,
+    "averageLatency": 52,
+    "isHealthy": true,
+    "lastCheck": "2025-08-23T03:00:00.000Z",
+    "checkCount": 360,
+    "latencyHistory": [45, 48, 52, 55, 49, ...],
+    "region": "us-east-1"
+  },
+  "timestamp": "2025-08-23T03:00:00.000Z"
+}
+```
+
 ## Path Handling
 
 The API intelligently handles paths from different operating systems:
@@ -279,6 +344,83 @@ Progress updates are optimized for performance with configurable thresholds:
 - Updates trigger when either threshold is met
 - Per-file events available via WebSocket for real-time monitoring
 
+## WebSocket Real-time Metrics
+
+The API Gateway provides a WebSocket endpoint for real-time metrics streaming, ideal for dashboard applications.
+
+### Connection
+```javascript
+const ws = new WebSocket('ws://localhost:8095/ws');
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  switch(data.type) {
+    case 'metrics':
+      // Initial full metrics on connection
+      console.log('LucidLink stats:', data.lucidLink);
+      console.log('S3 health:', data.s3Health);
+      break;
+      
+    case 'lucidlink-stats':
+      // Real-time LucidLink throughput updates
+      console.log('Throughput:', data.lucidLink.throughputMbps, 'MB/s');
+      break;
+      
+    case 's3-health':
+      // S3 health updates every 5 seconds
+      console.log('S3 latency:', data.s3Health.latency, 'ms');
+      console.log('Average latency:', data.s3Health.averageLatency, 'ms');
+      break;
+  }
+};
+```
+
+### Message Types
+
+**Initial Metrics** (sent on connection):
+```json
+{
+  "type": "metrics",
+  "lucidLink": {
+    "throughputMbps": 125.5,
+    "timestamp": "2025-08-23T03:00:00.000Z"
+  },
+  "s3Health": {
+    "latency": 45,
+    "averageLatency": 52,
+    "isHealthy": true,
+    "lastCheck": "2025-08-23T03:00:00.000Z",
+    "region": "us-east-1"
+  }
+}
+```
+
+**LucidLink Stats Update**:
+```json
+{
+  "type": "lucidlink-stats",
+  "lucidLink": {
+    "throughputMbps": 130.2,
+    "timestamp": "2025-08-23T03:00:01.000Z"
+  }
+}
+```
+
+**S3 Health Update** (every 5 seconds):
+```json
+{
+  "type": "s3-health",
+  "s3Health": {
+    "latency": 48,
+    "averageLatency": 51,
+    "isHealthy": true,
+    "lastCheck": "2025-08-23T03:00:05.000Z",
+    "region": "us-east-1"
+  }
+}
+```
+
 ## Configuration
 
 Environment variables for the API Gateway:
@@ -297,6 +439,11 @@ DB_PASSWORD=teamcache_password
 
 # Backend WebSocket (for real-time stats)
 BACKEND_WS_URL=ws://backend:3002
+
+# S3 Health Monitoring (optional)
+S3_HEALTH_BUCKET=your-s3-bucket     # S3 bucket to health check
+S3_REGION=us-east-1                 # AWS region (default: us-east-1)
+S3_CHECK_INTERVAL=5000               # Check interval in ms (default: 5000)
 
 # Progress Update Thresholds (optional)
 CACHE_PROGRESS_FILE_THRESHOLD=10     # Update after N files (default: 10)
@@ -469,6 +616,333 @@ async function monitorJob(jobId) {
   }
 }
 ```
+
+### WebSocket Client Example (JavaScript)
+```javascript
+// Real-time metrics monitoring via WebSocket
+const WebSocket = require('ws');
+
+class MetricsMonitor {
+  constructor(url = 'ws://localhost:8095/ws') {
+    this.url = url;
+    this.ws = null;
+    this.metrics = {
+      lucidLink: null,
+      s3Health: null
+    };
+  }
+
+  connect() {
+    this.ws = new WebSocket(this.url);
+    
+    this.ws.on('open', () => {
+      console.log('Connected to metrics WebSocket');
+    });
+    
+    this.ws.on('message', (data) => {
+      const message = JSON.parse(data);
+      
+      switch(message.type) {
+        case 'metrics':
+          // Initial full metrics
+          this.metrics.lucidLink = message.lucidLink;
+          this.metrics.s3Health = message.s3Health;
+          console.log('Initial metrics received');
+          break;
+          
+        case 'lucidlink-stats':
+          // Real-time throughput update
+          this.metrics.lucidLink = message.lucidLink;
+          console.log(`LucidLink: ${message.lucidLink.throughputMbps} MB/s`);
+          break;
+          
+        case 's3-health':
+          // S3 health update
+          this.metrics.s3Health = message.s3Health;
+          console.log(`S3 Latency: ${message.s3Health.latency}ms (avg: ${message.s3Health.averageLatency}ms)`);
+          break;
+      }
+    });
+    
+    this.ws.on('close', () => {
+      console.log('Disconnected from metrics WebSocket');
+      // Reconnect after 5 seconds
+      setTimeout(() => this.connect(), 5000);
+    });
+    
+    this.ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+  }
+  
+  getMetrics() {
+    return this.metrics;
+  }
+  
+  close() {
+    if (this.ws) {
+      this.ws.close();
+    }
+  }
+}
+
+// Usage
+const monitor = new MetricsMonitor();
+monitor.connect();
+```
+
+### Dashboard Integration Example (React)
+```jsx
+import React, { useState, useEffect } from 'react';
+
+const MetricsDashboard = () => {
+  const [metrics, setMetrics] = useState({
+    lucidLink: { throughputMbps: 0 },
+    s3Health: { latency: null, averageLatency: null, isHealthy: false }
+  });
+
+  useEffect(() => {
+    const ws = new WebSocket('ws://your-api-server:8095/ws');
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      
+      switch(data.type) {
+        case 'metrics':
+        case 'lucidlink-stats':
+          if (data.lucidLink) {
+            setMetrics(prev => ({ ...prev, lucidLink: data.lucidLink }));
+          }
+          break;
+        case 's3-health':
+          if (data.s3Health) {
+            setMetrics(prev => ({ ...prev, s3Health: data.s3Health }));
+          }
+          break;
+      }
+    };
+    
+    return () => ws.close();
+  }, []);
+
+  return (
+    <div>
+      <h2>System Metrics</h2>
+      <div>
+        <h3>LucidLink Throughput</h3>
+        <p>{metrics.lucidLink.throughputMbps.toFixed(2)} MB/s</p>
+      </div>
+      <div>
+        <h3>S3 Health</h3>
+        <p>Status: {metrics.s3Health.isHealthy ? '✅ Healthy' : '❌ Unhealthy'}</p>
+        <p>Latency: {metrics.s3Health.latency}ms</p>
+        <p>Average: {metrics.s3Health.averageLatency}ms</p>
+      </div>
+    </div>
+  );
+};
+```
+
+### Python WebSocket Client
+```python
+import asyncio
+import json
+import websockets
+
+class MetricsMonitor:
+    def __init__(self, url='ws://localhost:8095/ws'):
+        self.url = url
+        self.metrics = {
+            'lucidLink': None,
+            's3Health': None
+        }
+    
+    async def connect(self):
+        async with websockets.connect(self.url) as websocket:
+            print("Connected to metrics WebSocket")
+            
+            async for message in websocket:
+                data = json.loads(message)
+                
+                if data['type'] == 'metrics':
+                    # Initial full metrics
+                    self.metrics['lucidLink'] = data.get('lucidLink')
+                    self.metrics['s3Health'] = data.get('s3Health')
+                    print("Initial metrics received")
+                    
+                elif data['type'] == 'lucidlink-stats':
+                    # Real-time throughput update
+                    self.metrics['lucidLink'] = data.get('lucidLink')
+                    throughput = data['lucidLink']['throughputMbps']
+                    print(f"LucidLink: {throughput:.2f} MB/s")
+                    
+                elif data['type'] == 's3-health':
+                    # S3 health update
+                    self.metrics['s3Health'] = data.get('s3Health')
+                    latency = data['s3Health']['latency']
+                    avg_latency = data['s3Health']['averageLatency']
+                    print(f"S3 Latency: {latency}ms (avg: {avg_latency}ms)")
+    
+    def get_metrics(self):
+        return self.metrics
+
+# Usage
+async def main():
+    monitor = MetricsMonitor()
+    await monitor.connect()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Deployment
+
+### Docker Compose Deployment
+
+The API Gateway is deployed as part of the TeamCache Manager stack:
+
+```yaml
+# docker-compose.api.yml
+services:
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8095:8095"
+    environment:
+      - API_GATEWAY_PORT=8095
+      - API_GATEWAY_KEY=${API_KEY}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=teamcache_db
+      - DB_USER=teamcache_user
+      - DB_PASSWORD=${DB_PASSWORD}
+      - BACKEND_WS_URL=ws://backend:3002
+      - S3_HEALTH_BUCKET=${S3_BUCKET}
+      - S3_REGION=${S3_REGION}
+    depends_on:
+      - postgres
+      - backend
+    networks:
+      - teamcache-network
+```
+
+### Standalone Deployment
+
+For standalone deployment outside Docker:
+
+```bash
+# Install dependencies
+cd api-gateway
+npm install
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your settings
+
+# Start the server
+npm start
+
+# Or with PM2 for production
+pm2 start server.js --name api-gateway
+```
+
+### AWS ECS/Fargate Deployment
+
+For AWS deployment, ensure:
+1. IAM role has S3 access permissions for health checks
+2. Security groups allow inbound traffic on port 8095
+3. Load balancer health checks use `/api/v1/health`
+4. WebSocket support is enabled on ALB (if using)
+
+## Monitoring & Observability
+
+### Health Endpoints
+
+- **Basic Health**: `GET /api/v1/health` - Database connectivity check
+- **Metrics**: `GET /api/v1/metrics` - All system metrics
+- **S3 Health**: `GET /api/v1/metrics/s3` - Detailed S3 metrics
+
+### Recommended Monitoring Setup
+
+1. **Prometheus Metrics** (pull-based):
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'teamcache-api'
+    static_configs:
+      - targets: ['api-gateway:8095']
+    metrics_path: '/api/v1/metrics'
+```
+
+2. **Grafana Dashboard** (WebSocket-based):
+- Use WebSocket data source plugin
+- Connect to `ws://api-gateway:8095/ws`
+- Parse JSON messages for real-time visualization
+
+3. **CloudWatch Integration**:
+```javascript
+// Lambda function to push metrics to CloudWatch
+const AWS = require('aws-sdk');
+const WebSocket = require('ws');
+
+const cloudwatch = new AWS.CloudWatch();
+
+function pushMetrics(metrics) {
+  const params = {
+    Namespace: 'TeamCache',
+    MetricData: [
+      {
+        MetricName: 'S3Latency',
+        Value: metrics.s3Health.latency,
+        Unit: 'Milliseconds',
+        Timestamp: new Date()
+      },
+      {
+        MetricName: 'LucidLinkThroughput',
+        Value: metrics.lucidLink.throughputMbps,
+        Unit: 'Megabits',
+        Timestamp: new Date()
+      }
+    ]
+  };
+  
+  cloudwatch.putMetricData(params, (err, data) => {
+    if (err) console.error(err);
+  });
+}
+```
+
+## Performance Considerations
+
+### WebSocket vs REST Polling
+
+**WebSocket Advantages**:
+- Single persistent connection
+- Real-time updates (no polling delay)
+- Lower bandwidth usage
+- Reduced server load
+
+**REST Polling Use Cases**:
+- Simple integrations
+- Firewall restrictions
+- Stateless requirements
+
+### Scaling Recommendations
+
+1. **Horizontal Scaling**:
+   - Deploy multiple API Gateway instances
+   - Use Redis for shared state
+   - Implement sticky sessions for WebSocket
+
+2. **Database Optimization**:
+   - Index frequently queried columns
+   - Use read replicas for metrics queries
+   - Implement connection pooling
+
+3. **Caching Strategy**:
+   - Cache file metadata (5-minute TTL)
+   - Cache job status (1-second TTL for active jobs)
+   - Use ETags for conditional requests
 
 ## Security Notes
 

@@ -7,6 +7,7 @@ const Joi = require('joi');
 const fs = require('fs').promises;
 const path = require('path');
 const WebSocket = require('ws');
+const { S3Client, HeadBucketCommand } = require('@aws-sdk/client-s3');
 
 // Load environment variables
 require('dotenv').config();
@@ -19,6 +20,16 @@ const API_KEY = process.env.API_GATEWAY_KEY || 'demo-api-key-2024';
 let latestLucidLinkStats = {
   throughputMbps: 0,
   timestamp: null
+};
+
+// Store S3 health metrics
+let s3HealthMetrics = {
+  latency: null,
+  averageLatency: null,
+  isHealthy: false,
+  lastCheck: null,
+  checkCount: 0,
+  latencyHistory: [] // Keep last 60 samples (5 minutes at 5-second intervals)
 };
 
 // WebSocket connection to backend for real-time stats
@@ -44,6 +55,11 @@ function connectWebSocket() {
           throughputMbps: parseFloat(message.getMibps) || 0,
           timestamp: new Date().toISOString()
         };
+        
+        // Broadcast LucidLink stats to connected clients
+        broadcastMetrics('lucidlink-stats', {
+          lucidLink: latestLucidLinkStats
+        });
       }
     } catch (error) {
       console.error('Error parsing WebSocket message:', error);
@@ -62,6 +78,122 @@ function connectWebSocket() {
 
 // Connect to WebSocket when server starts
 setTimeout(connectWebSocket, 2000); // Delay to ensure backend is ready
+
+// WebSocket server for broadcasting stats to dashboard clients
+const wss = new WebSocket.Server({ noServer: true });
+const clients = new Set();
+
+wss.on('connection', (ws) => {
+  console.log('New dashboard client connected');
+  clients.add(ws);
+  
+  // Send current metrics immediately
+  ws.send(JSON.stringify({
+    type: 'metrics',
+    lucidLink: latestLucidLinkStats,
+    s3Health: s3HealthMetrics
+  }));
+  
+  ws.on('close', () => {
+    console.log('Dashboard client disconnected');
+    clients.delete(ws);
+  });
+  
+  ws.on('error', (error) => {
+    console.error('Client WebSocket error:', error);
+    clients.delete(ws);
+  });
+});
+
+// Broadcast metrics to all connected clients
+function broadcastMetrics(type, data) {
+  const message = JSON.stringify({ type, ...data });
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+// S3 health check configuration
+const S3_BUCKET = process.env.S3_HEALTH_BUCKET || 'your-s3-bucket';
+const S3_REGION = process.env.S3_REGION || 'us-east-1';
+const S3_CHECK_INTERVAL = parseInt(process.env.S3_CHECK_INTERVAL) || 5000; // 5 seconds
+
+// Initialize S3 client
+const s3Client = new S3Client({
+  region: S3_REGION,
+  // AWS credentials will be loaded from environment or IAM role
+});
+
+// Function to perform S3 health check
+async function checkS3Health() {
+  const startTime = Date.now();
+  
+  try {
+    // Use HeadBucket to check S3 connectivity and measure latency
+    const command = new HeadBucketCommand({ Bucket: S3_BUCKET });
+    await s3Client.send(command);
+    
+    const latency = Date.now() - startTime;
+    
+    // Update metrics
+    s3HealthMetrics.latency = latency;
+    s3HealthMetrics.isHealthy = true;
+    s3HealthMetrics.lastCheck = new Date().toISOString();
+    s3HealthMetrics.checkCount++;
+    
+    // Maintain latency history (keep last 60 samples)
+    s3HealthMetrics.latencyHistory.push(latency);
+    if (s3HealthMetrics.latencyHistory.length > 60) {
+      s3HealthMetrics.latencyHistory.shift();
+    }
+    
+    // Calculate running average
+    const sum = s3HealthMetrics.latencyHistory.reduce((a, b) => a + b, 0);
+    s3HealthMetrics.averageLatency = Math.round(sum / s3HealthMetrics.latencyHistory.length);
+    
+    // Broadcast to connected clients
+    broadcastMetrics('s3-health', {
+      s3Health: {
+        latency: s3HealthMetrics.latency,
+        averageLatency: s3HealthMetrics.averageLatency,
+        isHealthy: s3HealthMetrics.isHealthy,
+        lastCheck: s3HealthMetrics.lastCheck,
+        region: S3_REGION
+      }
+    });
+    
+  } catch (error) {
+    console.error('S3 health check failed:', error.message);
+    
+    s3HealthMetrics.latency = null;
+    s3HealthMetrics.isHealthy = false;
+    s3HealthMetrics.lastCheck = new Date().toISOString();
+    
+    // Broadcast error state
+    broadcastMetrics('s3-health', {
+      s3Health: {
+        latency: null,
+        averageLatency: s3HealthMetrics.averageLatency,
+        isHealthy: false,
+        lastCheck: s3HealthMetrics.lastCheck,
+        error: error.message,
+        region: S3_REGION
+      }
+    });
+  }
+}
+
+// Start S3 health monitoring if bucket is configured
+if (S3_BUCKET && S3_BUCKET !== 'your-s3-bucket') {
+  console.log(`Starting S3 health monitoring for bucket: ${S3_BUCKET} in region: ${S3_REGION}`);
+  setInterval(checkS3Health, S3_CHECK_INTERVAL);
+  // Initial check
+  setTimeout(checkS3Health, 1000);
+} else {
+  console.log('S3 health monitoring disabled (S3_HEALTH_BUCKET not configured)');
+}
 
 // Database connection
 const pool = new Pool({
@@ -223,6 +355,42 @@ app.get('/api/v1/health', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// Get metrics endpoint (for pull-based monitoring)
+app.get('/api/v1/metrics', async (req, res) => {
+  res.json({
+    success: true,
+    metrics: {
+      lucidLink: latestLucidLinkStats,
+      s3Health: {
+        latency: s3HealthMetrics.latency,
+        averageLatency: s3HealthMetrics.averageLatency,
+        isHealthy: s3HealthMetrics.isHealthy,
+        lastCheck: s3HealthMetrics.lastCheck,
+        checkCount: s3HealthMetrics.checkCount,
+        region: S3_REGION
+      }
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Get S3 health metrics only
+app.get('/api/v1/metrics/s3', async (req, res) => {
+  res.json({
+    success: true,
+    s3Health: {
+      latency: s3HealthMetrics.latency,
+      averageLatency: s3HealthMetrics.averageLatency,
+      isHealthy: s3HealthMetrics.isHealthy,
+      lastCheck: s3HealthMetrics.lastCheck,
+      checkCount: s3HealthMetrics.checkCount,
+      latencyHistory: s3HealthMetrics.latencyHistory,
+      region: S3_REGION
+    },
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Create cache job endpoint
@@ -597,11 +765,23 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`API Gateway running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Database: ${process.env.DB_HOST || 'postgres'}:${process.env.DB_PORT || 5432}`);
   console.log(`API endpoints available at http://localhost:${PORT}/api/v1`);
+  console.log(`WebSocket endpoint available at ws://localhost:${PORT}/ws`);
+});
+
+// Handle WebSocket upgrade
+server.on('upgrade', (request, socket, head) => {
+  if (request.url === '/ws') {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
 });
 
 // Graceful shutdown
