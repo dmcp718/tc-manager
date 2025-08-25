@@ -1,6 +1,6 @@
 # TeamCache Manager
 
-A production-ready file system browser and cache management system for LucidLink cloud filesystems with advanced search capabilities, intelligent caching, media preview generation, real-time data verification, and Docker deployment.
+A filespace browser and cache management system for LucidLink cloud filesystems with advanced search capabilities, intelligent caching, media preview generation, real-time data verification, and Docker deployment.
 
 ## 🚀 Key Features
 
