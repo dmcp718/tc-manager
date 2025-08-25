@@ -108,10 +108,9 @@ A filespace browser and cache management system for LucidLink cloud filesystems 
 - **Network**: Internet access for LucidLink cloud connectivity
 
 ### Required Services
-- **LucidLink Client**: Must be installed and configured on the host system
 - **PostgreSQL**: Provided via Docker container for metadata and job management
 - **Elasticsearch**: Provided via Docker container for high-performance search
-- **Varnish Cache** (optional): For cache statistics integration
+- **Varnish Cache**: For cache statistics integration
 - **Grafana** (optional): For advanced monitoring and dashboards
 
 ## 🚀 Quick Start
