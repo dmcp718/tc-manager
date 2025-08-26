@@ -1202,15 +1202,13 @@ app.get('/api/admin/system-status', authService.requireAuth, async (req, res) =>
     
     try {
       // Test Varnish cache connectivity (TeamCache core service)
-      const varnishHost = process.env.VARNISH_HOST || process.env.VARNISH_IP;
-      const varnishPort = process.env.VARNISH_PORT || '80';
+      const varnishServer = process.env.VARNISH_SERVER;
       
-      if (!varnishHost) {
+      if (!varnishServer) {
         varnishStatus = 'not configured';
-        console.warn('VARNISH_HOST or VARNISH_IP not configured in environment variables');
+        console.warn('VARNISH_SERVER not configured in environment variables');
       } else {
-        const varnishUrl = `http://${varnishHost}:${varnishPort}/`;
-        const varnishResponse = await fetch(varnishUrl, {
+        const varnishResponse = await fetch(varnishServer, {
           method: 'HEAD',
           timeout: 5000
         });

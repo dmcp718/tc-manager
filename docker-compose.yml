@@ -95,6 +95,8 @@ services:
       LUCIDLINK_API_PORT: ${LUCIDLINK_API_PORT:-9780}
       # Configure S3 proxy for Varnish cache  
       LUCID_S3_PROXY: ${LUCID_S3_PROXY}
+      # Varnish server configuration
+      VARNISH_SERVER: ${VARNISH_SERVER}
       # RUI Configuration
       ENABLE_RUI: ${ENABLE_RUI:-false}
       RUI_SCAN_INTERVAL: ${RUI_SCAN_INTERVAL:-30000}
