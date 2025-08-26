@@ -290,7 +290,7 @@ const styles = {
   terminalContainer: {
     display: 'flex',
     flexDirection: 'column',
-    height: '600px',
+    height: '900px',
     backgroundColor: '#1a1a1a',
     border: '1px solid #3a3a3a',
     borderRadius: '8px',
