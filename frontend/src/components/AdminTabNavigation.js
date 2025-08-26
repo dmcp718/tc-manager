@@ -18,7 +18,7 @@ const UsersIcon = ({ size = 16, color = 'currentColor' }) => (
   </svg>
 );
 
-const SiteCacheIcon = ({ size = 16, color = 'currentColor' }) => (
+const TeamCacheIcon = ({ size = 16, color = 'currentColor' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
     <ellipse cx="12" cy="5" rx="9" ry="3"/>
     <path d="m3 5 0 14c0 1.7 4 3 9 3s9-1.3 9-3V5"/>
@@ -59,8 +59,8 @@ const AdminTabNavigation = ({ activeTab, onTabChange }) => {
     },
     { 
       key: 'sitecache', 
-      label: 'SiteCache', 
-      icon: <SiteCacheIcon size={16} />,
+      label: 'TeamCache', 
+      icon: <TeamCacheIcon size={16} />,
       description: 'Cache service status'
     },
     { 

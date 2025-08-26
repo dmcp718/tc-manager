@@ -143,7 +143,7 @@ echo -e "${BLUE}🛑 Stopping existing services...${NC}"
 docker compose down --remove-orphans 2>/dev/null || true
 
 # Step 4: Determine compose files to use
-COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml"
+COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml -f docker-compose.api.yml"
 
 case $SSL_MODE in
     nginx)
@@ -278,6 +278,7 @@ check_service_health() {
 check_service_health postgres
 check_service_health backend
 check_service_health frontend
+check_service_health api-gateway
 check_service_health elasticsearch 120  # Elasticsearch takes longer
 check_service_health redis
 
@@ -334,6 +335,7 @@ echo "   SSL Mode: $SSL_MODE"
 echo "   Frontend URL: $FRONTEND_URL"
 echo "   Backend API: $API_URL"
 echo "   WebSocket: $WS_URL"
+echo "   API Gateway: http://${SERVER_HOST:-localhost}:8095"
 if [ -n "${GRAFANA_URL:-}" ]; then
     echo "   Grafana: ${GRAFANA_URL}"
 fi

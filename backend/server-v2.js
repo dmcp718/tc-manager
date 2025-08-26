@@ -1192,8 +1192,8 @@ app.get('/api/admin/logs/export', authService.requireAuth, async (req, res) => {
 // Admin system status endpoint
 app.get('/api/admin/system-status', authService.requireAuth, async (req, res) => {
   try {
-    // Check SiteCache status by testing Varnish cache service connectivity
-    // This is more reliable than trying to access Docker from within container
+    // Check TeamCache status by testing Varnish cache service connectivity
+    // Varnish (teamcache.service) is the core service for TeamCache Manager
     let varnishStatus = 'unknown';
     let dbStatus = 'unknown';
     let esStatus = 'unknown';
@@ -1201,25 +1201,34 @@ app.get('/api/admin/system-status', authService.requireAuth, async (req, res) =>
     let startTime = new Date().toISOString();
     
     try {
-      // Test Varnish cache connectivity (main SiteCache service)
-      const varnishResponse = await fetch('http://192.168.8.28:80/', {
-        method: 'HEAD',
-        timeout: 5000
-      });
+      // Test Varnish cache connectivity (TeamCache core service)
+      const varnishHost = process.env.VARNISH_HOST || process.env.VARNISH_IP;
+      const varnishPort = process.env.VARNISH_PORT || '80';
       
-      // Varnish is healthy if we get any response (including 503 Backend fetch failed)
-      // A 503 means Varnish is running but backend (LucidLink) is unavailable
-      if (varnishResponse.status === 503) {
-        const server = varnishResponse.headers.get('server');
-        if (server && server.toLowerCase().includes('varnish')) {
-          varnishStatus = 'connected (backend unavailable)';
-        } else {
-          varnishStatus = 'connected';
-        }
-      } else if (varnishResponse.ok) {
-        varnishStatus = 'connected';
+      if (!varnishHost) {
+        varnishStatus = 'not configured';
+        console.warn('VARNISH_HOST or VARNISH_IP not configured in environment variables');
       } else {
-        varnishStatus = 'error';
+        const varnishUrl = `http://${varnishHost}:${varnishPort}/`;
+        const varnishResponse = await fetch(varnishUrl, {
+          method: 'HEAD',
+          timeout: 5000
+        });
+        
+        // Varnish is healthy if we get any response (including 503 Backend fetch failed)
+        // A 503 means Varnish is running but backend (LucidLink) is unavailable
+        if (varnishResponse.status === 503) {
+          const server = varnishResponse.headers.get('server');
+          if (server && server.toLowerCase().includes('varnish')) {
+            varnishStatus = 'connected (backend unavailable)';
+          } else {
+            varnishStatus = 'connected';
+          }
+        } else if (varnishResponse.ok) {
+          varnishStatus = 'connected';
+        } else {
+          varnishStatus = 'error';
+        }
       }
     } catch (varnishError) {
       varnishStatus = 'unreachable';
@@ -1250,9 +1259,33 @@ app.get('/api/admin/system-status', authService.requireAuth, async (req, res) =>
       console.error('Elasticsearch connection error:', esError);
     }
     
-    // SiteCache is active if Varnish cache is running (main service indicator)
+    // TeamCache is active if Varnish (core service) is running
+    // Varnish/teamcache.service is the main service indicator
     active = varnishStatus.startsWith('connected');
-    const status = active ? 'active (running)' : 'degraded - Varnish cache unavailable';
+    
+    let status;
+    if (varnishStatus === 'not configured') {
+      // Varnish not configured - service cannot be active
+      active = false;
+      status = 'degraded - Varnish not configured';
+    } else if (varnishStatus === 'unreachable') {
+      active = false;
+      status = 'degraded - Varnish cache unavailable';
+    } else if (varnishStatus === 'error') {
+      active = false;
+      status = 'degraded - Varnish cache error';
+    } else if (varnishStatus.startsWith('connected')) {
+      // Varnish is running - service is active
+      active = true;
+      if (varnishStatus.includes('backend unavailable')) {
+        status = 'active (running) - LucidLink backend unavailable';
+      } else {
+        status = 'active (running)';
+      }
+    } else {
+      active = false;
+      status = 'degraded - unknown status';
+    }
     
     // Try to get service start time from environment or use current time
     if (process.env.SERVICE_START_TIME) {

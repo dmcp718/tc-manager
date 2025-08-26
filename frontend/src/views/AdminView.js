@@ -910,7 +910,7 @@ const AdminView = ({ user, onLogout }) => {
             <div style={styles.statusCard}>
               <div style={styles.statusTitle}>
                 <WrenchIcon size={18} color="#ffffff" />
-                SiteCache Status
+                TeamCache Status
                 <button 
                   style={{
                     ...styles.refreshButton,
@@ -926,7 +926,7 @@ const AdminView = ({ user, onLogout }) => {
               <div style={styles.statusContent}>
                 <div style={styles.statusLine}>
                   <div style={styles.statusLabel}>Service:</div>
-                  <div style={styles.statusValue}>lucid-site-cache</div>
+                  <div style={styles.statusValue}>teamcache.service</div>
                 </div>
                 <div style={styles.statusLine}>
                   <div style={styles.statusLabel}>Status:</div>
