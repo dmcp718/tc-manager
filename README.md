@@ -1496,7 +1496,7 @@ If you encounter persistent issues:
 
 ## API Gateway (Optional)
 
-Enable the external API gateway to allow other services to submit cache jobs:
+Enable the external API gateway to allow other services to submit cache jobs and monitor system metrics:
 
 ### Quick Start
 
@@ -1519,6 +1519,26 @@ curl -X POST http://localhost:8095/api/v1/cache/jobs \
     "directories": ["/media/lucidlink-1/folder"]
   }'
 ```
+
+### System Metrics Monitoring
+
+The API Gateway provides real-time system metrics for external monitoring:
+
+```bash
+# Get all system metrics
+curl http://localhost:8095/api/v1/metrics
+
+# Get Varnish cache statistics specifically
+curl http://localhost:8095/api/v1/metrics/varnish
+
+# Get S3 health metrics
+curl http://localhost:8095/api/v1/metrics/s3
+```
+
+Available metrics include:
+- **LucidLink**: Real-time throughput (MiB/s)
+- **Varnish**: Cache usage (cached data in bytes/GB, total space, usage percentage)
+- **S3**: Health status and latency measurements
 
 ### Configuration
 
