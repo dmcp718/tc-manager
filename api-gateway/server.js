@@ -31,6 +31,14 @@ let s3HealthMetrics = {
   latencyHistory: [] // Keep last 3 samples for dynamic average
 };
 
+// Store Varnish cache statistics
+let varnishCacheStats = {
+  bytesUsed: 0,
+  totalSpace: 0,
+  usagePercentage: 0,
+  lastUpdated: null
+};
+
 // WebSocket connection to backend for real-time stats
 let ws = null;
 const BACKEND_WS_URL = process.env.BACKEND_WS_URL || 'ws://backend:3002';
@@ -58,6 +66,21 @@ function connectWebSocket() {
         // Broadcast LucidLink stats to connected clients
         broadcastMetrics('lucidlink-stats', {
           lucidLink: latestLucidLinkStats
+        });
+      }
+      
+      // Update stats if it's a Varnish stats message
+      if (message.type === 'varnish-stats') {
+        varnishCacheStats = {
+          bytesUsed: message.bytesUsed || 0,
+          totalSpace: message.totalSpace || 0,
+          usagePercentage: message.usagePercentage || 0,
+          lastUpdated: message.lastUpdated || new Date().toISOString()
+        };
+        
+        // Broadcast Varnish stats to connected clients
+        broadcastMetrics('varnish-stats', {
+          varnish: varnishCacheStats
         });
       }
     } catch (error) {
@@ -90,6 +113,7 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({
     type: 'metrics',
     lucidLink: latestLucidLinkStats,
+    varnish: varnishCacheStats,
     s3Health: s3HealthMetrics
   }));
   
@@ -387,6 +411,7 @@ app.get('/api/v1/metrics', async (req, res) => {
     success: true,
     metrics: {
       lucidLink: latestLucidLinkStats,
+      varnish: varnishCacheStats,
       s3Health: {
         latency: s3HealthMetrics.latency,
         averageLatency: s3HealthMetrics.averageLatency,
@@ -412,6 +437,22 @@ app.get('/api/v1/metrics/s3', async (req, res) => {
       checkCount: s3HealthMetrics.checkCount,
       latencyHistory: s3HealthMetrics.latencyHistory,
       region: S3_REGION
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Get Varnish cache metrics only
+app.get('/api/v1/metrics/varnish', async (req, res) => {
+  res.json({
+    success: true,
+    varnish: {
+      cachedData: varnishCacheStats.bytesUsed,
+      cachedDataGB: varnishCacheStats.bytesUsed ? (varnishCacheStats.bytesUsed / (1024 * 1024 * 1024)).toFixed(2) : '0.00',
+      totalSpace: varnishCacheStats.totalSpace,
+      totalSpaceGB: varnishCacheStats.totalSpace ? (varnishCacheStats.totalSpace / (1024 * 1024 * 1024)).toFixed(2) : '0.00',
+      usagePercentage: varnishCacheStats.usagePercentage,
+      lastUpdated: varnishCacheStats.lastUpdated
     },
     timestamp: new Date().toISOString()
   });

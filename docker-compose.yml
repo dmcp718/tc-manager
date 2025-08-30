@@ -163,7 +163,7 @@ services:
       target: production
       args:
         REACT_APP_API_URL: ${REACT_APP_API_URL:-/api}
-        REACT_APP_WS_URL: ${REACT_APP_WS_URL:-/ws}
+        REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://teamcache.home.lan:3002}
         REACT_APP_LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
         REACT_APP_GRAFANA_URL: ${REACT_APP_GRAFANA_URL:-}
         REACT_APP_SERVER_HOST: ${SERVER_HOST:-teamcache.home.lan}

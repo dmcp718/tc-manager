@@ -1354,7 +1354,6 @@ const BrowserView = ({ user, onLogout }) => {
                 loadDirectory(currentPath);
               }
             } else if (data.type === 'lucidlink-stats') {
-              console.log('Setting network stats:', data);
               // The stats are in the data object directly, not in data.stats
               setNetworkStats(data);
             } else if (data.type === 'varnish-stats') {
