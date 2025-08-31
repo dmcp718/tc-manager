@@ -1,5 +1,5 @@
 -- Query optimization views and functions
--- TeamCache Manager v1.7.0
+-- TeamCache Manager v1.8.0
 
 -- Create materialized view for directory stats (refresh periodically)
 CREATE MATERIALIZED VIEW IF NOT EXISTS directory_stats AS

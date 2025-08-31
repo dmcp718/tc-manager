@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Verify environment configuration for TeamCache Manager v1.7.0
+# Verify environment configuration for TeamCache Manager v1.8.0
 set -euo pipefail
 
 # Script directory

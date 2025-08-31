@@ -1,5 +1,5 @@
 -- Performance optimization indexes for production
--- TeamCache Manager v1.7.0
+-- TeamCache Manager v1.8.0
 
 -- Files table indexes
 CREATE INDEX IF NOT EXISTS idx_files_parent_path ON files(parent_path);

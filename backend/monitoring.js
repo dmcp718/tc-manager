@@ -1,4 +1,4 @@
-// Performance monitoring for TeamCache Manager v1.7.0
+// Performance monitoring for TeamCache Manager v1.8.0
 const os = require('os');
 const { performance } = require('perf_hooks');
 const logger = require('./logger');

@@ -2256,7 +2256,7 @@ const BrowserView = ({ user, onLogout }) => {
             </svg>
             <span>
               TeamCache Manager
-              <span style={styles.titleVersion}>v1.7.0</span>
+              <span style={styles.titleVersion}>v1.8.0</span>
             </span>
           </h1>
         </div>

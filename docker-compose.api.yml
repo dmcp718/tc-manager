@@ -19,6 +19,8 @@ services:
       ALLOWED_PATHS: ${ALLOWED_PATHS:-/media/lucidlink-1}
     ports:
       - "${API_GATEWAY_PORT:-8095}:8095"
+    volumes:
+      - api-config:/config
     depends_on:
       postgres:
         condition: service_healthy
@@ -30,3 +32,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  api-config:

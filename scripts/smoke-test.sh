@@ -33,7 +33,7 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${GREEN}🧪 TeamCache Manager Smoke Tests v1.7.0${NC}"
+echo -e "${GREEN}🧪 TeamCache Manager Smoke Tests v1.8.0${NC}"
 echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}Testing URLs:${NC}"
 echo "   Frontend URL: $BASE_URL"

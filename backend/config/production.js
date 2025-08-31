@@ -1,4 +1,4 @@
-// Production configuration for TeamCache Manager v1.7.0
+// Production configuration for TeamCache Manager v1.8.0
 // Performance and security optimized settings
 
 module.exports = {

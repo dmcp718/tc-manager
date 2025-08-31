@@ -17,7 +17,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Build configuration
 BUILD_TIME=$(date +%Y%m%d_%H%M%S)
-BUILD_VERSION="${BUILD_VERSION:-1.7.0}"
+BUILD_VERSION="${BUILD_VERSION:-1.8.0}"
 PACKAGE_NAME="tc-mgr-${BUILD_VERSION}-${BUILD_TIME}.tar.gz"
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"

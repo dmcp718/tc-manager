@@ -64,6 +64,14 @@ services:
   varnish-stats:
     container_name: tc-mgr-varnish-stats
 
+  # API Gateway - Production naming (if included via docker-compose.api.yml)
+  api-gateway:
+    container_name: tc-mgr-api-gateway
+    environment:
+      # API Gateway configuration from environment
+      API_GATEWAY_KEY: ${API_GATEWAY_KEY}
+      API_GATEWAY_PORT: ${API_GATEWAY_PORT:-8095}
+
 networks:
   default:
     name: tc-mgr-network

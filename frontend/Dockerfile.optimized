@@ -1,5 +1,5 @@
 # Multi-stage build for optimized TeamCache Manager frontend
-# v1.7.0 - Production optimized
+# v1.8.0 - Production optimized
 
 # Stage 1: Build the React application
 FROM node:18-alpine AS builder

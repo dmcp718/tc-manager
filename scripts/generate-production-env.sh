@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Generate complete production .env file for TeamCache Manager v1.7.0
+# Generate complete production .env file for TeamCache Manager v1.8.0
 set -euo pipefail
 
 # Script directory
@@ -91,7 +91,7 @@ fi
 cat > "$PROJECT_DIR/.env" << EOF
 # TeamCache Manager Production Environment Configuration
 # Generated on $(date)
-# Version: 1.7.0
+# Version: 1.8.0
 
 # Docker Compose Project Name
 COMPOSE_PROJECT_NAME=tc-mgr
@@ -201,6 +201,10 @@ ENABLE_VARNISH_STATS=true
 VARNISH_STATS_INTERVAL=$VARNISH_STATS_INTERVAL
 VARNISH_CONTAINER_NAME=$VARNISH_CONTAINER_NAME
 VARNISH_SERVER=$VARNISH_SERVER
+
+# API Gateway Configuration
+API_GATEWAY_PORT=8095
+API_GATEWAY_KEY=demo-api-key-2024
 EOF
 
 # Set proper permissions
@@ -236,6 +240,13 @@ echo "   - Never commit the .env file to version control"
 echo ""
 echo -e "${GREEN}📂 File location:${NC}"
 echo "   $PROJECT_DIR/.env"
+echo ""
+echo -e "${YELLOW}🔧 Features included:${NC}"
+echo "   - API Gateway for external integrations (port 8095)"
+echo "   - Varnish statistics collection"
+echo "   - Elasticsearch search indexing"
+echo "   - Redis caching layer"
+echo "   - Video transcoding with HLS support"
 echo ""
 echo -e "${YELLOW}🚀 Next steps:${NC}"
 echo "   1. Verify configuration: ./scripts/verify-env.sh"

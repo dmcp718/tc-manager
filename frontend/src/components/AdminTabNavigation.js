@@ -43,6 +43,17 @@ const TerminalIcon = ({ size = 16, color = 'currentColor' }) => (
   </svg>
 );
 
+const ApiServerIcon = ({ size = 16, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+    <rect x="2" y="3" width="20" height="4" rx="1"/>
+    <rect x="2" y="10" width="20" height="4" rx="1"/>
+    <rect x="2" y="17" width="20" height="4" rx="1"/>
+    <circle cx="7" cy="5" r="1" fill={color}/>
+    <circle cx="7" cy="12" r="1" fill={color}/>
+    <circle cx="7" cy="19" r="1" fill={color}/>
+  </svg>
+);
+
 const AdminTabNavigation = ({ activeTab, onTabChange }) => {
   const tabs = [
     { 
@@ -62,6 +73,12 @@ const AdminTabNavigation = ({ activeTab, onTabChange }) => {
       label: 'TeamCache', 
       icon: <TeamCacheIcon size={16} />,
       description: 'Cache service status'
+    },
+    { 
+      key: 'apiserver', 
+      label: 'API Server', 
+      icon: <ApiServerIcon size={16} />,
+      description: 'External API configuration'
     },
     { 
       key: 'logs', 

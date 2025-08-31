@@ -1,4 +1,4 @@
-# TeamCache Manager v1.7.0 - New System Deployment Checklist
+# TeamCache Manager v1.8.0 - New System Deployment Checklist
 
 ## Prerequisites
 

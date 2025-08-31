@@ -93,6 +93,8 @@ services:
       # Use host.docker.internal to access host machine from container
       LUCIDLINK_API_HOST: ${LUCIDLINK_API_HOST:-host.docker.internal}
       LUCIDLINK_API_PORT: ${LUCIDLINK_API_PORT:-9780}
+      # API Gateway configuration
+      API_GATEWAY_KEY: ${API_GATEWAY_KEY:-demo-api-key-2024}
       # Configure S3 proxy for Varnish cache  
       LUCID_S3_PROXY: ${LUCID_S3_PROXY}
       # Varnish server configuration
@@ -126,6 +128,8 @@ services:
     volumes:
       # Application logs
       - backend_logs:/app/logs
+      # Shared config volume for API Gateway
+      - api-config:/config
       # Create mount point for LucidLink (will be mounted by daemon inside container)
       - lucidlink_mount:/media/lucidlink-1
       # Shared volume for varnish stats
@@ -246,6 +250,8 @@ volumes:
   postgres_data:
     driver: local
   backend_logs:
+    driver: local
+  api-config:
     driver: local
   lucidlink_mount:
     driver: local

@@ -5,6 +5,7 @@ const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 const Joi = require('joi');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 
@@ -13,7 +14,42 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.API_GATEWAY_PORT || 8095;
-const API_KEY = process.env.API_GATEWAY_KEY || 'demo-api-key-2024';
+
+// Dynamic API key configuration
+let API_KEY = process.env.API_GATEWAY_KEY || 'demo-api-key-2024';
+const CONFIG_FILE = '/config/api-gateway.json';
+
+// Function to load API key from config file
+const loadApiConfig = async () => {
+  try {
+    const configData = await fs.readFile(CONFIG_FILE, 'utf8');
+    const config = JSON.parse(configData);
+    
+    if (config.apiKey && typeof config.apiKey === 'string') {
+      API_KEY = config.apiKey;
+      console.log(`API key loaded from config file (updated: ${config.updatedAt})`);
+      return config;
+    }
+  } catch (error) {
+    // Config file doesn't exist or is invalid - use environment variable
+    console.log('Using API key from environment variable');
+  }
+  return null;
+};
+
+// Watch config file for changes
+const watchConfig = () => {
+  try {
+    fsSync.watchFile(CONFIG_FILE, { interval: 5000 }, async (curr, prev) => {
+      if (curr.mtime !== prev.mtime) {
+        console.log('API Gateway config file changed, reloading...');
+        await loadApiConfig();
+      }
+    });
+  } catch (error) {
+    console.warn('Could not watch config file:', error.message);
+  }
+};
 
 // Store latest LucidLink stats in memory
 let latestLucidLinkStats = {
@@ -812,6 +848,33 @@ app.delete('/api/v1/cache/jobs/:id', authenticateApiKey, async (req, res) => {
   }
 });
 
+// Restart API Gateway endpoint
+app.post('/api/v1/restart', authenticateApiKey, async (req, res) => {
+  try {
+    console.log('API Gateway restart requested');
+    
+    res.json({
+      success: true,
+      message: 'Restart initiated - container will restart in a few seconds',
+      timestamp: new Date().toISOString()
+    });
+    
+    // Exit process to trigger container restart (Docker will restart the container)
+    setTimeout(() => {
+      console.log('Initiating API Gateway restart...');
+      process.exit(0);
+    }, 1000); // Give time for the response to be sent
+    
+  } catch (error) {
+    console.error('Error during restart:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to initiate restart',
+      details: error.message
+    });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
@@ -830,12 +893,16 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-const server = app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', async () => {
   console.log(`API Gateway running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Database: ${process.env.DB_HOST || 'postgres'}:${process.env.DB_PORT || 5432}`);
   console.log(`API endpoints available at http://localhost:${PORT}/api/v1`);
   console.log(`WebSocket endpoint available at ws://localhost:${PORT}/ws`);
+  
+  // Load API configuration and start watching for changes
+  await loadApiConfig();
+  watchConfig();
 });
 
 // Handle WebSocket upgrade

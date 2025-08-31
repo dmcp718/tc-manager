@@ -1551,7 +1551,7 @@ API_GATEWAY_KEY=your-secure-api-key
 
 See `api-gateway/README.md` for complete API documentation.
 
-## Recent Updates (v1.7.0)
+## Recent Updates (v1.8.0)
 
 ### New Features
 - **Video Preview System**: Batch video transcoding with DASH streaming

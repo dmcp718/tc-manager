@@ -302,6 +302,19 @@ const AdminView = ({ user, onLogout }) => {
     email: '',
     role: 'user'
   });
+
+  // API Server configuration state
+  const [apiConfig, setApiConfig] = useState({
+    endpoint: '',
+    currentKey: '',
+    maskedKey: '',
+    isEnabled: false,
+    loading: false,
+    error: null
+  });
+  const [newApiKey, setNewApiKey] = useState('');
+  const [restartingApiGateway, setRestartingApiGateway] = useState(false);
+  const [showUpdateKey, setShowUpdateKey] = useState(false);
   
   // Debounce timer for search
   const searchTimeoutRef = useRef(null);
@@ -411,6 +424,10 @@ const AdminView = ({ user, onLogout }) => {
     if (activeAdminTab === 'users') {
       fetchUsers();
     }
+    // Fetch API config when API Server tab is active
+    if (activeAdminTab === 'apiserver') {
+      fetchApiConfig();
+    }
     // Fetch logs when Logs tab is active
     if (activeAdminTab === 'logs') {
       fetchLogs();
@@ -490,6 +507,130 @@ const AdminView = ({ user, onLogout }) => {
   };
 
   // Handle log filter changes
+  const fetchApiConfig = async () => {
+    try {
+      setApiConfig(prev => ({ ...prev, loading: true, error: null }));
+      
+      const apiURL = process.env.REACT_APP_API_URL || '/api';
+      const response = await fetch(`${apiURL}/config/apigateway`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setApiConfig({
+          endpoint: data.endpoint || '',
+          currentKey: data.currentKey || '',
+          maskedKey: data.maskedKey || '',
+          isEnabled: data.isEnabled || false,
+          loading: false,
+          error: null
+        });
+      } else {
+        throw new Error('Failed to fetch API configuration');
+      }
+    } catch (error) {
+      console.error('Error fetching API config:', error);
+      setApiConfig(prev => ({
+        ...prev,
+        loading: false,
+        error: error.message
+      }));
+    }
+  };
+
+  const handleUpdateApiKey = async (e) => {
+    e.preventDefault();
+    
+    if (!newApiKey.trim()) {
+      setApiConfig(prev => ({ ...prev, error: 'API key cannot be empty' }));
+      return;
+    }
+
+    try {
+      setApiConfig(prev => ({ ...prev, loading: true, error: null }));
+      
+      const apiURL = process.env.REACT_APP_API_URL || '/api';
+      const response = await fetch(`${apiURL}/config/apigateway`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiKey: newApiKey.trim()
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setApiConfig({
+          endpoint: data.endpoint || '',
+          currentKey: data.currentKey || '',
+          maskedKey: data.maskedKey || '',
+          isEnabled: data.isEnabled || false,
+          loading: false,
+          error: null
+        });
+        setNewApiKey('');
+        setShowUpdateKey(false);
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to update API key');
+      }
+    } catch (error) {
+      console.error('Error updating API key:', error);
+      setApiConfig(prev => ({
+        ...prev,
+        loading: false,
+        error: error.message
+      }));
+    }
+  };
+
+  const handleRestartApiGateway = async () => {
+    try {
+      setRestartingApiGateway(true);
+      setApiConfig(prev => ({ ...prev, error: null }));
+      
+      const apiURL = process.env.REACT_APP_API_URL || '/api';
+      const response = await fetch(`${apiURL}/config/apigateway/restart`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Show success message and refresh API config after a delay
+        setApiConfig(prev => ({ 
+          ...prev, 
+          error: null
+        }));
+        
+        // Wait a few seconds for the container to restart, then refresh the config
+        setTimeout(() => {
+          fetchApiConfig();
+        }, 3000);
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to restart API Gateway');
+      }
+    } catch (error) {
+      console.error('Error restarting API Gateway:', error);
+      setApiConfig(prev => ({
+        ...prev,
+        error: `Restart failed: ${error.message}`
+      }));
+    } finally {
+      setRestartingApiGateway(false);
+    }
+  };
+
   const handleLogFilterChange = (key, value) => {
     const newFilters = { ...logFilters, [key]: value, offset: 0 };
     setLogFilters(newFilters);
@@ -964,7 +1105,7 @@ const AdminView = ({ user, onLogout }) => {
               <div style={styles.statusContent}>
                 <div style={styles.statusLine}>
                   <div style={styles.statusLabel}>Application:</div>
-                  <div style={styles.statusValue}>TeamCache Manager v1.7.0</div>
+                  <div style={styles.statusValue}>TeamCache Manager v1.8.0</div>
                 </div>
                 <div style={styles.statusLine}>
                   <div style={styles.statusLabel}>User:</div>
@@ -975,6 +1116,196 @@ const AdminView = ({ user, onLogout }) => {
                   <div style={styles.statusValue}>
                     {process.env.NODE_ENV === 'development' ? 'Development' : 'Production'}
                   </div>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      
+      case 'apiserver':
+        return (
+          <>
+            <div style={styles.statusCard}>
+              <div style={styles.statusTitle}>
+                <InfoIcon size={18} color="#ffffff" />
+                API Server Configuration
+                <button 
+                  style={{
+                    ...styles.refreshButton,
+                    marginLeft: 'auto',
+                    opacity: apiConfig.loading ? 0.7 : 1,
+                  }}
+                  onClick={fetchApiConfig}
+                  disabled={apiConfig.loading}
+                >
+                  {apiConfig.loading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+              <div style={styles.statusContent}>
+                {apiConfig.error && (
+                  <div style={{
+                    color: '#ef4444',
+                    backgroundColor: '#fef2f2',
+                    padding: '8px 12px',
+                    borderRadius: '4px',
+                    marginBottom: '16px',
+                    fontSize: '14px',
+                    border: '1px solid #fecaca'
+                  }}>
+                    {apiConfig.error}
+                  </div>
+                )}
+                <div style={styles.statusLine}>
+                  <div style={styles.statusLabel}>Endpoint URL:</div>
+                  <div style={styles.statusValue}>
+                    {apiConfig.endpoint || 'http://localhost:8095/api/v1'}
+                  </div>
+                </div>
+                <div style={styles.statusLine}>
+                  <div style={styles.statusLabel}>Status:</div>
+                  <div style={{
+                    ...styles.statusValue,
+                    color: apiConfig.isEnabled ? '#22c55e' : '#a1a1aa'
+                  }}>
+                    {apiConfig.isEnabled ? '🟢 Enabled' : '🔴 Disabled'}
+                  </div>
+                </div>
+                <div style={styles.statusLine}>
+                  <div style={styles.statusLabel}>Current API Key:</div>
+                  <div style={styles.statusValue}>
+                    {apiConfig.maskedKey || '•••••••••••••••'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.statusCard}>
+              <div style={styles.statusTitle}>
+                <WrenchIcon size={18} color="#ffffff" />
+                Update API Key
+              </div>
+              <div style={styles.statusContent}>
+                {!showUpdateKey ? (
+                  <button
+                    style={{
+                      ...styles.refreshButton,
+                      backgroundColor: '#2563eb',
+                      color: 'white',
+                      border: 'none'
+                    }}
+                    onClick={() => setShowUpdateKey(true)}
+                  >
+                    Update API Key
+                  </button>
+                ) : (
+                  <form onSubmit={handleUpdateApiKey} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', color: '#e5e7eb' }}>
+                        New API Key:
+                      </label>
+                      <input
+                        type="text"
+                        value={newApiKey}
+                        onChange={(e) => setNewApiKey(e.target.value)}
+                        placeholder="Enter new API key"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          backgroundColor: '#374151',
+                          border: '1px solid #4b5563',
+                          borderRadius: '4px',
+                          color: '#e5e7eb',
+                          fontSize: '14px'
+                        }}
+                        disabled={apiConfig.loading}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="submit"
+                        style={{
+                          ...styles.refreshButton,
+                          backgroundColor: '#22c55e',
+                          color: 'white',
+                          border: 'none'
+                        }}
+                        disabled={apiConfig.loading || !newApiKey.trim()}
+                      >
+                        {apiConfig.loading ? 'Updating...' : 'Update Key'}
+                      </button>
+                      <button
+                        type="button"
+                        style={{
+                          ...styles.refreshButton,
+                          backgroundColor: '#6b7280',
+                          color: 'white',
+                          border: 'none'
+                        }}
+                        onClick={() => {
+                          setShowUpdateKey(false);
+                          setNewApiKey('');
+                          setApiConfig(prev => ({ ...prev, error: null }));
+                        }}
+                        disabled={apiConfig.loading}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+                <div style={{
+                  marginTop: '16px',
+                  padding: '12px',
+                  backgroundColor: '#1f2937',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  color: '#9ca3af',
+                  border: '1px solid #374151'
+                }}>
+                  <div style={{ marginBottom: '8px', fontWeight: 'bold' }}>ℹ️ Note:</div>
+                  <div>Changing the API key will require restarting the API Gateway container to take effect. 
+                  All existing API clients will need to use the new key for authentication.</div>
+                </div>
+                
+                {/* Restart API Gateway Button */}
+                <div style={{ marginTop: '16px' }}>
+                  <button
+                    onClick={handleRestartApiGateway}
+                    disabled={restartingApiGateway || apiConfig.loading}
+                    style={{
+                      backgroundColor: '#f59e0b',
+                      color: 'white',
+                      border: 'none',
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      fontSize: '14px',
+                      cursor: restartingApiGateway || apiConfig.loading ? 'not-allowed' : 'pointer',
+                      opacity: restartingApiGateway || apiConfig.loading ? 0.7 : 1,
+                      fontWeight: '500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    {restartingApiGateway ? (
+                      <>
+                        ⏳ Restarting API Gateway...
+                      </>
+                    ) : (
+                      <>
+                        🔄 Restart API Gateway Container
+                      </>
+                    )}
+                  </button>
+                  {restartingApiGateway && (
+                    <div style={{
+                      marginTop: '8px',
+                      fontSize: '12px',
+                      color: '#9ca3af'
+                    }}>
+                      This may take a few moments. The status will refresh automatically when complete.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 {
   "name": "teamcache-backend",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Backend server for TeamCache Manager with LucidLink filesystem indexing",
   "main": "server-v2.js",
   "scripts": {

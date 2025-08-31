@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo -e "${GREEN}🚀 TeamCache Manager Production Deployment v1.7.0${NC}"
+echo -e "${GREEN}🚀 TeamCache Manager Production Deployment v1.8.0${NC}"
 echo ""
 
 # Change to project directory
@@ -330,7 +330,7 @@ echo -e "${GREEN}   ${FRONTEND_URL}${NC}"
 echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "${BLUE}📊 Deployment Summary:${NC}"
-echo "   Environment: Production v1.7.0"
+echo "   Environment: Production v1.8.0"
 echo "   SSL Mode: $SSL_MODE"
 echo "   Frontend URL: $FRONTEND_URL"
 echo "   Backend API: $API_URL"

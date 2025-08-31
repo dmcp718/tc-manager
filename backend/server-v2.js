@@ -10,6 +10,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const pty = require('node-pty');
+const fetch = require('node-fetch');
 
 // Import logger
 const logger = require('./logger');
@@ -1407,6 +1408,208 @@ app.put('/api/admin/users/:id/password', authService.requireAuth, async (req, re
       return res.status(404).json({ error: error.message });
     }
     res.status(500).json({ error: 'Failed to update password' });
+  }
+});
+
+// API Gateway Configuration endpoints
+app.get('/api/config/apigateway', authService.requireAuth, async (req, res) => {
+  try {
+    console.log('[API Config] Endpoint called by user:', req.user?.username, 'role:', req.user?.role);
+    // Only admin users can access API configuration
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Check if API Gateway is running
+    const apiGatewayPort = process.env.API_GATEWAY_PORT || 8095;
+    const apiGatewayHost = 'api-gateway'; // API Gateway runs on api-gateway service within Docker network
+    
+    let isEnabled = false;
+    try {
+      console.log(`[API Config] Checking API Gateway health at: http://${apiGatewayHost}:${apiGatewayPort}/api/v1/health`);
+      
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 3000)
+      );
+      
+      const fetchPromise = fetch(`http://${apiGatewayHost}:${apiGatewayPort}/api/v1/health`);
+      
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
+      console.log(`[API Config] Response status: ${response.status}, OK: ${response.ok}`);
+      isEnabled = response.ok;
+    } catch (error) {
+      console.log(`[API Config] Error checking API Gateway: ${error.message}`);
+      // API Gateway is not responding
+      isEnabled = false;
+    }
+
+    // Get current API key from config file (fallback to env var)
+    let currentKey = process.env.API_GATEWAY_KEY || 'demo-api-key-2024';
+    try {
+      const fs = require('fs');
+      const configPath = '/config/api-gateway.json';
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (config.apiKey) {
+          currentKey = config.apiKey;
+        }
+      }
+    } catch (error) {
+      console.log('[API Config] Could not read config file, using environment variable');
+    }
+    const maskedKey = currentKey.length > 4 ? 
+      `${currentKey.slice(0, 4)}${'•'.repeat(currentKey.length - 4)}` : 
+      '••••';
+
+    const serverHost = process.env.SERVER_HOST || 'localhost';
+    const endpoint = `http://${serverHost}:${apiGatewayPort}/api/v1`;
+
+    res.json({
+      endpoint,
+      currentKey,
+      maskedKey,
+      isEnabled,
+      debugInfo: {
+        apiGatewayHost,
+        apiGatewayPort,
+        healthUrl: `http://${apiGatewayHost}:${apiGatewayPort}/api/v1/health`
+      }
+    });
+  } catch (error) {
+    console.error('Error getting API Gateway config:', error);
+    res.status(500).json({ error: 'Failed to retrieve API configuration' });
+  }
+});
+
+app.post('/api/config/apigateway', authService.requireAuth, async (req, res) => {
+  try {
+    // Only admin users can update API configuration
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { apiKey } = req.body;
+    
+    if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 8) {
+      return res.status(400).json({ error: 'API key must be at least 8 characters long' });
+    }
+
+    const trimmedKey = apiKey.trim();
+    
+    // Write to config file for API Gateway to pick up
+    const configDir = '/config';
+    const configFile = path.join(configDir, 'api-gateway.json');
+    
+    try {
+      // Ensure config directory exists
+      await fs.mkdir(configDir, { recursive: true });
+      
+      const config = {
+        apiKey: trimmedKey,
+        updatedAt: new Date().toISOString(),
+        updatedBy: req.user.username
+      };
+      
+      await fs.writeFile(configFile, JSON.stringify(config, null, 2));
+      
+      // Log the configuration change
+      logger.info('API Gateway configuration updated', {
+        event: 'api_gateway_config_updated',
+        username: req.user.username,
+        timestamp: new Date().toISOString()
+      });
+
+      // Return updated config (masked)
+      const maskedKey = trimmedKey.length > 4 ? 
+        `${trimmedKey.slice(0, 4)}${'•'.repeat(trimmedKey.length - 4)}` : 
+        '••••';
+
+      const serverHost = process.env.SERVER_HOST || 'localhost';
+      const apiGatewayPort = process.env.API_GATEWAY_PORT || 8095;
+      const endpoint = `http://${serverHost}:${apiGatewayPort}/api/v1`;
+
+      res.json({
+        message: 'API key updated successfully. Please restart the API Gateway container for changes to take effect.',
+        endpoint,
+        currentKey: trimmedKey,
+        maskedKey,
+        isEnabled: true
+      });
+    } catch (fileError) {
+      console.error('Error writing API Gateway config file:', fileError);
+      return res.status(500).json({ error: 'Failed to save configuration file' });
+    }
+  } catch (error) {
+    console.error('Error updating API Gateway config:', error);
+    res.status(500).json({ error: 'Failed to update API configuration' });
+  }
+});
+
+// Restart API Gateway container endpoint
+app.post('/api/config/apigateway/restart', authService.requireAuth, async (req, res) => {
+  try {
+    // Only admin users can restart API Gateway
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    console.log('[API Gateway] Restart request by user:', req.user.username);
+
+    // Send restart signal to API Gateway via HTTP request
+    const apiGatewayPort = process.env.API_GATEWAY_PORT || 8095;
+    const restartUrl = `http://api-gateway:${apiGatewayPort}/api/v1/restart`;
+    
+    // Get current API key from config file (fallback to env var)
+    let apiKey = process.env.API_GATEWAY_KEY || 'demo-api-key-2024';
+    try {
+      const fs = require('fs');
+      const configPath = '/config/api-gateway.json';
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (config.apiKey) {
+          apiKey = config.apiKey;
+        }
+      }
+    } catch (error) {
+      console.log('[API Gateway Restart] Could not read config file, using environment variable');
+    }
+    
+    try {
+      const response = await fetch(restartUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey
+        }
+      });
+      
+      if (response.ok) {
+        // Log the restart action
+        logger.info('API Gateway restart initiated', {
+          event: 'api_gateway_restart_initiated',
+          username: req.user.username,
+          timestamp: new Date().toISOString()
+        });
+        
+        res.json({
+          message: 'API Gateway restart initiated successfully',
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        throw new Error(`API Gateway restart failed with status: ${response.status}`);
+      }
+    } catch (fetchError) {
+      console.error('[API Gateway] Restart request failed:', fetchError.message);
+      res.status(500).json({ 
+        error: 'Failed to send restart signal to API Gateway',
+        details: fetchError.message
+      });
+    }
+
+  } catch (error) {
+    console.error('Error restarting API Gateway:', error);
+    res.status(500).json({ error: 'Failed to restart API Gateway container' });
   }
 });
 
