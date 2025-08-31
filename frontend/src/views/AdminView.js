@@ -18,6 +18,21 @@ const InfoIcon = ({ size = 16, color = 'currentColor' }) => (
   </svg>
 );
 
+const UserIcon = ({ size = 16, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+    <circle cx="12" cy="7" r="4"/>
+  </svg>
+);
+
+const LogoutIcon = ({ size = 16, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+    <polyline points="16,17 21,12 16,7"/>
+    <line x1="21" y1="12" x2="9" y2="12"/>
+  </svg>
+);
+
 // Admin view styles
 const styles = {
   container: {
@@ -147,24 +162,31 @@ const styles = {
     transition: 'background-color 0.2s',
   },
   logoutButton: {
-    backgroundColor: '#dc2626',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    padding: '8px 16px',
+    backgroundColor: 'transparent',
+    color: '#a1a1aa',
+    border: '1px solid #3a3a3a',
+    borderRadius: '4px',
+    padding: '6px 12px',
     fontSize: '14px',
     fontWeight: '500',
     cursor: 'pointer',
-    transition: 'background-color 0.2s',
+    transition: 'all 0.2s ease',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
   },
   userButton: {
     backgroundColor: 'transparent',
-    color: '#e4e4e7',
+    color: '#a1a1aa',
     border: '1px solid #3a3a3a',
-    borderRadius: '6px',
-    padding: '8px 12px',
+    borderRadius: '4px',
+    padding: '6px 12px',
     fontSize: '14px',
+    fontWeight: '500',
     cursor: 'default',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
   },
   filterContainer: {
     display: 'flex',
@@ -1468,13 +1490,33 @@ const AdminView = ({ user, onLogout }) => {
         </div>
         
         <div style={styles.headerRight}>
-          <button style={styles.userButton}>
-            👤 {user?.username || 'User'}
+          <button 
+            style={styles.userButton}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = '#1a1a1a';
+              e.target.style.color = '#e4e4e7';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = 'transparent';
+              e.target.style.color = '#a1a1aa';
+            }}
+          >
+            <UserIcon size={16} />
+            {user?.username || 'User'}
           </button>
           <button 
             style={styles.logoutButton}
             onClick={onLogout}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = '#1a1a1a';
+              e.target.style.color = '#e4e4e7';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = 'transparent';
+              e.target.style.color = '#a1a1aa';
+            }}
           >
+            <LogoutIcon size={16} />
             Logout
           </button>
         </div>
