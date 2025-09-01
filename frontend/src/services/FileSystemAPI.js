@@ -7,6 +7,13 @@ class FileSystemAPI {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
   
+  static async getFilespaces() {
+    const response = await fetch(`${this.baseURL}/filespaces`, {
+      headers: this.getAuthHeaders()
+    });
+    return response.json();
+  }
+
   static async getRoots() {
     const response = await fetch(`${this.baseURL}/roots`, {
       headers: this.getAuthHeaders()
@@ -14,8 +21,13 @@ class FileSystemAPI {
     return response.json();
   }
   
-  static async getFiles(path) {
-    const response = await fetch(`${this.baseURL}/files?path=${encodeURIComponent(path)}`, {
+  static async getFiles(path, filespaceId = null) {
+    let url = `${this.baseURL}/files?path=${encodeURIComponent(path)}`;
+    if (filespaceId) {
+      url += `&filespace_id=${filespaceId}`;
+    }
+    
+    const response = await fetch(url, {
       headers: this.getAuthHeaders()
     });
     return response.json();

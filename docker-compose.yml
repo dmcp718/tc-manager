@@ -25,6 +25,7 @@ services:
       - ./backend/schema-profiles.sql:/docker-entrypoint-initdb.d/02-profiles.sql
       - ./backend/schema-direct-links.sql:/docker-entrypoint-initdb.d/03-direct-links.sql
       - ./backend/schema-video-preview.sql:/docker-entrypoint-initdb.d/04-video-preview.sql
+      - ./backend/schema-users.sql:/docker-entrypoint-initdb.d/05-users.sql
     ports:
       - "5432:5432"
     healthcheck:
@@ -61,7 +62,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-teamcache_db}
       PREVIEW_CACHE_DIR: /app/preview-cache
       INDEX_ROOT_PATH: ${INDEX_ROOT_PATH:-/media/lucidlink-1}
-      ALLOWED_PATHS: ${ALLOWED_PATHS:-/media/lucidlink-1}
       NETWORK_INTERFACE: ${NETWORK_INTERFACE:-eth0}
       LUCIDLINK_FS_1_PORT: ${LUCIDLINK_FS_1_PORT:-7778}
       ENABLE_NETWORK_STATS: "false"
@@ -74,6 +74,22 @@ services:
       LUCIDLINK_USER: ${LUCIDLINK_USER}
       LUCIDLINK_PASSWORD: ${LUCIDLINK_PASSWORD}
       LUCIDLINK_MOUNT_POINT: ${LUCIDLINK_MOUNT_POINT:-/media/lucidlink-1}
+      # Multi-filespace configuration (numbered instances)
+      LUCIDLINK_FILESPACE_1: ${LUCIDLINK_FILESPACE_1}
+      LUCIDLINK_USER_1: ${LUCIDLINK_USER_1}
+      LUCIDLINK_PASSWORD_1: ${LUCIDLINK_PASSWORD_1}
+      LUCIDLINK_MOUNT_POINT_1: ${LUCIDLINK_MOUNT_POINT_1:-/media/lucidlink-1}
+      LUCIDLINK_INSTANCE_1: ${LUCIDLINK_INSTANCE_1:-2001}
+      LUCIDLINK_API_PORT_1: ${LUCIDLINK_API_PORT_1:-9780}
+      LUCIDLINK_FILESPACE_2: ${LUCIDLINK_FILESPACE_2}
+      LUCIDLINK_USER_2: ${LUCIDLINK_USER_2}
+      LUCIDLINK_PASSWORD_2: ${LUCIDLINK_PASSWORD_2}
+      LUCIDLINK_MOUNT_POINT_2: ${LUCIDLINK_MOUNT_POINT_2:-/media/lucidlink-2}
+      LUCIDLINK_INSTANCE_2: ${LUCIDLINK_INSTANCE_2:-2002}
+      LUCIDLINK_API_PORT_2: ${LUCIDLINK_API_PORT_2:-9781}
+      # Combined paths for indexing
+      INDEX_ROOT_PATHS: ${INDEX_ROOT_PATHS}
+      ALLOWED_PATHS: ${ALLOWED_PATHS}
       # Performance tuning
       UV_THREADPOOL_SIZE: 16
       NODE_OPTIONS: "--max-old-space-size=1536"
@@ -130,8 +146,9 @@ services:
       - backend_logs:/app/logs
       # Shared config volume for API Gateway
       - api-config:/config
-      # Create mount point for LucidLink (will be mounted by daemon inside container)
+      # Create mount points for LucidLink (will be mounted by daemon inside container)
       - lucidlink_mount:/media/lucidlink-1
+      - lucidlink_mount_2:/media/lucidlink-2
       # Shared volume for varnish stats
       - varnish_stats:/data
       # Persistent preview cache
@@ -254,6 +271,8 @@ volumes:
   api-config:
     driver: local
   lucidlink_mount:
+    driver: local
+  lucidlink_mount_2:
     driver: local
   varnish_stats:
     driver: local

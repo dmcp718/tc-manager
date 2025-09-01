@@ -317,91 +317,105 @@ app.get('/api/auth/verify', authService.requireAuth, (req, res) => {
   });
 });
 
-// Get root directories - check database first, fallback to filesystem
+// Get configured filespaces
+app.get('/api/filespaces', authService.requireAuth, async (req, res) => {
+  try {
+    const filespaces = [];
+    
+    // Check for numbered filespace configurations
+    for (let i = 1; i <= 5; i++) {
+      const filespace = process.env[`LUCIDLINK_FILESPACE_${i}`];
+      const mountPoint = process.env[`LUCIDLINK_MOUNT_POINT_${i}`];
+      const instance = process.env[`LUCIDLINK_INSTANCE_${i}`];
+      
+      if (filespace && mountPoint) {
+        // Check if mount point exists and is accessible
+        try {
+          await fs.access(mountPoint);
+          const stats = await fs.stat(mountPoint);
+          
+          filespaces.push({
+            id: i,
+            name: filespace,
+            mount_point: mountPoint,
+            instance_id: instance || (2000 + i),
+            is_mounted: stats.isDirectory(),
+            accessible: true
+          });
+        } catch (error) {
+          // Mount point not accessible
+          filespaces.push({
+            id: i,
+            name: filespace,
+            mount_point: mountPoint,
+            instance_id: instance || (2000 + i),
+            is_mounted: false,
+            accessible: false,
+            error: error.message
+          });
+        }
+      }
+    }
+    
+    // Fallback to legacy configuration if no numbered configs found
+    if (filespaces.length === 0) {
+      const legacyFilespace = process.env.LUCIDLINK_FILESPACE;
+      const legacyMount = process.env.LUCIDLINK_MOUNT_POINT || '/media/lucidlink-1';
+      
+      if (legacyFilespace) {
+        try {
+          await fs.access(legacyMount);
+          const stats = await fs.stat(legacyMount);
+          
+          filespaces.push({
+            id: 1,
+            name: legacyFilespace,
+            mount_point: legacyMount,
+            instance_id: 2001,
+            is_mounted: stats.isDirectory(),
+            accessible: true
+          });
+        } catch (error) {
+          filespaces.push({
+            id: 1,
+            name: legacyFilespace,
+            mount_point: legacyMount,
+            instance_id: 2001,
+            is_mounted: false,
+            accessible: false,
+            error: error.message
+          });
+        }
+      }
+    }
+    
+    res.json(filespaces);
+  } catch (error) {
+    console.error('Error getting filespaces:', error);
+    res.status(500).json({ error: 'Failed to get filespaces' });
+  }
+});
+
+// Get root directories - now returns multiple roots for multi-filespace
 app.get('/api/roots', authService.requireAuth, async (req, res) => {
   try {
-    // Try to get roots from database first
-    let roots = await FileModel.findRoots();
+    const roots = [];
     
-    // If no roots in database, fallback to filesystem discovery
-    if (roots.length === 0) {
-      console.log('No roots in database, checking LucidLink mount');
+    // Check for multiple filespace configurations
+    for (let i = 1; i <= 5; i++) {
+      const filespace = process.env[`LUCIDLINK_FILESPACE_${i}`];
+      const mountPoint = process.env[`LUCIDLINK_MOUNT_POINT_${i}`];
       
-      const fsPath = process.env.INDEX_ROOT_PATH || '/media/lucidlink-1';
-      try {
-        const stats = await fs.stat(fsPath);
-        if (stats.isDirectory()) {
-          // Sync to database
-          await syncFileToDatabase(fsPath);
-          
-          // Check if path has been indexed
-          const indexedInfo = await IndexProgressModel.isPathIndexed(fsPath);
-          
-          roots = [{
-            name: process.env.LUCIDLINK_FILESPACE || path.basename(fsPath),
-            path: fsPath,
-            isDirectory: true,
-            size: 0,
-            modified: stats.mtime,
-            created: stats.birthtime,
-            extension: '',
-            permissions: stats.mode,
-            cached: false,
-            indexed: !!indexedInfo,
-            indexedAt: indexedInfo ? indexedInfo.completed_at : null
-          }];
-        }
-      } catch (error) {
-        console.error('LucidLink mount not found at:', fsPath);
-        // Return empty array if LucidLink mount doesn't exist
-        roots = [];
-      }
-    } else {
-      // Validate database entries against filesystem
-      const validRoots = [];
-      for (const root of roots) {
+      if (filespace && mountPoint) {
         try {
-          const stats = await fs.stat(root.path);
+          const stats = await fs.stat(mountPoint);
           if (stats.isDirectory()) {
             // Check if path has been indexed
-            const indexedInfo = await IndexProgressModel.isPathIndexed(root.path);
+            const indexedInfo = await IndexProgressModel.isPathIndexed(mountPoint);
             
-            validRoots.push({
-              name: root.name,
-              path: root.path,
-              isDirectory: root.is_directory,
-              size: root.size,
-              modified: root.modified_at,
-              created: root.modified_at, // Use modified_at as fallback for created date
-              extension: '',
-              permissions: root.permissions,
-              cached: root.cached,
-              indexed: !!indexedInfo,
-              indexedAt: indexedInfo ? indexedInfo.completed_at : null
-            });
-          }
-        } catch (error) {
-          // Remove invalid entries from database
-          console.log(`Removing invalid root from database: ${root.path}`);
-          // In a production system, you might want to mark as invalid instead of deleting
-        }
-      }
-      
-      // If no valid roots found, fallback to filesystem discovery
-      if (validRoots.length === 0) {
-        console.log('No valid roots in database, checking LucidLink mount');
-        const fsPath = process.env.INDEX_ROOT_PATH || '/media/lucidlink-1';
-        try {
-          const stats = await fs.stat(fsPath);
-          if (stats.isDirectory()) {
-            await syncFileToDatabase(fsPath);
-            
-            // Check if path has been indexed
-            const indexedInfo = await IndexProgressModel.isPathIndexed(fsPath);
-            
-            validRoots.push({
-              name: process.env.LUCIDLINK_FILESPACE || path.basename(fsPath),
-              path: fsPath,
+            roots.push({
+              name: filespace,
+              path: mountPoint,
               isDirectory: true,
               size: 0,
               modified: stats.mtime,
@@ -410,16 +424,49 @@ app.get('/api/roots', authService.requireAuth, async (req, res) => {
               permissions: stats.mode,
               cached: false,
               indexed: !!indexedInfo,
-              indexedAt: indexedInfo ? indexedInfo.completed_at : null
+              indexedAt: indexedInfo ? indexedInfo.completed_at : null,
+              filespace_id: i,
+              filespace_name: filespace
             });
           }
         } catch (error) {
-          console.error('LucidLink mount not found at:', fsPath);
-          // Return empty array if LucidLink mount doesn't exist
+          console.error(`Filespace ${i} mount not found at:`, mountPoint);
         }
       }
+    }
+    
+    // Fallback to legacy configuration if no numbered configs found
+    if (roots.length === 0) {
+      const legacyFilespace = process.env.LUCIDLINK_FILESPACE;
+      const legacyMount = process.env.LUCIDLINK_MOUNT_POINT || process.env.INDEX_ROOT_PATH || '/media/lucidlink-1';
       
-      roots = validRoots;
+      if (legacyFilespace || await fs.stat(legacyMount).catch(() => false)) {
+        try {
+          const stats = await fs.stat(legacyMount);
+          if (stats.isDirectory()) {
+            // Check if path has been indexed
+            const indexedInfo = await IndexProgressModel.isPathIndexed(legacyMount);
+            
+            roots.push({
+              name: legacyFilespace || path.basename(legacyMount),
+              path: legacyMount,
+              isDirectory: true,
+              size: 0,
+              modified: stats.mtime,
+              created: stats.birthtime,
+              extension: '',
+              permissions: stats.mode,
+              cached: false,
+              indexed: !!indexedInfo,
+              indexedAt: indexedInfo ? indexedInfo.completed_at : null,
+              filespace_id: 1,
+              filespace_name: legacyFilespace || path.basename(legacyMount)
+            });
+          }
+        } catch (error) {
+          console.error('LucidLink mount not found at:', legacyMount);
+        }
+      }
     }
     
     res.json(roots);
@@ -433,12 +480,31 @@ app.get('/api/roots', authService.requireAuth, async (req, res) => {
 app.get('/api/files', authService.requireAuth, async (req, res) => {
   try {
     const dirPath = req.query.path;
+    const filespaceId = req.query.filespace_id ? parseInt(req.query.filespace_id) : null;
+    
     if (!dirPath) {
       return res.status(400).json({ error: 'Path parameter required' });
     }
     
-    // Security check - only allow LucidLink mount
-    const allowedPaths = (process.env.ALLOWED_PATHS || '/media/lucidlink-1').split(',');
+    // Validate filespace if provided
+    let allowedPaths = [];
+    if (filespaceId) {
+      const mountPoint = process.env[`LUCIDLINK_MOUNT_POINT_${filespaceId}`];
+      if (!mountPoint) {
+        return res.status(400).json({ error: `Invalid filespace_id: ${filespaceId}` });
+      }
+      allowedPaths = [mountPoint];
+      
+      // Verify the path belongs to the specified filespace
+      if (!dirPath.startsWith(mountPoint)) {
+        return res.status(403).json({ error: `Path does not belong to filespace ${filespaceId}` });
+      }
+    } else {
+      // Use all allowed paths if no specific filespace specified
+      allowedPaths = (process.env.ALLOWED_PATHS || '/media/lucidlink-1').split(',');
+    }
+    
+    // Security check - only allow configured mount paths
     const isAllowed = allowedPaths.some(allowed => dirPath.startsWith(allowed.trim()));
     
     if (!isAllowed) {
@@ -1613,22 +1679,89 @@ app.post('/api/config/apigateway/restart', authService.requireAuth, async (req, 
   }
 });
 
+// Helper function for sequential multi-filespace indexing
+async function startSequentialIndexing(indexer, rootPaths, { username, clientIP }) {
+  for (let i = 0; i < rootPaths.length; i++) {
+    const rootPath = rootPaths[i];
+    
+    logger.info(`Starting indexing filespace ${i + 1}/${rootPaths.length}: ${rootPath}`, {
+      event: 'filespace_index_start',
+      username,
+      clientIP,
+      rootPath,
+      currentIndex: i + 1,
+      totalFilespaces: rootPaths.length,
+      timestamp: new Date().toISOString()
+    });
+    
+    try {
+      await indexer.start(rootPath);
+      
+      logger.info(`Completed indexing filespace ${i + 1}/${rootPaths.length}: ${rootPath}`, {
+        event: 'filespace_index_complete',
+        username,
+        clientIP,
+        rootPath,
+        currentIndex: i + 1,
+        totalFilespaces: rootPaths.length,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error(`Failed indexing filespace ${i + 1}/${rootPaths.length}: ${rootPath}`, {
+        event: 'filespace_index_error',
+        username,
+        clientIP,
+        rootPath,
+        currentIndex: i + 1,
+        totalFilespaces: rootPaths.length,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+      // Continue with next filespace even if one fails
+    }
+  }
+  
+  logger.info('Multi-filespace indexing completed', {
+    event: 'multi_filespace_index_complete',
+    username,
+    clientIP,
+    totalFilespaces: rootPaths.length,
+    timestamp: new Date().toISOString()
+  });
+}
+
 // Indexing endpoints
 app.post('/api/index/start', authService.requireAuth, async (req, res) => {
   try {
     const { path: indexPath } = req.body;
-    const rootPath = indexPath || process.env.INDEX_ROOT_PATH || '/media/lucidlink-1';
     
     // Get client IP and user info
     const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
     const username = req.user?.username || 'unknown';
     
-    // Security check - only allow LucidLink mount
-    const allowedPaths = (process.env.ALLOWED_PATHS || '/media/lucidlink-1').split(',');
-    const isAllowed = allowedPaths.some(allowed => rootPath.startsWith(allowed.trim()));
+    let rootPaths = [];
     
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Access denied to this path' });
+    if (indexPath) {
+      // If specific path provided, use it
+      rootPaths = [indexPath];
+    } else {
+      // Use multi-filespace configuration if available, otherwise fall back to legacy
+      const rootPathsEnv = process.env.INDEX_ROOT_PATHS;
+      if (rootPathsEnv) {
+        rootPaths = rootPathsEnv.split(',').map(p => p.trim());
+      } else {
+        // Fall back to legacy single path
+        rootPaths = [process.env.INDEX_ROOT_PATH || '/media/lucidlink-1'];
+      }
+    }
+    
+    // Security check - only allow paths in ALLOWED_PATHS
+    const allowedPaths = (process.env.ALLOWED_PATHS || '/media/lucidlink-1').split(',').map(p => p.trim());
+    for (const rootPath of rootPaths) {
+      const isAllowed = allowedPaths.some(allowed => rootPath.startsWith(allowed));
+      if (!isAllowed) {
+        return res.status(403).json({ error: `Access denied to path: ${rootPath}` });
+      }
     }
     
     const indexer = getIndexer();
@@ -1638,21 +1771,22 @@ app.post('/api/index/start', authService.requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Indexing is already in progress' });
     }
     
-    // Log index job creation
-    logger.info('Index files job created', {
+    // Log multi-filespace index job creation
+    logger.info('Multi-filespace index job created', {
       event: 'index_job_created',
       username,
       clientIP,
-      rootPath,
+      rootPaths,
+      pathCount: rootPaths.length,
       timestamp: new Date().toISOString()
     });
     
-    // Start indexing in background
-    indexer.start(rootPath).catch(err => {
-      logger.error('Index files job failed to start', {
+    // Start sequential indexing of all filespaces in background
+    startSequentialIndexing(indexer, rootPaths, { username, clientIP }).catch(err => {
+      logger.error('Multi-filespace index job failed to start', {
         event: 'index_job_failed',
         username,
-        rootPath,
+        rootPaths,
         error: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1696,8 +1830,9 @@ app.post('/api/index/start', authService.requireAuth, async (req, res) => {
     
     res.json({ 
       status: 'started',
-      path: rootPath,
-      message: 'Indexing started in background'
+      paths: rootPaths,
+      pathCount: rootPaths.length,
+      message: `Indexing started for ${rootPaths.length} filespace(s) in background`
     });
   } catch (error) {
     console.error('Error starting indexing:', error);

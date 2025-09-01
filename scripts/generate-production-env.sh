@@ -39,10 +39,28 @@ echo -e "${YELLOW}Please provide the following information:${NC}"
 echo ""
 
 read -p "Server hostname or IP (e.g., teamcache.example.com): " SERVER_HOST
-read -p "LucidLink Filespace (e.g., filespace.domain): " LUCIDLINK_FILESPACE
-read -p "LucidLink username (email): " LUCIDLINK_USER
-read -sp "LucidLink password: " LUCIDLINK_PASSWORD
+
+# Configure first filespace (required)
+echo -e "\n${YELLOW}Configure Primary LucidLink Filespace:${NC}"
+read -p "LucidLink Filespace 1 (e.g., filespace.domain): " LUCIDLINK_FILESPACE_1
+read -p "LucidLink username 1 (email): " LUCIDLINK_USER_1
+read -sp "LucidLink password 1: " LUCIDLINK_PASSWORD_1
 echo ""
+
+# Ask about second filespace (optional)
+read -p "Do you want to configure a second filespace? (y/N): " -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo -e "\n${YELLOW}Configure Secondary LucidLink Filespace:${NC}"
+    read -p "LucidLink Filespace 2 (e.g., filespace2.domain): " LUCIDLINK_FILESPACE_2
+    read -p "LucidLink username 2 (email): " LUCIDLINK_USER_2
+    read -sp "LucidLink password 2: " LUCIDLINK_PASSWORD_2
+    echo ""
+    ENABLE_SECOND_FILESPACE=true
+else
+    ENABLE_SECOND_FILESPACE=false
+    echo -e "${GREEN}✅ Configuring single filespace${NC}"
+fi
 read -sp "Web app admin user password (press Enter to generate random): " ADMIN_PASSWORD
 echo ""
 if [ -z "$ADMIN_PASSWORD" ]; then
@@ -112,20 +130,64 @@ PORT=3001
 WEBSOCKET_PORT=3002
 SERVER_HOST=$SERVER_HOST
 
-# LucidLink Configuration
-LUCIDLINK_MOUNT_POINT=/media/lucidlink-1
-INDEX_ROOT_PATH=/media/lucidlink-1
-ALLOWED_PATHS=/media/lucidlink-1
+# LucidLink Configuration - Shared Settings
 LUCIDLINK_COMMAND=/usr/local/bin/lucid
-LUCIDLINK_FS_1_PORT=7778
-LUCIDLINK_API_HOST=host.docker.internal
-LUCIDLINK_API_PORT=9780
-LUCIDLINK_FILESPACE=$LUCIDLINK_FILESPACE
-LUCIDLINK_USER=$LUCIDLINK_USER
-LUCIDLINK_PASSWORD=$LUCIDLINK_PASSWORD
 LUCID_S3_PROXY=$VARNISH_SERVER
+LUCIDLINK_API_HOST=host.docker.internal
 ENABLE_LUCIDLINK_STATS=true
 LUCIDLINK_INCLUDE_GET_TIME=true
+
+# LucidLink Filespace 1
+LUCIDLINK_MOUNT_POINT_1=/media/lucidlink-1
+LUCIDLINK_FILESPACE_1=$LUCIDLINK_FILESPACE_1
+LUCIDLINK_USER_1=$LUCIDLINK_USER_1
+LUCIDLINK_PASSWORD_1=$LUCIDLINK_PASSWORD_1
+LUCIDLINK_INSTANCE_1=2001
+LUCIDLINK_FS_1_PORT=7778
+LUCIDLINK_API_PORT_1=9780
+
+# LucidLink Filespace 2 (Optional)
+EOF
+
+if [ "$ENABLE_SECOND_FILESPACE" = true ]; then
+cat >> "$PROJECT_DIR/.env" << EOF
+LUCIDLINK_MOUNT_POINT_2=/media/lucidlink-2
+LUCIDLINK_FILESPACE_2=$LUCIDLINK_FILESPACE_2
+LUCIDLINK_USER_2=$LUCIDLINK_USER_2
+LUCIDLINK_PASSWORD_2=$LUCIDLINK_PASSWORD_2
+LUCIDLINK_INSTANCE_2=2002
+LUCIDLINK_FS_2_PORT=7779
+LUCIDLINK_API_PORT_2=9781
+
+# Combined paths (includes both filespaces)
+INDEX_ROOT_PATHS=/media/lucidlink-1,/media/lucidlink-2
+ALLOWED_PATHS=/media/lucidlink-1,/media/lucidlink-2
+EOF
+else
+cat >> "$PROJECT_DIR/.env" << EOF
+# LUCIDLINK_MOUNT_POINT_2=/media/lucidlink-2
+# LUCIDLINK_FILESPACE_2=
+# LUCIDLINK_USER_2=
+# LUCIDLINK_PASSWORD_2=
+# LUCIDLINK_INSTANCE_2=2002
+# LUCIDLINK_FS_2_PORT=7779
+# LUCIDLINK_API_PORT_2=9781
+
+# Combined paths (single filespace)
+INDEX_ROOT_PATHS=/media/lucidlink-1
+ALLOWED_PATHS=/media/lucidlink-1
+EOF
+fi
+
+cat >> "$PROJECT_DIR/.env" << EOF
+
+# Legacy support (maps to filespace 1 for backward compatibility)
+LUCIDLINK_MOUNT_POINT=/media/lucidlink-1
+INDEX_ROOT_PATH=/media/lucidlink-1
+LUCIDLINK_FILESPACE=$LUCIDLINK_FILESPACE_1
+LUCIDLINK_USER=$LUCIDLINK_USER_1
+LUCIDLINK_PASSWORD=$LUCIDLINK_PASSWORD_1
+LUCIDLINK_API_PORT=9780
 
 # Authentication
 JWT_SECRET=$JWT_SECRET
@@ -229,8 +291,12 @@ else
     echo "   API URL: $PROTOCOL://$SERVER_HOST:8090/api"
     echo "   WebSocket URL: $WS_PROTOCOL://$SERVER_HOST:8090/ws"
 fi
-echo "   LucidLink Filespace: $LUCIDLINK_FILESPACE"
-echo "   LucidLink User: $LUCIDLINK_USER"
+echo "   Primary Filespace: $LUCIDLINK_FILESPACE_1"
+echo "   Primary User: $LUCIDLINK_USER_1"
+if [ "$ENABLE_SECOND_FILESPACE" = true ]; then
+  echo "   Secondary Filespace: $LUCIDLINK_FILESPACE_2"
+  echo "   Secondary User: $LUCIDLINK_USER_2"
+fi
 echo "   Varnish Server (S3 Proxy): $VARNISH_SERVER"
 echo ""
 echo -e "${GREEN}🔒 Security notes:${NC}"

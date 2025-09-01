@@ -1171,6 +1171,8 @@ function PreviewModal({ filePath, preview, type, onClose }) {
 const BrowserView = ({ user, onLogout }) => {
   const [treeData, setTreeData] = useState([]);
   const [currentPath, setCurrentPath] = useState(process.env.REACT_APP_LUCIDLINK_MOUNT_POINT || '/media/lucidlink-1');
+  const [currentFilespace, setCurrentFilespace] = useState(null);
+  const [currentFilespaceMount, setCurrentFilespaceMount] = useState(null);
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [jobs, setJobs] = useState([]);
@@ -1472,11 +1474,19 @@ const BrowserView = ({ user, onLogout }) => {
         ...root,
         id: root.path,
         children: null, // Lazy load children
+        data: {
+          ...root,
+          isFilespaceRoot: true,
+          filespace_id: root.filespace_id,
+          filespace_name: root.filespace_name
+        }
       }));
       setTreeData(treeNodes);
       
-      if (roots.length > 0 && (currentPath === '/' || currentPath === (process.env.REACT_APP_LUCIDLINK_MOUNT_POINT || '/media/lucidlink-1'))) {
-        loadDirectory(roots[0].path);
+      // Load the first accessible root as the default
+      const accessibleRoot = roots.find(root => root.isDirectory);
+      if (accessibleRoot && (currentPath === '/' || currentPath === (process.env.REACT_APP_LUCIDLINK_MOUNT_POINT || '/media/lucidlink-1'))) {
+        loadDirectory(accessibleRoot.path, accessibleRoot.filespace_id);
       }
     } catch (error) {
       console.error('Failed to load roots:', error);
@@ -1507,13 +1517,29 @@ const BrowserView = ({ user, onLogout }) => {
 
   const handleNodeClick = async (node) => { 
     if (node && node.data) {
-      await loadDirectory(node.data.path);
+      // Auto-detect filespace from selected tree node
+      if (node.data.filespace_id) {
+        setCurrentFilespace(node.data.filespace_id);
+        setCurrentFilespaceMount(node.data.isFilespaceRoot ? 
+          node.data.path : 
+          getFilespaceMount(node.data.filespace_id));
+      }
+      
+      await loadDirectory(node.data.path, node.data.filespace_id);
     } else {
       console.warn('handleNodeClick called with invalid node:', node);
     }
   };
 
-  const loadDirectory = async (path) => {
+  // Helper function to get filespace mount point by ID
+  const getFilespaceMount = (filespaceId) => {
+    const root = treeData.find(node => 
+      node.data && node.data.filespace_id === filespaceId && node.data.isFilespaceRoot
+    );
+    return root ? root.path : null;
+  };
+
+  const loadDirectory = async (path, filespaceId = null) => {
     if (!path || typeof path !== 'string') {
       console.error('loadDirectory called with invalid path:', path);
       return;
@@ -1525,7 +1551,7 @@ const BrowserView = ({ user, onLogout }) => {
       setSearchQuery(''); // Clear search query
       clearSearch();
       
-      const files = await FileSystemAPI.getFiles(path);
+      const files = await FileSystemAPI.getFiles(path, filespaceId);
       setFiles(files);
       
       // Load directory sizes for visible directories in the current view
