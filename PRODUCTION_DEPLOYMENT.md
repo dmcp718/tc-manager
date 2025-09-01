@@ -1,838 +1,349 @@
-# TeamCache Manager Production Deployment Guide
+# Production Deployment Guide for TeamCache Manager with Multi-Filespace Support
 
-Version 1.7.0
-Last Updated: 2025-01-28
+Version 1.8.0  
+Last Updated: 2025-09-01
 
 ## Table of Contents
 
-1. [System Requirements](#system-requirements)
-2. [Pre-Deployment Checklist](#pre-deployment-checklist)
-3. [Initial Server Setup](#initial-server-setup)
-4. [Security Configuration](#security-configuration)
-5. [Application Deployment](#application-deployment)
-6. [SSL/TLS Setup](#ssltls-setup)
-7. [Post-Deployment Configuration](#post-deployment-configuration)
-8. [Monitoring and Maintenance](#monitoring-and-maintenance)
-9. [Troubleshooting](#troubleshooting)
-10. [Backup and Recovery](#backup-and-recovery)
-11. [Video Preview Configuration](#video-preview-configuration)
+1. [Overview](#overview)
+2. [Docker Compose Files Structure](#docker-compose-files-structure)
+3. [Multi-Filespace Configuration](#multi-filespace-configuration)
+4. [Admin Password Special Characters](#admin-password-special-characters)
+5. [Production Deployment Steps](#production-deployment-steps)
+6. [Verification and Testing](#verification-and-testing)
+7. [Troubleshooting](#troubleshooting)
 
-## System Requirements
+## Overview
 
-### Minimum Hardware Requirements
-- CPU: 4 cores (8 cores recommended)
-- RAM: 8GB (16GB recommended)
-- Storage: 100GB SSD (adjust based on cache needs)
-- Network: 1Gbps connection
+This guide covers production deployment of TeamCache Manager with multi-filespace support for LucidLink. Version 1.8.0+ includes support for multiple LucidLink filespaces with visual identification in the UI.
 
-### Software Requirements
-- Ubuntu 20.04 LTS or later (or compatible Linux distribution)
-- Docker Engine 24.0+
-- Docker Compose 2.20+
-- Git 2.25+
-- OpenSSL 1.1.1+
+## Docker Compose Files Structure
 
-### Network Requirements
-- Ports to open:
-  - 80 (HTTP)
-  - 443 (HTTPS)
-  - 3000 (Grafana, optional)
-  - 22 (SSH, restricted)
-
-## Pre-Deployment Checklist
-
-- [ ] Server provisioned with required specifications
-- [ ] Domain name configured and pointing to server IP
-- [ ] SSH access configured with key-based authentication
-- [ ] Firewall rules configured
-- [ ] LucidLink credentials obtained
-- [ ] Backup storage location configured
-- [ ] Monitoring solution ready (optional)
-
-## Initial Server Setup
-
-### 1. Update System
+Production deployment uses **THREE** compose files in layered sequence:
 
 ```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl git wget htop iotop
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml up
 ```
 
-### 2. Install Docker
+### File Purposes:
+- **`docker-compose.yml`** - Base configuration shared across all environments
+- **`docker-compose.prod.yml`** - Production settings with defaults (primary production file, 156 lines)
+- **`docker-compose.production.yml`** - Security overlay that removes defaults and enforces environment variables (76 lines)
+
+**Important**: `docker-compose.prod.yml` is the PRIMARY production configuration file, NOT `docker-compose.production.yml` alone.
+
+## Multi-Filespace Configuration
+
+### Environment Variables Setup
+
+Create your production `.env` file with multi-filespace support:
 
 ```bash
-# Install Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
+# ============================================
+# CRITICAL PATH CONFIGURATION
+# ============================================
+# Must include ALL filespace mount points
+INDEX_ROOT_PATHS=/media/lucidlink-1,/media/lucidlink-2
+ALLOWED_PATHS=/media/lucidlink-1,/media/lucidlink-2
 
-# Add user to docker group
-sudo usermod -aG docker $USER
-newgrp docker
+# ============================================
+# FILESPACE 1 CONFIGURATION (PRIMARY)
+# ============================================
+LUCIDLINK_FILESPACE_1=your-filespace-1.domain
+LUCIDLINK_USER_1=user@example.com
+LUCIDLINK_PASSWORD_1='your_password_here'  # Use single quotes for special chars
+LUCIDLINK_MOUNT_POINT_1=/media/lucidlink-1
+LUCIDLINK_INSTANCE_1=2001
+LUCIDLINK_API_PORT_1=9780
 
-# Verify installation
-docker --version
-docker compose version
+# ============================================
+# FILESPACE 2 CONFIGURATION (OPTIONAL)
+# ============================================
+LUCIDLINK_FILESPACE_2=your-filespace-2.domain
+LUCIDLINK_USER_2=user@example.com
+LUCIDLINK_PASSWORD_2='your_password_here'
+LUCIDLINK_MOUNT_POINT_2=/media/lucidlink-2
+LUCIDLINK_INSTANCE_2=2002
+LUCIDLINK_API_PORT_2=9781
+
+# ============================================
+# LEGACY SINGLE FILESPACE (DEPRECATED)
+# ============================================
+# Keep for backward compatibility but not used with multi-filespace
+LUCIDLINK_FILESPACE=${LUCIDLINK_FILESPACE_1}
+LUCIDLINK_USER=${LUCIDLINK_USER_1}
+LUCIDLINK_PASSWORD=${LUCIDLINK_PASSWORD_1}
+LUCIDLINK_MOUNT_POINT=${LUCIDLINK_MOUNT_POINT_1}
+
+# ============================================
+# DATABASE CONFIGURATION
+# ============================================
+DB_NAME=teamcache_db
+DB_USER=teamcache_user
+POSTGRES_PASSWORD='strong_db_password_here'  # Use single quotes
+
+# ============================================
+# AUTHENTICATION & SECURITY
+# ============================================
+JWT_SECRET='your-256-bit-secret-key-here'
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD='YourSecureAdminPass2025!'  # Use single quotes for special chars
+
+# ============================================
+# SERVER CONFIGURATION
+# ============================================
+SERVER_HOST=your-domain.com  # Or IP address
+SSL_ENABLED=true
 ```
 
-### 3. Configure System Limits
+### FILESPACE Column in UI
+
+The file browser displays a FILESPACE column with colored badges:
+- **Green badge (🟢)**: Files from Filespace 1
+- **Orange badge (🟠)**: Files from Filespace 2
+
+## Admin Password Configuration
+
+Admin passwords work normally with special characters. Use any secure password:
 
 ```bash
-# Edit /etc/security/limits.conf
-sudo nano /etc/security/limits.conf
-
-# Add these lines:
-* soft nofile 65536
-* hard nofile 65536
-* soft nproc 32768
-* hard nproc 32768
+# Examples of supported password formats
+ADMIN_PASSWORD=SimplePass123
+ADMIN_PASSWORD='Complex!P@ss$123'
+ADMIN_PASSWORD="Another@Valid!Pass2025"
 ```
 
-### 4. Configure Kernel Parameters
+The backend handles password authentication correctly regardless of special characters.
+
+## Production Deployment Steps
+
+### 1. Initial Setup
 
 ```bash
-# Edit /etc/sysctl.conf
-sudo nano /etc/sysctl.conf
+# Clone or extract deployment package
+cd /opt/tc-mgr/tc-manager
 
-# Add these lines:
-vm.max_map_count=262144
-net.core.somaxconn=65535
-net.ipv4.tcp_max_syn_backlog=65535
-fs.file-max=2097152
-
-# Apply changes
-sudo sysctl -p
+# Copy and configure environment
+cp .env.example .env.production
+nano .env.production  # Edit with your values
 ```
 
-## Security Configuration
-
-### 1. Configure Firewall
+### 2. Bootstrap Production
 
 ```bash
-# Install and configure UFW
-sudo apt install -y ufw
+# Run bootstrap script for initial setup
+./scripts/bootstrap-production.sh
 
-# Configure firewall rules
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 3000/tcp  # Grafana (optional)
-
-# Enable firewall
-sudo ufw enable
+# This will:
+# - Verify Docker installation
+# - Check environment variables
+# - Create necessary directories
+# - Generate secure passwords if needed
 ```
 
-### 2. SSH Hardening
+### 3. Deploy with SSL
 
 ```bash
-# Edit SSH config
-sudo nano /etc/ssh/sshd_config
-
-# Recommended settings:
-PermitRootLogin no
-PasswordAuthentication no
-PubkeyAuthentication yes
-MaxAuthTries 3
-ClientAliveInterval 300
-ClientAliveCountMax 2
-
-# Restart SSH
-sudo systemctl restart sshd
-```
-
-### 3. Install Fail2Ban
-
-```bash
-sudo apt install -y fail2ban
-
-# Create local config
-sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
-
-# Configure for Docker
-sudo nano /etc/fail2ban/jail.local
-# Add:
-[DEFAULT]
-ignoreip = 127.0.0.1/8 ::1
-bantime = 3600
-findtime = 600
-maxretry = 5
-
-[sshd]
-enabled = true
-
-# Start fail2ban
-sudo systemctl enable fail2ban
-sudo systemctl start fail2ban
-```
-
-## Application Deployment
-
-### Option A: Deploy from Pre-built Package
-
-If you have a pre-built deployment package (e.g., `teamcache-1.7.0-20250729_071442.tar.gz`), which contains:
-- Pre-built Docker images (teamcache-backend-1.7.0.tar, teamcache-frontend-1.7.0.tar)
-- All necessary configuration files (docker-compose.yml, etc.)
-- Database schema files
-- Deployment scripts
-
-Deploy as follows:
-
-```bash
-# Create application directory
-sudo mkdir -p /opt/teamcache-manager
-sudo chown $USER:$USER /opt/teamcache-manager
-cd /opt/teamcache-manager
-
-# Extract the deployment package
-tar -xzf /path/to/teamcache-1.7.0-*.tar.gz
-
-# The package creates a timestamped directory (e.g., 20250729_071442)
-# Copy all files to the main directory for easier management
-cp -r 20250729_071442/* .  # Use your actual build timestamp
-
-# Load the Docker images
-docker load -i teamcache-backend-1.7.0.tar
-docker load -i teamcache-frontend-1.7.0.tar
-
-# Create backend directory and copy schema files
-mkdir -p backend
-cp schema/*.sql backend/
-
-# Note: All necessary scripts, schemas, and configurations are included in the package
-# No repository access required!
-
-# Generate or copy your .env file
-# Option 1: Generate new environment
-./scripts/generate-production-env.sh
-
-# Option 2: Copy existing .env from source
-cp /path/to/your/.env .
-
-# Verify environment
-./scripts/verify-env.sh
-
-# IMPORTANT: Deploy using the automated script with --skip-build flag:
-./scripts/deploy-production.sh nginx --skip-build
-
-# The --skip-build flag is REQUIRED for package deployments to prevent build attempts
-```
-
-### Option B: Deploy from Repository (Build from Source)
-
-```bash
-# Create application directory
-sudo mkdir -p /opt/teamcache-manager
-sudo chown $USER:$USER /opt/teamcache-manager
-cd /opt/teamcache-manager
-
-# Clone repository
-git clone https://github.com/dmcp718/tc-manager.git .
-git checkout v1.7.0
-```
-
-### 2. Download LucidLink Binary (Required for Both Options)
-
-```bash
-# Create directory for LucidLink binary
-mkdir -p ../lucidlink-builds
-
-# Download LucidLink (replace with your version)
-wget -O ../lucidlink-builds/lucidlink_3.2.6817_amd64.deb \
-  https://your-lucidlink-download-url/lucidlink_3.2.6817_amd64.deb
-```
-
-### 3. Generate and Configure Environment (Required for Both Options)
-
-```bash
-# Generate complete .env file with all required values
-./scripts/generate-production-env.sh
-
-# This will prompt you for:
-# - Server hostname/IP
-# - SSL enabled (y/n)
-# - LucidLink Filespace  
-# - LucidLink username (email)
-# - LucidLink password
-# - Grafana URL (optional)
-
-# The script will generate secure passwords and create a complete .env file
-```
-
-#### Verify Your .env File
-
-```bash
-# Run the automated verification script
-./scripts/verify-env.sh
-
-# This script will check:
-# - All required variables are set
-# - No placeholder values remain (like "GENERATE_" or "your_")
-# - File permissions are secure (600)
-# - Docker Compose can read the values
-# - Optional configurations
-
-# The script will show output like:
-# ✅ SERVER_HOST = teamcache.example.com
-# ✅ LUCIDLINK_FILESPACE = production.lucidlink.com
-# ✅ ADMIN_PASSWORD is set (hidden)
-# ❌ POSTGRES_PASSWORD contains placeholder value: your_very_strong_password_here
-
-# Alternative manual verification:
-grep -E "^(SERVER_HOST|LUCIDLINK_FILESPACE|LUCIDLINK_USER|JWT_SECRET|ADMIN_PASSWORD|POSTGRES_PASSWORD)=" .env
-
-# Should show all 6 critical values without placeholders
-```
-
-#### Manual .env Creation (Alternative)
-
-If you prefer to create the .env manually:
-
-```bash
-# Copy the production template
-cp .env.production .env
-
-# Generate secure passwords (for reference)
-./scripts/generate-passwords-only.sh
-
-# Edit .env and update ALL placeholder values
-nano .env
-
-# Critical values that MUST be changed:
-# - POSTGRES_PASSWORD (replace "your_very_strong_password_here")
-# - JWT_SECRET (replace "GENERATE_SECURE_JWT_SECRET_HERE")
-# - ADMIN_PASSWORD (replace "GENERATE_STRONG_ADMIN_PASSWORD_HERE")
-# - SERVER_HOST (set to your domain or IP) - REQUIRED for frontend URLs
-# - LUCIDLINK_FILESPACE (your LucidLink filespace)
-# - LUCIDLINK_USER (your LucidLink email)
-# - LUCIDLINK_PASSWORD (your LucidLink password)
-# - LUCID_S3_PROXY (http://YOUR_SERVER_IP:80)
-
-# Video Preview Configuration (optional):
-# - VIDEO_PREVIEW_WORKER_COUNT (default: 2)
-# - VIDEO_PREVIEW_MAX_CONCURRENT (default: 2)
-# - TRANSCODE_VIDEO_BITRATE (default: 1000k)
-# - TRANSCODE_VIDEO_WIDTH (default: 1280)
-# - TRANSCODE_VIDEO_HEIGHT (default: 720)
-```
-
-### 4. Deploy Application
-
-#### Automated Deployment (Recommended)
-
-Use the automated deployment script that handles all steps including database initialization:
-
-##### For Package Deployments (Pre-built Images):
-```bash
-# REQUIRED: Use --skip-build flag when deploying from package
-
-# Deploy with nginx SSL (recommended for IP addresses)
-./scripts/deploy-production.sh nginx --skip-build
-
-# Deploy with Caddy (automatic HTTPS for domain names)
-./scripts/deploy-production.sh caddy --skip-build
-
-# Deploy without SSL (for testing only)
-./scripts/deploy-production.sh none --skip-build
-```
-
-##### For Source Deployments (Build from Code):
-```bash
-# Deploy with nginx SSL (default)
-./scripts/deploy-production.sh
-# or explicitly:
+# Option 1: Nginx with self-signed certificate
 ./scripts/deploy-production.sh nginx
 
-# Deploy with Caddy (automatic HTTPS)
+# Option 2: Caddy with automatic Let's Encrypt
 ./scripts/deploy-production.sh caddy
 
-# Deploy without SSL (for testing)
+# Option 3: No SSL (testing only)
 ./scripts/deploy-production.sh none
 ```
 
-The deployment script will automatically:
-1. Verify environment configuration
-2. Build Docker images (if not using --skip-build)
-3. Generate SSL certificates if missing (nginx mode)
-4. Start PostgreSQL
-5. Initialize database schema if needed
-6. Create admin user
-7. Start all services
-8. Verify deployment health
-
-#### Manual Deployment (Alternative)
-
-If you prefer manual control:
+### 4. Apply Database Migrations
 
 ```bash
-# 1. Build images
-./scripts/build-production.sh
+# Check if migrations are needed
+docker exec tc-mgr-postgres psql -U teamcache_user -d teamcache_db \
+  -c "SELECT * FROM information_schema.columns WHERE table_name = 'files' AND column_name = 'filespace_id';"
 
-# 2. Start services
-docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml up -d
-
-# 3. Initialize database (REQUIRED on first deployment)
-./scripts/init-database.sh
-
-# 4. Restart backend to ensure proper connection
-docker compose restart backend
+# If filespace columns don't exist, apply migration
+docker exec tc-mgr-postgres psql -U teamcache_user -d teamcache_db \
+  -f /docker-entrypoint-initdb.d/migrations/005_add_filespace_support.sql
 ```
 
-## SSL/TLS Setup
+## Verification and Testing
 
-### Option 1: Let's Encrypt (Recommended)
-
-```bash
-# Run SSL setup script
-USE_LETSENCRYPT=true ./scripts/setup-ssl.sh your-domain.com your-email@domain.com
-
-# Start with SSL
-docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ssl.yml up -d
-```
-
-### Option 2: Caddy (Automatic HTTPS)
+### 1. Check Service Health
 
 ```bash
-# Use Caddy configuration
-docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.caddy.yml up -d
-```
-
-### Option 3: Custom SSL Certificate
-
-```bash
-# Place your certificates in ssl directory
-mkdir -p ssl
-cp /path/to/cert.pem ssl/tc-mgr.crt
-cp /path/to/key.pem ssl/tc-mgr.key
-chmod 600 ssl/*.key
-
-# Start with SSL
-docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ssl.yml up -d
-```
-
-## Post-Deployment Configuration
-
-### 1. Initialize Database
-
-```bash
-# Run database migrations
-docker compose exec backend node -e "
-const { Pool } = require('pg');
-const fs = require('fs');
-const pool = new Pool();
-
-async function migrate() {
-  const migrations = fs.readdirSync('./migrations').sort();
-  for (const file of migrations) {
-    console.log('Running migration:', file);
-    const sql = fs.readFileSync('./migrations/' + file, 'utf8');
-    await pool.query(sql);
-  }
-  console.log('Migrations complete');
-  process.exit(0);
-}
-
-migrate().catch(console.error);
-"
-```
-
-### 2. Verify Deployment
-
-```bash
-# Check service health
+# Overall health check
 curl https://your-domain.com/api/health
 
-# Check logs
-docker compose logs -f
-
-# Check service status
+# Check container status
 docker compose ps
+
+# View logs
+docker compose logs -f backend
 ```
 
-### 3. Create Admin User
+### 2. Test Multi-Filespace Access
 
 ```bash
-# Access the application
-# Navigate to https://your-domain.com
-# Login with credentials from .env.production
-# Create additional users via Admin panel
+# Login and get token
+TOKEN=$(curl -s -X POST https://your-domain.com/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"your_password"}' | jq -r .token)
+
+# Test Filespace 1
+curl -H "Authorization: Bearer $TOKEN" \
+  https://your-domain.com/api/files?path=/media/lucidlink-1
+
+# Test Filespace 2
+curl -H "Authorization: Bearer $TOKEN" \
+  https://your-domain.com/api/files?path=/media/lucidlink-2
+
+# Get filespaces configuration
+curl -H "Authorization: Bearer $TOKEN" \
+  https://your-domain.com/api/filespaces
 ```
 
-### 4. Configure Grafana (Optional)
+### 3. Verify UI Features
 
-```bash
-# Access Grafana at https://your-domain.com:3000
-# Default credentials: admin/admin
-# Add data sources and dashboards for monitoring
-```
-
-## Monitoring and Maintenance
-
-### 1. Set Up Log Rotation
-
-```bash
-# Create logrotate config
-sudo nano /etc/logrotate.d/teamcache
-
-# Add:
-/opt/teamcache-manager/logs/*.log {
-    daily
-    rotate 14
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 0640 1000 1000
-    sharedscripts
-    postrotate
-        docker exec tc-mgr-backend kill -USR1 1
-    endscript
-}
-```
-
-### 2. Configure Automated Backups
-
-```bash
-# Set up cron job for backups
-crontab -e
-
-# Add:
-0 2 * * * /opt/teamcache-manager/scripts/backup-database.sh daily >> /var/log/teamcache-backup.log 2>&1
-0 3 * * 0 /opt/teamcache-manager/scripts/backup-database.sh weekly >> /var/log/teamcache-backup.log 2>&1
-```
-
-### 3. Monitor System Resources
-
-```bash
-# Install monitoring tools
-sudo apt install -y prometheus-node-exporter
-
-# Check resource usage
-docker stats
-htop
-iotop
-```
-
-### 4. Set Up Health Checks
-
-```bash
-# Create health check script
-cat > /opt/teamcache-manager/scripts/health-check.sh << 'EOF'
-#!/bin/bash
-if ! curl -f -s https://your-domain.com/api/health > /dev/null; then
-    echo "Health check failed at $(date)" | mail -s "TeamCache Alert" admin@your-domain.com
-    docker compose restart backend
-fi
-EOF
-
-chmod +x /opt/teamcache-manager/scripts/health-check.sh
-
-# Add to cron
-*/5 * * * * /opt/teamcache-manager/scripts/health-check.sh
-```
+1. Access https://your-domain.com
+2. Login with admin credentials
+3. Check left sidebar shows both filespace roots:
+   - 📁 tc-east-1.dmpfs (FS-1)
+   - 📁 tc-mngr-demo.dmpfs (FS-2)
+4. Verify FILESPACE column shows proper badges
+5. Test navigation in both filespaces
 
 ## Troubleshooting
 
-### Common Issues
-
-#### 1. Environment Configuration Issues
+### Issue: FS-2 Shows "Access Denied"
 
 ```bash
-# Error: "JWT_SECRET environment variable is required"
-# Solution: Ensure .env file exists and contains all required values
-test -f .env || echo "ERROR: .env file not found!"
+# Check environment variables
+docker exec tc-mgr-backend env | grep ALLOWED_PATHS
 
-# Verify Docker Compose is reading the .env file
-docker compose config | grep JWT_SECRET
+# Should show both paths:
+# ALLOWED_PATHS=/media/lucidlink-1,/media/lucidlink-2
 
-# If values show as empty, check:
-# 1. .env file is in the project root (same directory as docker-compose.yml)
-# 2. No spaces around = in .env file (correct: KEY=value, wrong: KEY = value)
-# 3. Values don't have quotes unless they contain spaces
-
-# Test environment loading
-docker compose run --rm backend env | grep -E "(JWT_SECRET|ADMIN_PASSWORD|SERVER_HOST)"
+# If not, recreate container
+docker compose down backend
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml up -d backend
 ```
 
-#### 2. Cannot Connect to LucidLink
+### Issue: FILESPACE Column Shows "unknown"
 
 ```bash
-# Check LucidLink daemon
-docker exec tc-mgr-backend lucid status
+# Files need to be re-indexed with filespace information
+# Option 1: Use Admin panel > Index Files button
 
-# Check mount point
-docker exec tc-mgr-backend ls -la /media/lucidlink-1
+# Option 2: Manually update database
+docker exec tc-mgr-postgres psql -U teamcache_user -d teamcache_db -c "
+UPDATE files 
+SET filespace_id = 2, 
+    filespace_name = 'your-filespace-2.domain',
+    mount_point = '/media/lucidlink-2'
+WHERE path LIKE '/media/lucidlink-2%';
 
-# Restart backend
-docker compose restart backend
+UPDATE files 
+SET filespace_id = 1, 
+    filespace_name = 'your-filespace-1.domain',
+    mount_point = '/media/lucidlink-1'
+WHERE path LIKE '/media/lucidlink-1%';
+"
 ```
 
-#### 2. Database Connection Issues
+### Issue: Directory Sizes Show "Loading..."
+
+This is normal behavior on first access:
+1. Directory sizes are computed asynchronously
+2. Once computed, they're cached in the database
+3. Subsequent access will show cached sizes immediately
+
+To manually trigger computation:
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  https://your-domain.com/api/directory-sizes \
+  -d '{"paths": ["/media/lucidlink-2/folder"]}'
+```
+
+### Issue: Password Authentication Fails
 
 ```bash
-# Check database
-docker exec tc-mgr-postgres psql -U teamcache_user -d teamcache_db -c "SELECT 1"
+# Check what password is set in container
+docker exec tc-mgr-backend env | grep ADMIN_PASSWORD
 
-# Check connection pool
-docker logs tc-mgr-backend | grep "database"
+# Test password directly
+curl -X POST https://your-domain.com/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"your_actual_password"}'
+
+# Common causes:
+# 1. Wrong password in .env file
+# 2. Container not restarted after changing .env
+# 3. Typo in username (should be "admin")
 ```
 
-#### 3. High Memory Usage
+### Issue: Multiple LucidLink Daemon Errors
 
 ```bash
-# Check memory usage
-docker stats --no-stream
+# Check LucidLink instances
+docker exec tc-mgr-backend lucid list
 
-# Increase memory limits in docker-compose.prod.yml
-# Restart services
-docker compose down
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# If seeing "Multiple Lucid daemons detected", specify instance:
+docker exec tc-mgr-backend lucid --instance 2001 status
+docker exec tc-mgr-backend lucid --instance 2002 status
 ```
 
-#### 4. SSL Certificate Issues
+## Important Files Reference
 
-```bash
-# Check certificate expiry
-openssl x509 -in ssl/tc-mgr.crt -noout -dates
+### Configuration Files
+- **Primary Production**: `docker-compose.prod.yml` (NOT docker-compose.production.yml alone)
+- **Security Overlay**: `docker-compose.production.yml` (removes defaults)
+- **Environment Template**: `.env.example` (updated for multi-filespace)
+- **Environment**: `.env` or `.env.production`
 
-# Renew Let's Encrypt certificate
-certbot renew --force-renewal
+### Deployment Scripts
+- `scripts/bootstrap-production.sh` - Initial setup
+- `scripts/deploy-production.sh` - Main deployment script
+- `scripts/verify-env.sh` - Environment validation
 
-# Restart frontend
-docker compose restart frontend
-```
+### Database Migrations
+- `backend/migrations/005_add_filespace_support.sql` - Multi-filespace schema
 
-### Debug Commands
+## Security Recommendations
 
-```bash
-# View all logs
-docker compose logs -f
-
-# View specific service logs
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f postgres
-
-# Access container shell
-docker exec -it tc-mgr-backend bash
-docker exec -it tc-mgr-postgres psql -U teamcache_user -d teamcache_db
-
-# Check disk usage
-df -h
-du -sh /var/lib/docker/volumes/*
-```
-
-## Backup and Recovery
-
-### 1. Database Backup
-
-```bash
-# Manual backup
-./scripts/backup-database.sh production-backup
-
-# Restore from backup
-./scripts/restore-database.sh /path/to/backup.sql.gz
-```
-
-### 2. Configuration Backup
-
-```bash
-# Backup configuration
-tar -czf teamcache-config-$(date +%Y%m%d).tar.gz \
-  .env.production \
-  docker-compose*.yml \
-  ssl/ \
-  scripts/
-
-# Store securely off-site
-```
-
-### 3. Full System Backup
-
-```bash
-# Stop services
-docker compose down
-
-# Backup everything
-tar -czf teamcache-full-backup-$(date +%Y%m%d).tar.gz \
-  /opt/teamcache-manager \
-  /var/lib/docker/volumes/teamcache* \
-  --exclude='*/node_modules' \
-  --exclude='*/logs/*'
-
-# Restart services
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-```
-
-### 4. Disaster Recovery
-
-```bash
-# On new server:
-# 1. Complete initial server setup
-# 2. Restore configuration
-tar -xzf teamcache-config-*.tar.gz
-
-# 3. Restore database
-./scripts/restore-database.sh backup.sql.gz
-
-# 4. Start services
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-```
+1. **Use strong passwords** - combination of letters, numbers, and special characters
+2. **Never commit** .env files to version control
+3. **Regularly rotate** JWT secrets and admin passwords
+4. **Monitor** failed login attempts in logs
+5. **Keep** Docker and system packages updated
+6. **Use** SSL/TLS in production (never deploy without it)
+7. **Restrict** firewall rules to necessary ports only
 
 ## Performance Tuning
 
-### 1. Database Optimization
-
-```sql
--- Connect to database
-docker exec -it tc-mgr-postgres psql -U teamcache_user -d teamcache_db
-
--- Analyze tables
-ANALYZE;
-
--- Check slow queries
-SELECT query, calls, mean_exec_time
-FROM pg_stat_statements
-ORDER BY mean_exec_time DESC
-LIMIT 10;
-```
-
-### 2. Cache Worker Tuning
+For production with multiple filespaces:
 
 ```bash
-# Edit .env.production
-CACHE_WORKER_COUNT=8  # Increase for more parallelism
-MAX_CONCURRENT_FILES=10  # Increase for faster processing
-WORKER_POLL_INTERVAL=1000  # Decrease for more responsive workers
+# Increase worker counts for parallel processing
+CACHE_WORKER_COUNT=8
+VIDEO_PREVIEW_WORKER_COUNT=4
+
+# Increase Node.js memory
+NODE_OPTIONS=--max-old-space-size=4096
+
+# Optimize PostgreSQL
+POSTGRES_SHARED_BUFFERS=512MB
+POSTGRES_EFFECTIVE_CACHE_SIZE=2GB
 ```
 
-### 3. Elasticsearch Optimization
+## Support
 
-```bash
-# Increase heap size
-docker exec tc-mgr-elasticsearch \
-  bin/elasticsearch-keystore add "ES_JAVA_OPTS" -x
-# Enter: -Xms2g -Xmx2g
-
-# Optimize index settings
-curl -X PUT "localhost:9200/teamcache-files/_settings" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "index": {
-      "refresh_interval": "30s",
-      "number_of_replicas": 0
-    }
-  }'
-```
-
-## Security Best Practices
-
-1. **Regular Updates**
-   - Keep Docker and system packages updated
-   - Monitor security advisories
-   - Update TeamCache Manager regularly
-
-2. **Access Control**
-   - Use strong passwords
-   - Implement IP whitelisting if possible
-   - Regular audit of user accounts
-
-3. **Monitoring**
-   - Monitor failed login attempts
-   - Set up alerts for suspicious activity
-   - Regular security scans
-
-4. **Backups**
-   - Test restore procedures regularly
-   - Store backups securely off-site
-   - Encrypt sensitive backups
-
-## Video Preview Configuration
-
-### 1. Environment Variables
-
-```bash
-# Video Preview Workers
-VIDEO_PREVIEW_WORKER_COUNT=2      # Number of preview workers
-VIDEO_PREVIEW_MAX_CONCURRENT=2    # Max concurrent previews per worker
-VIDEO_PREVIEW_POLL_INTERVAL=5000  # Worker poll interval (ms)
-
-# Video Transcoding Settings
-TRANSCODE_VIDEO_BITRATE=1000k     # Video bitrate
-TRANSCODE_VIDEO_MAXRATE=1500k     # Max video bitrate
-TRANSCODE_VIDEO_BUFSIZE=2000k     # Buffer size
-TRANSCODE_VIDEO_WIDTH=1280        # Output width
-TRANSCODE_VIDEO_HEIGHT=720        # Output height
-
-# Audio Transcoding Settings
-TRANSCODE_AUDIO_BITRATE=128k      # Audio bitrate
-TRANSCODE_AUDIO_CODEC=aac         # Audio codec
-TRANSCODE_AUDIO_CHANNELS=2        # Audio channels
-TRANSCODE_AUDIO_SAMPLE_RATE=48000 # Sample rate
-
-# Preview Cache
-PREVIEW_CACHE_DIR=/app/preview-cache           # Container path
-PREVIEW_CACHE_HOST_PATH=./data/previews        # Host path
-```
-
-### 2. Preview Storage
-
-```bash
-# Create preview cache directory
-mkdir -p ./data/previews
-chown 1000:1000 ./data/previews
-
-# Verify preview storage
-docker exec tc-mgr-backend ls -la /app/preview-cache
-```
-
-### 3. Video Preview Database
-
-The video preview schema is automatically initialized with:
-- `video_preview_jobs` table for batch jobs
-- `video_preview_job_items` table for individual files
-- Metadata storage in files table JSONB column
-
-### 4. Troubleshooting Video Previews
-
-```bash
-# Check video preview workers
-curl http://localhost:3001/api/video-preview/status
-
-# Monitor preview jobs
-docker compose logs -f backend | grep -i preview
-
-# Clear preview cache if needed
-docker exec tc-mgr-backend rm -rf /app/preview-cache/*
-
-# Check FFmpeg installation
-docker exec tc-mgr-backend ffmpeg -version
-```
-
-### 5. Terminal WebSocket Configuration
-
-For the Admin Terminal feature to work properly with nginx SSL:
-
-```nginx
-# The nginx.ssl.conf includes this configuration:
-location /terminal {
-    proxy_pass http://backend:3002/terminal;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-}
-```
-
-## Support and Resources
-
-- Documentation: https://docs.teamcache.io
-- Issue Tracker: https://github.com/your-org/teamcache-manager/issues
-- Community Forum: https://community.teamcache.io
-- Email Support: support@teamcache.io
+- GitHub Issues: https://github.com/your-org/tc-manager/issues
+- Documentation: This file and CLAUDE.md
+- Version: TeamCache Manager v1.8.0 with Multi-Filespace Support
 
 ---
 
-**TeamCache Manager v1.7.0** - Production Deployment Guide
-Last Updated: 2025-01-28
+**Last Updated**: 2025-09-01  
+**Version**: 1.8.0  
+**Status**: Production Ready with Multi-Filespace Support
