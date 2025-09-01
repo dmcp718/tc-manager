@@ -559,7 +559,11 @@ app.get('/api/files', authService.requireAuth, async (req, res) => {
         created: file.modified_at, // Use modified_at as fallback for created date
         extension: path.extname(file.path),
         permissions: file.permissions,
-        cached: file.cached
+        cached: file.cached,
+        // Add filespace information
+        filespace_id: file.filespace_id || 1,
+        filespace_name: file.filespace_name || 'unknown',
+        mount_point: file.mount_point || (file.path?.startsWith('/media/lucidlink-2') ? '/media/lucidlink-2' : '/media/lucidlink-1')
       }));
     }
     
@@ -599,7 +603,11 @@ app.get('/api/files', authService.requireAuth, async (req, res) => {
         // Override size with computed size for directories
         size: computedSize ? computedSize.size : fsFile.size,
         fileCount: computedSize ? computedSize.file_count : undefined,
-        directoryCount: computedSize ? computedSize.directory_count : undefined
+        directoryCount: computedSize ? computedSize.directory_count : undefined,
+        // Add filespace information from database
+        filespace_id: dbFile?.filespace_id || 1,
+        filespace_name: dbFile?.filespace_name || 'unknown',
+        mount_point: dbFile?.mount_point || (dirPath.startsWith('/media/lucidlink-2') ? '/media/lucidlink-2' : '/media/lucidlink-1')
       };
     }));
     
@@ -1679,39 +1687,87 @@ app.post('/api/config/apigateway/restart', authService.requireAuth, async (req, 
   }
 });
 
+// Helper function to get filespace information by mount point
+async function getFilespaceByMountPoint(mountPoint) {
+  try {
+    const result = await pool.query(
+      'SELECT id, filespace_name, mount_point, instance_id FROM filespaces WHERE mount_point = $1 AND is_active = true',
+      [mountPoint]
+    );
+    
+    if (result.rows.length > 0) {
+      return {
+        id: result.rows[0].id,
+        name: result.rows[0].filespace_name,
+        mount_point: result.rows[0].mount_point,
+        instance_id: result.rows[0].instance_id
+      };
+    }
+    
+    // Fallback for unknown mount points
+    const filespaceId = mountPoint.includes('lucidlink-2') ? 2 : 1;
+    return {
+      id: filespaceId,
+      name: `unknown-${filespaceId}`,
+      mount_point: mountPoint,
+      instance_id: filespaceId === 2 ? 2002 : 2001
+    };
+  } catch (error) {
+    logger.warn('Failed to get filespace info, using fallback', { mountPoint, error: error.message });
+    // Fallback
+    const filespaceId = mountPoint.includes('lucidlink-2') ? 2 : 1;
+    return {
+      id: filespaceId,
+      name: `fallback-${filespaceId}`,
+      mount_point: mountPoint,
+      instance_id: filespaceId === 2 ? 2002 : 2001
+    };
+  }
+}
+
 // Helper function for sequential multi-filespace indexing
 async function startSequentialIndexing(indexer, rootPaths, { username, clientIP }) {
   for (let i = 0; i < rootPaths.length; i++) {
     const rootPath = rootPaths[i];
     
-    logger.info(`Starting indexing filespace ${i + 1}/${rootPaths.length}: ${rootPath}`, {
+    // Get filespace information for this mount point
+    const filespaceInfo = await getFilespaceByMountPoint(rootPath);
+    
+    logger.info(`Starting indexing filespace ${i + 1}/${rootPaths.length}: ${rootPath} (${filespaceInfo.name})`, {
       event: 'filespace_index_start',
       username,
       clientIP,
       rootPath,
+      filespaceId: filespaceInfo.id,
+      filespaceName: filespaceInfo.name,
       currentIndex: i + 1,
       totalFilespaces: rootPaths.length,
       timestamp: new Date().toISOString()
     });
     
     try {
-      await indexer.start(rootPath);
+      // Pass filespace information to indexer
+      await indexer.start(rootPath, filespaceInfo);
       
-      logger.info(`Completed indexing filespace ${i + 1}/${rootPaths.length}: ${rootPath}`, {
+      logger.info(`Completed indexing filespace ${i + 1}/${rootPaths.length}: ${rootPath} (${filespaceInfo.name})`, {
         event: 'filespace_index_complete',
         username,
         clientIP,
         rootPath,
+        filespaceId: filespaceInfo.id,
+        filespaceName: filespaceInfo.name,
         currentIndex: i + 1,
         totalFilespaces: rootPaths.length,
         timestamp: new Date().toISOString()
       });
     } catch (error) {
-      logger.error(`Failed indexing filespace ${i + 1}/${rootPaths.length}: ${rootPath}`, {
+      logger.error(`Failed indexing filespace ${i + 1}/${rootPaths.length}: ${rootPath} (${filespaceInfo.name})`, {
         event: 'filespace_index_error',
         username,
         clientIP,
         rootPath,
+        filespaceId: filespaceInfo.id,
+        filespaceName: filespaceInfo.name,
         currentIndex: i + 1,
         totalFilespaces: rootPaths.length,
         error: error.message,

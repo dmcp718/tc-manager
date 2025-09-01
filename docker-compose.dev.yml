@@ -87,9 +87,9 @@ services:
       dockerfile: Dockerfile
       target: development  # We'll add this target to Dockerfile
     container_name: sc-mgr-frontend-dev
-    ports:
-      - "8090:3000"  # React dev server
     user: root
+    ports:
+      - "8090:3010"  # React dev server port (avoid conflict with Grafana on 3000)
     volumes:
       # Mount source code for live reload
       - ./frontend/src:/app/src
@@ -103,10 +103,8 @@ services:
       REACT_APP_LUCIDLINK_MOUNT_POINT: /media/lucidlink-1
       CHOKIDAR_USEPOLLING: "true"  # For file watching in Docker
       FAST_REFRESH: "true"
-      PORT: 3010  # Use port 3010 inside container too
+      PORT: 3010  # Use port 3010 inside container to avoid Grafana conflict
     command: npm start
-    ports:
-      - "3010:3010"  # React dev server port (avoid conflict with Grafana)
     depends_on:
       - backend
     stdin_open: true  # Needed for React dev server

@@ -2790,6 +2790,7 @@ const BrowserView = ({ user, onLogout }) => {
                   <th style={styles.tableHeaderCell}>FILE NAME</th>
                   <th style={{...styles.tableHeaderCell, width: '136px'}}>DATE CREATED</th>
                   <th style={{...styles.tableHeaderCell, width: '136px'}}>LAST MODIFIED</th>
+                  <th style={{...styles.tableHeaderCell, width: '120px'}}>FILESPACE</th>
                   <th style={{...styles.tableHeaderCell, width: '60px'}}>TYPE</th>
                   <th style={styles.tableHeaderCell}>SIZE</th>
                   <th style={{...styles.tableHeaderCell, width: '100px', textAlign: 'center'}}>CACHED</th>
@@ -2844,6 +2845,18 @@ const BrowserView = ({ user, onLogout }) => {
                     </td>
                     <td style={{...styles.tableCell, width: '136px'}}>
                       {file.modified ? formatDate(file.modified) : '-'}
+                    </td>
+                    <td style={{...styles.tableCell, width: '120px'}}>
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#9ca3af',
+                        backgroundColor: file.filespace_id === 1 ? '#065f46' : '#7c2d12',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        fontWeight: '500'
+                      }}>
+                        {file.filespace_name || (file.filespace_id === 2 ? 'FS-2' : 'FS-1')}
+                      </span>
                     </td>
                     <td style={{...styles.tableCell, width: '60px'}}>
                       {file.isDirectory ? 'Folder' : file.extension || '-'}

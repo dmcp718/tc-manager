@@ -49,12 +49,15 @@ class FileIndexer extends EventEmitter {
     this.elasticsearchBatchSize = options.elasticsearchBatchSize || 10000; // Increased from 1K to 10K for better performance
   }
 
-  async start(rootPath) {
+  async start(rootPath, filespaceInfo = null) {
     if (this.isRunning) {
       throw new Error('Indexer is already running');
     }
 
     this.isRunning = true;
+    
+    // Store filespace information for this indexing session
+    this.currentFilespace = filespaceInfo || { id: 1, name: 'primary', mount_point: rootPath };
     
     // Initialize Elasticsearch client
     await this.initializeElasticsearch();
@@ -383,7 +386,11 @@ class FileIndexer extends EventEmitter {
             is_directory: entry.isDirectory(),
             size: stats.size,
             modified_at: stats.mtime,
-            permissions: stats.mode
+            permissions: stats.mode,
+            // Add filespace information
+            filespace_id: this.currentFilespace.id,
+            filespace_name: this.currentFilespace.name,
+            mount_point: this.currentFilespace.mount_point
           });
 
           // Collect subdirectories for recursive processing
