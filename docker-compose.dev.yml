@@ -32,8 +32,8 @@ services:
       DB_NAME: teamcache_db
       DB_USER: teamcache_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}  # Use env var or default to admin123 for dev
-      INDEX_ROOT_PATH: /media/lucidlink-1
-      ALLOWED_PATHS: /media/lucidlink-1
+      # INDEX_ROOT_PATH is deprecated - use INDEX_ROOT_PATHS instead
+      ALLOWED_PATHS: /media/lucidlink-1,/media/lucidlink-2
       NETWORK_INTERFACE: eth0
       LUCIDLINK_FS_1_PORT: 7778
       ENABLE_NETWORK_STATS: "false"
