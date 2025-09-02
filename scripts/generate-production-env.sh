@@ -144,7 +144,7 @@ LUCIDLINK_USER_1=$LUCIDLINK_USER_1
 LUCIDLINK_PASSWORD_1=$LUCIDLINK_PASSWORD_1
 LUCIDLINK_INSTANCE_1=2001
 LUCIDLINK_FS_1_PORT=7778
-LUCIDLINK_API_PORT_1=9780
+# LUCIDLINK_API_PORT_1=9780  # Auto-detected from lucid list (typically 9779)
 
 # LucidLink Filespace 2 (Optional)
 EOF
@@ -157,7 +157,7 @@ LUCIDLINK_USER_2=$LUCIDLINK_USER_2
 LUCIDLINK_PASSWORD_2=$LUCIDLINK_PASSWORD_2
 LUCIDLINK_INSTANCE_2=2002
 LUCIDLINK_FS_2_PORT=7779
-LUCIDLINK_API_PORT_2=9781
+# LUCIDLINK_API_PORT_2=9781  # Auto-detected from lucid list (typically 9780)
 
 # Combined paths (includes both filespaces)
 INDEX_ROOT_PATHS=/media/lucidlink-1,/media/lucidlink-2
@@ -171,7 +171,7 @@ cat >> "$PROJECT_DIR/.env" << EOF
 # LUCIDLINK_PASSWORD_2=
 # LUCIDLINK_INSTANCE_2=2002
 # LUCIDLINK_FS_2_PORT=7779
-# LUCIDLINK_API_PORT_2=9781
+# LUCIDLINK_API_PORT_2=9781  # Auto-detected from lucid list
 
 # Combined paths (single filespace)
 INDEX_ROOT_PATHS=/media/lucidlink-1
@@ -187,7 +187,7 @@ INDEX_ROOT_PATH=/media/lucidlink-1
 LUCIDLINK_FILESPACE=$LUCIDLINK_FILESPACE_1
 LUCIDLINK_USER=$LUCIDLINK_USER_1
 LUCIDLINK_PASSWORD=$LUCIDLINK_PASSWORD_1
-LUCIDLINK_API_PORT=9780
+# LUCIDLINK_API_PORT=9780  # Auto-detected from lucid list (legacy fallback)
 
 # Authentication
 JWT_SECRET=$JWT_SECRET
@@ -265,6 +265,7 @@ VARNISH_CONTAINER_NAME=$VARNISH_CONTAINER_NAME
 VARNISH_SERVER=$VARNISH_SERVER
 
 # API Gateway Configuration
+API_GATEWAY_ENABLED=true
 API_GATEWAY_PORT=8095
 API_GATEWAY_KEY=demo-api-key-2024
 EOF
@@ -302,17 +303,21 @@ echo ""
 echo -e "${GREEN}🔒 Security notes:${NC}"
 echo "   - The .env file has been created with restricted permissions (600)"
 echo "   - Keep the admin password safe - you'll need it to log in"
+echo "   - Change the default API Gateway key (demo-api-key-2024) for production!"
 echo "   - Never commit the .env file to version control"
 echo ""
 echo -e "${GREEN}📂 File location:${NC}"
 echo "   $PROJECT_DIR/.env"
 echo ""
 echo -e "${YELLOW}🔧 Features included:${NC}"
+echo "   - Multi-filespace LucidLink support with dynamic stats switching"
 echo "   - API Gateway for external integrations (port 8095)"
-echo "   - Varnish statistics collection"
-echo "   - Elasticsearch search indexing"
-echo "   - Redis caching layer"
-echo "   - Video transcoding with HLS support"
+echo "   - Fixed DIRECT LINK buttons with proper multi-filespace routing" 
+echo "   - Dynamic LucidLink API port detection from 'lucid list'"
+echo "   - Varnish statistics collection and caching"
+echo "   - Elasticsearch search indexing with real-time sync"
+echo "   - Redis caching layer for preview metadata"
+echo "   - Video transcoding with HLS/DASH streaming support"
 echo ""
 echo -e "${YELLOW}🚀 Next steps:${NC}"
 echo "   1. Verify configuration: ./scripts/verify-env.sh"

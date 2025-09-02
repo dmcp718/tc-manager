@@ -136,6 +136,38 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # API Gateway for external cache job submissions
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: tc-mgr-api-gateway
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      API_GATEWAY_PORT: 8095
+      API_GATEWAY_KEY: ${API_GATEWAY_KEY:-demo-api-key-2024}
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-teamcache_db}
+      DB_USER: ${DB_USER:-teamcache_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-teamcache_password}
+      ALLOWED_PATHS: ${ALLOWED_PATHS:-/media/lucidlink-1,/media/lucidlink-2}
+    ports:
+      - "${API_GATEWAY_PORT:-8095}:8095"
+    volumes:
+      - api-config:/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   postgres_data:
     driver: local
@@ -150,6 +182,8 @@ volumes:
   redis_data:
     driver: local
   elasticsearch_data:
+    driver: local
+  api-config:
     driver: local
 
 networks:

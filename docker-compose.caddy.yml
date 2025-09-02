@@ -4,8 +4,8 @@
 services:
   frontend:
     build:
-      context: ..
-      dockerfile: ./tc-manager/frontend/Dockerfile.caddy
+      context: ./frontend
+      dockerfile: Dockerfile.caddy
       args:
         # Use HTTPS URLs with SERVER_HOST variable
         REACT_APP_API_URL: ${REACT_APP_API_URL:-https://${SERVER_HOST:-localhost}/api}

@@ -114,7 +114,7 @@ fi
 echo ""
 echo -e "${BLUE}🔍 Checking Docker images...${NC}"
 IMAGES_MISSING=false
-for IMAGE in tc-mgr-backend tc-mgr-frontend; do
+for IMAGE in tc-mgr-backend tc-mgr-frontend tc-mgr-api-gateway tc-mgr-varnish-stats; do
     if ! docker image inspect $IMAGE >/dev/null 2>&1; then
         echo -e "${YELLOW}⚠️  Image $IMAGE not found${NC}"
         IMAGES_MISSING=true
@@ -143,7 +143,7 @@ echo -e "${BLUE}🛑 Stopping existing services...${NC}"
 docker compose down --remove-orphans 2>/dev/null || true
 
 # Step 4: Determine compose files to use
-COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml -f docker-compose.api.yml"
+COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml"
 
 case $SSL_MODE in
     nginx)
