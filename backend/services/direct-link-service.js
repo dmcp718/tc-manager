@@ -4,70 +4,80 @@ const { execSync } = require('child_process');
 
 class DirectLinkService {
   constructor() {
-    this.mountPoint = (process.env.INDEX_ROOT_PATH || '/media/lucidlink-1').replace(/\/$/, '');
+    // Multi-filespace configuration
+    this.filespaces = [
+      {
+        mountPoint: (process.env.LUCIDLINK_MOUNT_POINT_1 || '/media/lucidlink-1').replace(/\/$/, ''),
+        instance: process.env.LUCIDLINK_INSTANCE_1 || '2001',
+        apiPort: process.env.LUCIDLINK_API_PORT_1 || null
+      },
+      {
+        mountPoint: (process.env.LUCIDLINK_MOUNT_POINT_2 || '/media/lucidlink-2').replace(/\/$/, ''),
+        instance: process.env.LUCIDLINK_INSTANCE_2 || '2002', 
+        apiPort: process.env.LUCIDLINK_API_PORT_2 || null
+      }
+    ];
+    
     // In production, LucidLink daemon runs inside the backend container
     // In development, it runs on the host (use LUCIDLINK_API_HOST)
     this.apiHost = process.env.NODE_ENV === 'production' ? '127.0.0.1' : (process.env.LUCIDLINK_API_HOST || 'host.docker.internal');
-    this.port = null;
     this.lucidCommand = process.env.LUCIDLINK_COMMAND || '/usr/local/bin/lucid';
-    this.instance = process.env.LUCIDLINK_INSTANCE || 2001;
     
-    // Try to get the port dynamically
-    this.initializePort();
+    // Initialize ports for all filespaces
+    this.initializePorts();
   }
   
   /**
-   * Initialize the LucidLink REST API port by parsing lucid list output
+   * Initialize LucidLink REST API ports for all filespaces
    */
-  initializePort() {
-    try {
-      // In production, always try to get port from lucid list first
-      if (process.env.NODE_ENV === 'production') {
-        const command = `${this.lucidCommand} --instance ${this.instance} list`;
-        const output = execSync(command, { encoding: 'utf8' });
-        
-        // Parse the output to find the REST port
-        // Example output: "2001               production.dmpfs        9779        live"
-        // Format: INSTANCE_ID       FILESPACE               PORT        MODE
-        const lines = output.split('\n');
-        for (const line of lines) {
-          // Look for lines that start with our instance number
-          if (line.trim().startsWith(this.instance.toString())) {
-            const columns = line.trim().split(/\s+/);
-            // PORT is typically the third column (index 2)
-            if (columns.length >= 3 && /^\d+$/.test(columns[2])) {
-              this.port = parseInt(columns[2]);
-              console.log(`Detected LucidLink REST API port from 'lucid list': ${this.port}`);
-              return;
+  initializePorts() {
+    for (const filespace of this.filespaces) {
+      try {
+        // Try to get port from lucid list first (most accurate)
+        try {
+          const command = `${this.lucidCommand} --instance ${filespace.instance} list`;
+          const output = execSync(command, { encoding: 'utf8' });
+          
+          // Parse the output to find the REST port
+          // Example output: "2001               production.dmpfs        9779        live"
+          // Format: INSTANCE_ID       FILESPACE               PORT        MODE
+          const lines = output.split('\n');
+          for (const line of lines) {
+            if (line.trim().startsWith(filespace.instance.toString())) {
+              const columns = line.trim().split(/\s+/);
+              if (columns.length >= 3 && /^\d+$/.test(columns[2])) {
+                filespace.port = parseInt(columns[2]);
+                console.log(`Detected port from lucid list for instance ${filespace.instance}: ${filespace.port}`);
+                break;
+              }
             }
           }
+        } catch (cmdError) {
+          console.warn(`Could not detect port from lucid list for instance ${filespace.instance}:`, cmdError.message);
         }
         
-        // Also try the old format in case it changes
-        const restMatch = output.match(/REST:\s*(\d+)/);
-        if (restMatch && restMatch[1]) {
-          this.port = parseInt(restMatch[1]);
-          console.log(`Detected LucidLink REST API port from 'lucid list': ${this.port}`);
-          return;
+        // Fall back to environment variable if detection failed
+        if (!filespace.port && filespace.apiPort) {
+          filespace.port = parseInt(filespace.apiPort);
+          console.log(`Using configured port for instance ${filespace.instance}: ${filespace.port}`);
         }
+        
+        // Fallback to default ports based on instance
+        if (!filespace.port) {
+          if (filespace.instance === '2001') {
+            filespace.port = process.env.NODE_ENV === 'production' ? 20010 : 9780;
+          } else if (filespace.instance === '2002') {
+            filespace.port = process.env.NODE_ENV === 'production' ? 20011 : 9781;
+          } else {
+            filespace.port = process.env.NODE_ENV === 'production' ? 20010 : 9780;
+          }
+          console.log(`Using default port for instance ${filespace.instance}: ${filespace.port}`);
+        }
+        
+      } catch (error) {
+        console.error(`Error initializing port for instance ${filespace.instance}:`, error.message);
+        filespace.port = process.env.NODE_ENV === 'production' ? 20010 : 9780;
       }
-      
-      // Try environment variable as fallback
-      if (process.env.LUCIDLINK_API_PORT) {
-        this.port = parseInt(process.env.LUCIDLINK_API_PORT);
-        console.log(`Using LUCIDLINK_API_PORT from environment: ${this.port}`);
-        return;
-      }
-      
-      // Fallback to default ports
-      this.port = process.env.NODE_ENV === 'production' ? 20010 : 9780;
-      console.log(`Using default LucidLink REST API port: ${this.port}`);
-      
-    } catch (error) {
-      console.error('Error detecting LucidLink REST API port:', error.message);
-      // Fallback to default ports
-      this.port = process.env.NODE_ENV === 'production' ? 20010 : 9780;
-      console.log(`Falling back to default port: ${this.port}`);
     }
   }
 
@@ -83,13 +93,37 @@ class DirectLinkService {
   }
 
   /**
+   * Determine which filespace a file belongs to
+   * @param {string} filePath - Full file path  
+   * @returns {object|null} - Filespace configuration or null if not found
+   */
+  getFilespaceForPath(filePath) {
+    // Find the filespace with the longest matching mount point
+    let bestMatch = null;
+    let longestMatch = 0;
+    
+    for (const filespace of this.filespaces) {
+      if (filePath.startsWith(filespace.mountPoint)) {
+        const matchLength = filespace.mountPoint.length;
+        if (matchLength > longestMatch) {
+          longestMatch = matchLength;
+          bestMatch = filespace;
+        }
+      }
+    }
+    
+    return bestMatch;
+  }
+
+  /**
    * Convert absolute path to relative path by stripping mount point
    * @param {string} absolutePath - Full file path
+   * @param {object} filespace - Filespace configuration
    * @returns {string} - Relative path from mount point
    */
-  getRelativePath(absolutePath) {
-    if (absolutePath.startsWith(this.mountPoint)) {
-      return absolutePath.slice(this.mountPoint.length).replace(/^\/+/, '');
+  getRelativePath(absolutePath, filespace) {
+    if (absolutePath.startsWith(filespace.mountPoint)) {
+      return absolutePath.slice(filespace.mountPoint.length).replace(/^\/+/, '');
     }
     return absolutePath.replace(/^\/+/, '');
   }
@@ -101,14 +135,19 @@ class DirectLinkService {
    */
   async generateDirectLink(filePath) {
     try {
-      // Ensure port is initialized
-      if (!this.port) {
-        this.initializePort();
-        if (!this.port) {
-          console.error('Failed to determine LucidLink REST API port');
-          return null;
-        }
+      // Determine which filespace this file belongs to
+      const filespace = this.getFilespaceForPath(filePath);
+      if (!filespace) {
+        console.error(`No filespace found for path: ${filePath}`);
+        return null;
       }
+      
+      // Ensure port is initialized for this filespace
+      if (!filespace.port) {
+        console.error(`No port configured for filespace instance ${filespace.instance}`);
+        return null;
+      }
+      
       // Check if we already have a cached direct link
       const existingFile = await FileModel.findByPath(filePath);
       if (existingFile && existingFile.direct_link && existingFile.direct_link_created_at) {
@@ -121,11 +160,12 @@ class DirectLinkService {
       }
 
       // Generate new direct link
-      const relativePath = this.getRelativePath(filePath);
+      const relativePath = this.getRelativePath(filePath, filespace);
       const encodedPath = this.urlEncodePath(relativePath);
-      const apiUrl = `http://${this.apiHost}:${this.port}/fsEntry/direct-link?path=${encodedPath}`;
+      const apiUrl = `http://${this.apiHost}:${filespace.port}/fsEntry/direct-link?path=${encodedPath}`;
 
       console.log(`Generating direct link for: ${filePath}`);
+      console.log(`Filespace: ${filespace.mountPoint} (instance ${filespace.instance})`);
       console.log(`Relative path: ${relativePath}`);
       console.log(`API URL: ${apiUrl}`);
 

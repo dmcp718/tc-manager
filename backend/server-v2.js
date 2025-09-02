@@ -2514,6 +2514,7 @@ app.get('/api/video-preview/stats', authService.requireAuth, async (req, res) =>
   }
 });
 
+
 // Generate direct link for a file
 app.post('/api/direct-link', authService.requireAuth, async (req, res) => {
   try {
