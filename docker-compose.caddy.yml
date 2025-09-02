@@ -3,6 +3,7 @@
 
 services:
   frontend:
+    # Override the frontend service completely for Caddy deployment
     build:
       context: ./frontend
       dockerfile: Dockerfile.caddy
@@ -15,8 +16,8 @@ services:
     image: tc-mgr-frontend-caddy
     container_name: tc-mgr-frontend-caddy
     ports:
-      - "80:80"     # HTTP (redirects to HTTPS)
       - "443:443"   # HTTPS with auto certificates
+      # Note: This overrides any port mappings from base compose files
     volumes:
       - ./ssl:/etc/ssl/certs:ro  # Mount SSL certificates (optional override)
     environment:

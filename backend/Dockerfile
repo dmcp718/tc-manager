@@ -117,13 +117,14 @@ WORKDIR /app
 # Set production environment
 ENV NODE_ENV=production
 
-# Copy package files
+# Copy package files and npm config
 COPY tc-manager/backend/package*.json ./
+COPY tc-manager/backend/.npmrc ./ 2>/dev/null || true
 
-# Install dependencies with optimization flags
+# Install dependencies with optimization flags and suppressed warnings
 # Note: node-pty requires python3 and build-essential which are already installed
-RUN npm ci --omit=dev --no-audit --no-fund || \
-    (npm cache clean --force && npm ci --omit=dev --no-audit --no-fund)
+RUN npm ci --omit=dev --no-audit --no-fund --loglevel=error || \
+    (npm cache clean --force && npm ci --omit=dev --no-audit --no-fund --loglevel=error)
 
 # Generate SSH key for host access
 RUN mkdir -p /root/.ssh && \
