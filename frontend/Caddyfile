@@ -1,12 +1,13 @@
-# Caddyfile for SC-Manager Frontend
+# Caddyfile for TeamCache Manager Frontend
 {
     # Global options
     admin off
     
     # Caddy automatically enables HTTPS by default
-    # - For domains: automatic Let's Encrypt
-    # - For IPs: automatic self-signed certificates
-    # To disable: use 'auto_https off'
+    # - Public domains: automatic Let's Encrypt certificates
+    # - Private/local domains (*.local, *.internal): automatic self-signed certificates
+    # - IP addresses: automatic self-signed certificates
+    # - Local DNS records: works with any hostname configured in DNS
     
     # Accept self-signed certs for backend communication
     servers {
@@ -15,10 +16,11 @@
 }
 
 # Main site configuration - handles both HTTP and HTTPS
-https://192.168.8.28 {
+{$SERVER_HOST:localhost} {
     # TLS configuration - Caddy will auto-generate certificates
-    # For IP addresses, this will create a self-signed certificate
-    tls
+    # For IP addresses and private domains: self-signed certificates
+    # For public domains: Let's Encrypt certificates (automatic)
+    # Caddy automatically detects and uses appropriate certificate type
     
     # API routes - highest priority
     route /api/* {

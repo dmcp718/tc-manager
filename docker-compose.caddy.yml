@@ -15,8 +15,8 @@ services:
     image: tc-mgr-frontend-caddy
     container_name: tc-mgr-frontend-caddy
     ports:
+      - "80:80"     # HTTP (redirects to HTTPS)
       - "443:443"   # HTTPS with auto certificates
-      # Port 80 is handled internally by Caddy for HTTP->HTTPS redirects
     volumes:
       - ./ssl:/etc/ssl/certs:ro  # Mount SSL certificates (optional override)
     environment:
