@@ -117,53 +117,77 @@ The backend handles password authentication correctly regardless of special char
 
 ## Production Deployment Steps
 
-### 1. Initial Setup
+### 1. Generate Production Environment
 
 ```bash
 # Clone or extract deployment package
 cd /opt/tc-mgr/tc-manager
 
-# Copy and configure environment
-cp .env.example .env.production
-nano .env.production  # Edit with your values
-```
-
-### 2. Bootstrap Production
-
-```bash
-# Run bootstrap script for initial setup
-./scripts/bootstrap-production.sh
+# Generate complete production environment file (recommended)
+./scripts/generate-production-env.sh
 
 # This will:
-# - Verify Docker installation
-# - Check environment variables
-# - Create necessary directories
-# - Generate secure passwords if needed
+# - Interactive configuration for multi-filespace setup
+# - Generate secure passwords automatically
+# - Configure SSL/HTTPS settings
+# - Create optimized production .env file
+
+# Alternative: Manual configuration
+# cp .env.example .env
+# nano .env  # Edit with your values
+```
+
+### 2. Verify Configuration
+
+```bash
+# Verify environment configuration
+./scripts/verify-env.sh
+
+# This will check:
+# - Required environment variables
+# - LucidLink credentials
+# - Database configuration
+# - SSL certificate settings
 ```
 
 ### 3. Deploy with SSL
 
 ```bash
-# Option 1: Nginx with self-signed certificate
+# Option 1: Nginx with self-signed certificate (default - works with IPs)
 ./scripts/deploy-production.sh nginx
 
-# Option 2: Caddy with automatic Let's Encrypt
+# Option 2: Caddy with automatic Let's Encrypt (best for domain names)
 ./scripts/deploy-production.sh caddy
 
-# Option 3: No SSL (testing only)
+# Option 3: No SSL (development only - not recommended)
 ./scripts/deploy-production.sh none
+
+# The deployment script will:
+# - Build required Docker images
+# - Initialize database with migrations
+# - Start all services with proper dependencies
+# - Generate SSL certificates if needed
+# - Verify deployment health
 ```
 
-### 4. Apply Database Migrations
+### 4. Post-Deployment Verification
 
 ```bash
-# Check if migrations are needed
+# The deploy-production.sh script automatically handles database initialization
+# Manual verification is typically not needed, but you can check:
+
+# Overall health check
+curl https://your-domain.com/api/health
+
+# Check container status
+docker compose ps
+
+# View deployment logs
+docker compose logs -f backend
+
+# Verify filespace support (optional)
 docker exec tc-mgr-postgres psql -U teamcache_user -d teamcache_db \
   -c "SELECT * FROM information_schema.columns WHERE table_name = 'files' AND column_name = 'filespace_id';"
-
-# If filespace columns don't exist, apply migration
-docker exec tc-mgr-postgres psql -U teamcache_user -d teamcache_db \
-  -f /docker-entrypoint-initdb.d/migrations/005_add_filespace_support.sql
 ```
 
 ## Verification and Testing
@@ -299,12 +323,16 @@ docker exec tc-mgr-backend lucid --instance 2002 status
 - **Primary Production**: `docker-compose.prod.yml` (NOT docker-compose.production.yml alone)
 - **Security Overlay**: `docker-compose.production.yml` (removes defaults)
 - **Environment Template**: `.env.example` (updated for multi-filespace)
-- **Environment**: `.env` or `.env.production`
+- **Generated Environment**: `.env` (created by generate-production-env.sh)
 
-### Deployment Scripts
-- `scripts/bootstrap-production.sh` - Initial setup
-- `scripts/deploy-production.sh` - Main deployment script
+### Deployment Scripts (Current v1.8.0 Workflow)
+- `scripts/generate-production-env.sh` - **Primary**: Interactive environment generation
+- `scripts/deploy-production.sh` - **Primary**: Main deployment with SSL options
 - `scripts/verify-env.sh` - Environment validation
+- `scripts/smoke-test.sh` - Post-deployment testing
+
+### Legacy Scripts (Still Available)
+- `scripts/bootstrap-production.sh` - Older all-in-one setup script
 
 ### Database Migrations
 - `backend/migrations/005_add_filespace_support.sql` - Multi-filespace schema
