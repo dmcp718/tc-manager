@@ -132,7 +132,11 @@ class ElasticsearchClient {
       cached_at: fileData.cached_at,
       extension: fileData.is_directory ? null : path.extname(fileData.name).toLowerCase(),
       indexed_at: new Date().toISOString(),
-      metadata: fileData.metadata || {}
+      metadata: fileData.metadata || {},
+      // Add filespace information
+      filespace_id: fileData.filespace_id || null,
+      filespace_name: fileData.filespace_name || null,
+      mount_point: fileData.mount_point || null
     };
 
     return doc;

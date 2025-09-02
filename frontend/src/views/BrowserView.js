@@ -2138,7 +2138,7 @@ const BrowserView = ({ user, onLogout }) => {
           'Content-Type': 'application/json',
           ...FileSystemAPI.getAuthHeaders()
         },
-        body: JSON.stringify({ path: '/media/lucidlink-1' })
+        body: JSON.stringify({})
       });
       
       if (response.ok) {

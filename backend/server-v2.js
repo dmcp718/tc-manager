@@ -774,7 +774,11 @@ app.get('/api/search/elasticsearch', authService.requireAuth, async (req, res) =
       created: hit.modified_at,
       extension: hit.extension,
       cached: hit.cached,
-      score: hit._score
+      score: hit._score,
+      // Include filespace information
+      filespace_id: hit.filespace_id,
+      filespace_name: hit.filespace_name,
+      mount_point: hit.mount_point
     }));
     
     // Verify filesystem existence for all results
