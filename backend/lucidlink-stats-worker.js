@@ -8,9 +8,11 @@ class LucidLinkStatsWorker extends EventEmitter {
     this.pollInterval = options.pollInterval || 1000; // Default 1 second
     this.includeGetTime = options.includeGetTime !== false; // Default to true
     this.restEndpoint = options.restEndpoint || null; // Optional REST endpoint for remote daemon
+    this.instanceId = options.instanceId || null; // Instance ID for multi-filespace support
     this.isRunning = false;
     this.childProcess = null;
     this.lastValue = 0;
+    this.currentInstance = null; // Track current instance being monitored
   }
 
   async start() {
@@ -19,6 +21,7 @@ class LucidLinkStatsWorker extends EventEmitter {
     }
 
     this.isRunning = true;
+    this.currentInstance = this.instanceId; // Track the instance being monitored
     const metrics = this.includeGetTime ? 'getBytes,getTime' : 'getBytes';
     const commandStr = this.restEndpoint 
       ? `${this.lucidCommand} --rest-endpoint ${this.restEndpoint} perf --objectstore ${metrics} --seconds 1`
@@ -55,6 +58,11 @@ class LucidLinkStatsWorker extends EventEmitter {
       // Spawn continuous lucid perf command
       const metrics = this.includeGetTime ? 'getBytes,getTime' : 'getBytes';
       const args = ['perf', '--objectstore', metrics, '--seconds', '1'];
+      
+      // Add instance ID if specified (for multi-filespace support)
+      if (this.instanceId) {
+        args.unshift('--instance', this.instanceId);
+      }
       
       // Add REST endpoint if specified (for connecting to remote daemon)
       if (this.restEndpoint) {
@@ -213,6 +221,42 @@ class LucidLinkStatsWorker extends EventEmitter {
     } catch (error) {
       console.error('Error parsing LucidLink perf output:', error, 'Line:', line);
     }
+  }
+
+  /**
+   * Switch to monitoring a different LucidLink instance
+   * @param {string} newInstanceId - The instance ID to switch to
+   */
+  async switchInstance(newInstanceId) {
+    if (this.currentInstance === newInstanceId || !newInstanceId) {
+      return; // Already monitoring this instance or invalid ID
+    }
+    
+    console.log(`LucidLink stats switching from instance ${this.currentInstance} to ${newInstanceId}`);
+    
+    // Stop current monitoring
+    if (this.childProcess) {
+      this.childProcess.kill();
+      this.childProcess = null;
+    }
+    
+    // Update instance and restart
+    this.instanceId = newInstanceId;
+    this.currentInstance = newInstanceId;
+    
+    if (this.isRunning) {
+      // Small delay to ensure clean shutdown
+      setTimeout(() => {
+        this.startStreamingStats();
+      }, 1000);
+    }
+  }
+
+  /**
+   * Get the currently monitored instance ID
+   */
+  getCurrentInstance() {
+    return this.currentInstance;
   }
 }
 

@@ -35,6 +35,9 @@ const { getIndexer } = require('./indexer');
 // Import cache worker manager
 const { getCacheWorkerManager } = require('./workers/cache-worker-manager');
 
+// Import cache job monitor
+const CacheJobMonitor = require('./cache-job-monitor');
+
 // Import video preview manager
 const VideoPreviewManager = require('./workers/video-preview-manager');
 
@@ -3735,18 +3738,41 @@ async function startServer() {
   }
   
   
-  // Start LucidLink stats worker for download speed monitoring
+  // Start LucidLink stats worker with dynamic instance switching
   if (process.env.ENABLE_LUCIDLINK_STATS !== 'false') {
     try {
-      console.log('Initializing LucidLinkStatsWorker');
+      console.log('Initializing dynamic LucidLink stats monitoring');
+      
+      // Start with default instance (preference: FS-1 -> FS-2 -> fallback)
+      const defaultInstanceId = process.env.LUCIDLINK_INSTANCE_1 || process.env.LUCIDLINK_INSTANCE_2 || '2001';
+      console.log(`Starting LucidLink stats with default instance ${defaultInstanceId}`);
+      
       const lucidStatsWorker = new LucidLinkStatsWorker({
         lucidCommand: process.env.LUCIDLINK_COMMAND || '/usr/local/bin/lucid',
         pollInterval: parseInt(process.env.LUCIDLINK_STATS_INTERVAL) || 1000,
         includeGetTime: process.env.LUCIDLINK_INCLUDE_GET_TIME !== 'false',
-        restEndpoint: process.env.LUCIDLINK_REST_ENDPOINT || null
+        restEndpoint: process.env.LUCIDLINK_REST_ENDPOINT || null,
+        instanceId: defaultInstanceId
+      });
+      
+      // Initialize cache job monitor
+      const cacheJobMonitor = new CacheJobMonitor({
+        pollInterval: 5000 // Check every 5 seconds
+      });
+      
+      // Handle dynamic instance switching
+      cacheJobMonitor.on('instance-change', async (data) => {
+        console.log(`Cache job monitor requesting stats switch: ${data.instanceId} (${data.reason})`);
+        try {
+          await lucidStatsWorker.switchInstance(data.instanceId);
+        } catch (error) {
+          console.error('Failed to switch LucidLink stats instance:', error);
+        }
       });
       
       lucidStatsWorker.on('stats', (stats) => {
+        // Add current instance info to the stats
+        stats.monitoredInstance = lucidStatsWorker.getCurrentInstance();
         broadcast({ type: 'lucidlink-stats', ...stats });
       });
       
@@ -3754,8 +3780,11 @@ async function startServer() {
         console.error('LucidLinkStatsWorker error:', error);
       });
       
+      // Start both services
       await lucidStatsWorker.start();
-      console.log('LucidLink stats worker started successfully');
+      await cacheJobMonitor.start();
+      
+      console.log('Dynamic LucidLink stats monitoring started successfully');
     } catch (error) {
       console.error('Failed to start LucidLinkStatsWorker:', error);
     }
