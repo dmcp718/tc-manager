@@ -91,9 +91,18 @@ class FileModel {
       metadata = {}
     } = fileData;
 
+    // Get filespace information using LucidLink Discovery Service
+    let filespace = 'unknown';
+    try {
+      const lucidLinkDiscoveryService = require('./services/lucidlink-discovery-service');
+      filespace = await lucidLinkDiscoveryService.getFilespaceDisplayName(path);
+    } catch (error) {
+      console.warn(`Failed to detect filespace for ${path}:`, error.message);
+    }
+
     const result = await pool.query(
-      `INSERT INTO files (path, name, parent_path, is_directory, size, modified_at, permissions, metadata, last_seen_session_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO files (path, name, parent_path, is_directory, size, modified_at, permissions, metadata, last_seen_session_id, filespace)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (path) 
        DO UPDATE SET 
          name = EXCLUDED.name,
@@ -104,9 +113,10 @@ class FileModel {
          permissions = EXCLUDED.permissions,
          metadata = EXCLUDED.metadata,
          last_seen_session_id = EXCLUDED.last_seen_session_id,
+         filespace = EXCLUDED.filespace,
          updated_at = NOW()
        RETURNING *`,
-      [path, name, parent_path, is_directory, size, modified_at, permissions, JSON.stringify(metadata), sessionId]
+      [path, name, parent_path, is_directory, size, modified_at, permissions, JSON.stringify(metadata), sessionId, filespace]
     );
     return result.rows[0];
   }
@@ -588,6 +598,9 @@ class FileModel {
       // Use transaction for better performance with large batches
       await client.query('BEGIN');
       
+      // Get LucidLink Discovery Service for filespace detection
+      const lucidLinkDiscoveryService = require('./services/lucidlink-discovery-service');
+      
       // Larger chunk size for maximum speed
       const chunkSize = 1000;
       const results = [];
@@ -612,12 +625,20 @@ class FileModel {
             metadata = {}
           } = fileData;
           
-          values.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
-          params.push(path, name, parent_path, is_directory, size, modified_at, permissions, JSON.stringify(metadata), sessionId);
+          // Get filespace information for each file
+          let filespace = 'unknown';
+          try {
+            filespace = await lucidLinkDiscoveryService.getFilespaceDisplayName(path);
+          } catch (error) {
+            console.warn(`Failed to detect filespace for ${path}:`, error.message);
+          }
+          
+          values.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
+          params.push(path, name, parent_path, is_directory, size, modified_at, permissions, JSON.stringify(metadata), sessionId, filespace);
         }
         
         const query = `
-          INSERT INTO files (path, name, parent_path, is_directory, size, modified_at, permissions, metadata, last_seen_session_id)
+          INSERT INTO files (path, name, parent_path, is_directory, size, modified_at, permissions, metadata, last_seen_session_id, filespace)
           VALUES ${values.join(', ')}
           ON CONFLICT (path) 
           DO UPDATE SET 
@@ -629,6 +650,7 @@ class FileModel {
             permissions = EXCLUDED.permissions,
             metadata = EXCLUDED.metadata,
             last_seen_session_id = EXCLUDED.last_seen_session_id,
+            filespace = EXCLUDED.filespace,
             updated_at = NOW()
           RETURNING *
         `;
@@ -655,6 +677,9 @@ class FileModel {
     try {
       await client.query('BEGIN');
       
+      // Get LucidLink Discovery Service for filespace detection
+      const lucidLinkDiscoveryService = require('./services/lucidlink-discovery-service');
+      
       const results = [];
       for (const fileData of filesData) {
         const {
@@ -668,9 +693,17 @@ class FileModel {
           metadata = {}
         } = fileData;
 
+        // Get filespace information
+        let filespace = 'unknown';
+        try {
+          filespace = await lucidLinkDiscoveryService.getFilespaceDisplayName(path);
+        } catch (error) {
+          console.warn(`Failed to detect filespace for ${path}:`, error.message);
+        }
+
         const result = await client.query(
-          `INSERT INTO files (path, name, parent_path, is_directory, size, modified_at, permissions, metadata, last_seen_session_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          `INSERT INTO files (path, name, parent_path, is_directory, size, modified_at, permissions, metadata, last_seen_session_id, filespace)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            ON CONFLICT (path) 
            DO UPDATE SET 
              name = EXCLUDED.name,
@@ -681,9 +714,10 @@ class FileModel {
              permissions = EXCLUDED.permissions,
              metadata = EXCLUDED.metadata,
              last_seen_session_id = EXCLUDED.last_seen_session_id,
+             filespace = EXCLUDED.filespace,
              updated_at = NOW()
            RETURNING *`,
-          [path, name, parent_path, is_directory, size, modified_at, permissions, JSON.stringify(metadata), sessionId]
+          [path, name, parent_path, is_directory, size, modified_at, permissions, JSON.stringify(metadata), sessionId, filespace]
         );
         results.push(result.rows[0]);
       }

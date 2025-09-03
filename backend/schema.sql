@@ -29,6 +29,9 @@ CREATE TABLE files (
     updated_at TIMESTAMP DEFAULT NOW(),
     last_seen_session_id INTEGER,
     
+    -- Multi-filespace support
+    filespace VARCHAR(255) DEFAULT 'unknown',
+    
     -- Additional metadata as JSON
     metadata JSONB DEFAULT '{}'
 );
@@ -91,6 +94,7 @@ CREATE INDEX idx_files_cached ON files USING btree(cached) WHERE cached = true;
 CREATE INDEX idx_files_is_directory ON files USING btree(is_directory);
 CREATE INDEX idx_files_path_search ON files USING gin(to_tsvector('english', path));
 CREATE INDEX idx_files_updated_at ON files USING btree(updated_at);
+CREATE INDEX idx_files_filespace ON files USING btree(filespace);
 
 CREATE INDEX idx_cache_jobs_status ON cache_jobs USING btree(status);
 CREATE INDEX idx_cache_jobs_created_at ON cache_jobs USING btree(created_at);
