@@ -143,11 +143,13 @@ echo -e "${BLUE}🛑 Stopping existing services...${NC}"
 docker compose down --remove-orphans 2>/dev/null || true
 
 # Step 4: Determine compose files to use
-COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.production.yml"
+# Base compose files for all deployments
+COMPOSE_CMD="docker compose -f docker-compose.yml"
 
 case $SSL_MODE in
     nginx)
-        COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.ssl.yml"
+        # For SSL nginx, use production.yml and ssl.yml (skip prod.yml to avoid port conflicts)
+        COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.production.yml -f docker-compose.ssl.yml"
         echo -e "${BLUE}🔐 Using nginx SSL configuration${NC}"
         
         # Check if SSL certificates exist
@@ -175,10 +177,13 @@ case $SSL_MODE in
         fi
         ;;
     caddy)
-        COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.caddy.yml"
+        # For Caddy SSL, use production.yml and caddy.yml (skip prod.yml to avoid port conflicts)
+        COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.production.yml -f docker-compose.caddy.yml"
         echo -e "${BLUE}🔐 Using Caddy auto-SSL configuration${NC}"
         ;;
     none)
+        # For non-SSL, use prod.yml and production.yml (port 8090)
+        COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.prod.yml -f docker-compose.production.yml"
         echo -e "${YELLOW}⚠️  Deploying without SSL${NC}"
         ;;
     *)
