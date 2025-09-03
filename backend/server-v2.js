@@ -565,7 +565,7 @@ app.get('/api/files', authService.requireAuth, async (req, res) => {
         cached: file.cached,
         // Add filespace information
         filespace_id: file.filespace_id || 1,
-        filespace_name: file.filespace_name || 'unknown',
+        filespace_name: file.filespace || 'unknown',
         mount_point: file.mount_point || (file.path?.startsWith('/media/lucidlink-2') ? '/media/lucidlink-2' : '/media/lucidlink-1')
       }));
     }
@@ -609,7 +609,7 @@ app.get('/api/files', authService.requireAuth, async (req, res) => {
         directoryCount: computedSize ? computedSize.directory_count : undefined,
         // Add filespace information from database
         filespace_id: dbFile?.filespace_id || 1,
-        filespace_name: dbFile?.filespace_name || 'unknown',
+        filespace_name: dbFile?.filespace || 'unknown',
         mount_point: dbFile?.mount_point || (dirPath.startsWith('/media/lucidlink-2') ? '/media/lucidlink-2' : '/media/lucidlink-1')
       };
     }));
