@@ -119,7 +119,7 @@ ENV NODE_ENV=production
 
 # Copy package files and npm config
 COPY tc-manager/backend/package*.json ./
-COPY tc-manager/backend/.npmrc ./ 2>/dev/null || true
+COPY tc-manager/backend/.npmrc ./
 
 # Install dependencies with optimization flags and suppressed warnings
 # Note: node-pty requires python3 and build-essential which are already installed
