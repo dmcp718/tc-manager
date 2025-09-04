@@ -13,50 +13,19 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# Function to read password with asterisk masking
-read_password() {
-    local prompt="$1"
-    local password=""
-    
-    echo -n "$prompt"
-    
-    # Use a more reliable method for password input
-    while true; do
-        read -r -s -n 1 char
-        
-        # Handle Enter (empty char means Enter was pressed)
-        if [[ -z $char ]]; then
-            break
-        # Handle backspace/delete
-        elif [[ $char == $'\x7f' ]] || [[ $char == $'\x08' ]]; then
-            if [ ${#password} -gt 0 ]; then
-                password="${password%?}"
-                echo -ne '\b \b'
-            fi
-        # Handle Ctrl+C
-        elif [[ $char == $'\x03' ]]; then
-            echo
-            exit 1
-        # Handle normal characters (printable ASCII)
-        elif [[ $char =~ [[:print:]] ]]; then
-            password+="$char"
-            echo -n '*'
-        fi
-    done
-    
-    echo
-    echo "$password"
-}
-
-# Function to read password with confirmation
+# Function to read password with confirmation (simple and reliable)
 read_password_confirm() {
     local prompt="$1"
     local password1=""
     local password2=""
     
     while true; do
-        password1=$(read_password "$prompt")
-        password2=$(read_password "Confirm password: ")
+        echo -n "$prompt"
+        read -s password1
+        echo
+        echo -n "Confirm password: "
+        read -s password2
+        echo
         
         if [[ "$password1" == "$password2" ]]; then
             echo "$password1"
