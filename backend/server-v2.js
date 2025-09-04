@@ -727,7 +727,8 @@ app.get('/api/search', authService.requireAuth, async (req, res) => {
       modified: file.modified_at,
       created: file.modified_at, // Use modified_at as fallback for created date
       extension: path.extname(file.path),
-      cached: file.cached
+      cached: file.cached,
+      filespace_name: file.filespace || 'unknown'
     }));
     
     // Verify filesystem existence for all results
