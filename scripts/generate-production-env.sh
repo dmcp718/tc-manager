@@ -17,26 +17,33 @@ NC='\033[0m'
 read_password() {
     local prompt="$1"
     local password=""
-    local char=""
     
     echo -n "$prompt"
     
-    while IFS= read -r -s -n1 char; do
-        # Handle backspace
-        if [[ $char == $'\x7f' ]] || [[ $char == $'\x08' ]]; then
+    # Use a more reliable method for password input
+    while true; do
+        read -r -s -n 1 char
+        
+        # Handle Enter (empty char means Enter was pressed)
+        if [[ -z $char ]]; then
+            break
+        # Handle backspace/delete
+        elif [[ $char == $'\x7f' ]] || [[ $char == $'\x08' ]]; then
             if [ ${#password} -gt 0 ]; then
                 password="${password%?}"
                 echo -ne '\b \b'
             fi
-        # Handle enter
-        elif [[ $char == $'\x0a' ]] || [[ $char == $'\x0d' ]] || [[ -z $char ]]; then
-            break
-        # Handle normal characters
-        else
+        # Handle Ctrl+C
+        elif [[ $char == $'\x03' ]]; then
+            echo
+            exit 1
+        # Handle normal characters (printable ASCII)
+        elif [[ $char =~ [[:print:]] ]]; then
             password+="$char"
             echo -n '*'
         fi
     done
+    
     echo
     echo "$password"
 }
