@@ -1500,13 +1500,18 @@ const BrowserView = ({ user, onLogout }) => {
     }
     
     try {
-      const files = await FileSystemAPI.getFiles(node.data.path);
+      const files = await FileSystemAPI.getFiles(node.data.path, node.data.filespace_id);
       const children = files
         .filter(file => file.isDirectory)
         .map(file => ({
           ...file,
           id: file.path,
           children: null, // Lazy load children
+          data: {
+            ...file,
+            filespace_id: node.data.filespace_id || file.filespace_id,
+            filespace_name: node.data.filespace_name || file.filespace_name
+          }
         }));
       return children;
     } catch (error) {
