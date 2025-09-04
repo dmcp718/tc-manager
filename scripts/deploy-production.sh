@@ -110,31 +110,22 @@ else
     exit 1
 fi
 
-# Step 2: Check if images exist, build if needed
+# Step 2: Always rebuild images for reliable deployment
 echo ""
-echo -e "${BLUE}🔍 Checking Docker images...${NC}"
-IMAGES_MISSING=false
-for IMAGE in tc-mgr-backend tc-mgr-frontend tc-mgr-api-gateway tc-mgr-varnish-stats; do
-    if ! docker image inspect $IMAGE >/dev/null 2>&1; then
-        echo -e "${YELLOW}⚠️  Image $IMAGE not found${NC}"
-        IMAGES_MISSING=true
-    fi
-done
+echo -e "${BLUE}🔨 Building Docker images (forcing fresh build for reliability)...${NC}"
+echo -e "${YELLOW}ℹ️  This clears all cache to ensure latest code changes are included${NC}"
 
-if [ "$IMAGES_MISSING" = true ]; then
-    echo ""
-    echo -e "${BLUE}🔨 Building required Docker images...${NC}"
-    echo -e "${YELLOW}ℹ️  This may take several minutes for first-time deployment${NC}"
-    
-    # Build images using docker compose (without compression/packaging)
-    if docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache; then
-        echo -e "${GREEN}✅ Images built successfully${NC}"
-    else
-        echo -e "${RED}❌ Build failed${NC}"
-        exit 1
-    fi
+# Clear all build cache and pull fresh base images for completely reliable builds
+echo -n "   Clearing Docker build cache... "
+docker builder prune -af >/dev/null 2>&1 || true
+echo -e "${GREEN}✅${NC}"
+
+# Build images using docker compose with aggressive no-cache options
+if docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache --pull; then
+    echo -e "${GREEN}✅ Images built successfully with fresh cache${NC}"
 else
-    echo -e "${GREEN}✅ Required images found${NC}"
+    echo -e "${RED}❌ Build failed${NC}"
+    exit 1
 fi
 
 # Step 3: Stop any existing deployment
