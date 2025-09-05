@@ -94,28 +94,50 @@ class CacheJobMonitor extends EventEmitter {
         return;
       }
 
-      // Find the filespace with the most active files
-      const mostActiveFilespace = result.rows[0];
-      const mountPoint = mostActiveFilespace.mount_point;
-      const instanceId = this.filespaceToInstance.get(mountPoint);
-
-      if (!instanceId) {
-        console.warn(`Unknown mount point in cache jobs: ${mountPoint}`);
-        return;
+      // Check if current instance still has active jobs
+      let currentInstanceHasJobs = false;
+      let currentInstanceActiveFiles = 0;
+      if (this.currentActiveFilespace) {
+        const currentMountPoint = Array.from(this.filespaceToInstance.entries())
+          .find(([_, instanceId]) => instanceId === this.currentActiveFilespace)?.[0];
+        
+        if (currentMountPoint) {
+          const currentStats = result.rows.find(row => row.mount_point === currentMountPoint);
+          if (currentStats) {
+            currentInstanceHasJobs = true;
+            currentInstanceActiveFiles = currentStats.active_files;
+          }
+        }
       }
 
-      // Check if we need to switch instances
-      if (this.currentActiveFilespace !== instanceId) {
-        console.log(`Active cache jobs detected on ${mountPoint} (instance ${instanceId}), ${mostActiveFilespace.active_files} files`);
-        this.currentActiveFilespace = instanceId;
-        
-        // Emit instance change event
-        this.emit('instance-change', {
-          instanceId: instanceId,
-          mountPoint: mountPoint,
-          activeFiles: mostActiveFilespace.active_files,
-          reason: 'active-cache-job'
-        });
+      // Only switch if current instance has no jobs or we have no current instance
+      if (!this.currentActiveFilespace || !currentInstanceHasJobs) {
+        // Find the filespace with the most active files for switching
+        const mostActiveFilespace = result.rows[0];
+        const mountPoint = mostActiveFilespace.mount_point;
+        const instanceId = this.filespaceToInstance.get(mountPoint);
+
+        if (!instanceId) {
+          console.warn(`Unknown mount point in cache jobs: ${mountPoint}`);
+          return;
+        }
+
+        // Switch to new instance
+        if (this.currentActiveFilespace !== instanceId) {
+          console.log(`Switching LucidLink stats monitoring: ${this.currentActiveFilespace || 'none'} -> ${instanceId} (${mostActiveFilespace.active_files} active files on ${mountPoint})`);
+          this.currentActiveFilespace = instanceId;
+          
+          // Emit instance change event
+          this.emit('instance-change', {
+            instanceId: instanceId,
+            mountPoint: mountPoint,
+            activeFiles: mostActiveFilespace.active_files,
+            reason: 'job-started-on-different-instance'
+          });
+        }
+      } else {
+        // Current instance still has jobs, stick with it
+        console.log(`Maintaining LucidLink stats on instance ${this.currentActiveFilespace} (${currentInstanceActiveFiles} active files)`);
       }
 
     } catch (error) {
