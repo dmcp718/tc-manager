@@ -13,30 +13,6 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# Function to read password with confirmation (simple and reliable)
-read_password_confirm() {
-    local prompt="$1"
-    local password1=""
-    local password2=""
-    
-    while true; do
-        echo -n "$prompt"
-        read -s password1
-        echo
-        echo -n "Confirm password: "
-        read -s password2
-        echo
-        
-        if [[ "$password1" == "$password2" ]]; then
-            echo "$password1"
-            break
-        else
-            echo -e "${RED}❌ Passwords don't match. Please try again.${NC}"
-            echo ""
-        fi
-    done
-}
-
 echo -e "${GREEN}🔐 Generating complete production .env file...${NC}"
 echo ""
 
@@ -68,7 +44,8 @@ read -p "Server hostname or IP (e.g., teamcache.example.com): " SERVER_HOST
 echo -e "\n${YELLOW}Configure Primary LucidLink Filespace:${NC}"
 read -p "LucidLink Filespace 1 (e.g., filespace.domain): " LUCIDLINK_FILESPACE_1
 read -p "LucidLink username 1 (email): " LUCIDLINK_USER_1
-LUCIDLINK_PASSWORD_1=$(read_password_confirm "LucidLink password 1: ")
+read -sp "LucidLink password 1: " LUCIDLINK_PASSWORD_1
+echo ""
 
 # Ask about second filespace (optional)
 read -p "Do you want to configure a second filespace? (y/N): " -n 1 -r
@@ -77,21 +54,20 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "\n${YELLOW}Configure Secondary LucidLink Filespace:${NC}"
     read -p "LucidLink Filespace 2 (e.g., filespace2.domain): " LUCIDLINK_FILESPACE_2
     read -p "LucidLink username 2 (email): " LUCIDLINK_USER_2
-    LUCIDLINK_PASSWORD_2=$(read_password_confirm "LucidLink password 2: ")
+    read -sp "LucidLink password 2: " LUCIDLINK_PASSWORD_2
+    echo ""
     ENABLE_SECOND_FILESPACE=true
 else
     ENABLE_SECOND_FILESPACE=false
     echo -e "${GREEN}✅ Configuring single filespace${NC}"
 fi
+read -sp "Web app admin user password (press Enter to generate random): " ADMIN_PASSWORD
 echo ""
-read -p "Set custom admin password? (press Enter to generate random): " -n 1 -r
-echo ""
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    ADMIN_PASSWORD=$(read_password_confirm "Web app admin password: ")
-    echo -e "${GREEN}✅ Using provided admin password${NC}"
-else
+if [ -z "$ADMIN_PASSWORD" ]; then
     ADMIN_PASSWORD=$(openssl rand -base64 12 | tr -d "=")
     echo -e "${GREEN}✅ Generated random admin password${NC}"
+else
+    echo -e "${GREEN}✅ Using provided admin password${NC}"
 fi
 read -p "Disable SSL/HTTPS? (For development only) (y/N): " -n 1 -r
 echo ""
