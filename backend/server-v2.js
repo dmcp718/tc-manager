@@ -49,6 +49,9 @@ const VarnishStatsWorker = require('./varnish-stats-worker');
 // Import media preview service
 const { MediaPreviewService } = require('./services/media-preview-service');
 
+// Import LucidLink discovery service
+const lucidLinkDiscoveryService = require('./services/lucidlink-discovery-service');
+
 // Import Elasticsearch client
 const ElasticsearchClient = require('./elasticsearch-client');
 
@@ -1698,35 +1701,39 @@ app.post('/api/config/apigateway/restart', authService.requireAuth, async (req, 
 // Helper function to get filespace information by mount point
 async function getFilespaceByMountPoint(mountPoint) {
   try {
-    const result = await pool.query(
-      'SELECT id, filespace_name, mount_point, instance_id FROM filespaces WHERE mount_point = $1 AND is_active = true',
-      [mountPoint]
-    );
+    // Use LucidLink Discovery Service to get actual filespace information
+    const filespaceInfo = await lucidLinkDiscoveryService.getFilespaceByMountPoint(mountPoint);
     
-    if (result.rows.length > 0) {
+    if (filespaceInfo) {
+      const filespaceId = mountPoint.includes('lucidlink-2') ? 2 : 1;
       return {
-        id: result.rows[0].id,
-        name: result.rows[0].filespace_name,
-        mount_point: result.rows[0].mount_point,
-        instance_id: result.rows[0].instance_id
+        id: filespaceId,
+        name: filespaceInfo.displayName, // Use actual filespace name from discovery
+        mount_point: mountPoint,
+        instance_id: filespaceInfo.instanceId ? parseInt(filespaceInfo.instanceId) : (filespaceId === 2 ? 2002 : 2001)
       };
     }
     
-    // Fallback for unknown mount points
+    // Fallback if discovery service fails
     const filespaceId = mountPoint.includes('lucidlink-2') ? 2 : 1;
+    const envFilespace = filespaceId === 2 ? process.env.LUCIDLINK_FILESPACE_2 : process.env.LUCIDLINK_FILESPACE_1;
+    
     return {
       id: filespaceId,
-      name: `unknown-${filespaceId}`,
+      name: envFilespace || `unknown-${filespaceId}`,
       mount_point: mountPoint,
       instance_id: filespaceId === 2 ? 2002 : 2001
     };
   } catch (error) {
-    logger.warn('Failed to get filespace info, using fallback', { mountPoint, error: error.message });
-    // Fallback
+    logger.warn('Failed to get filespace info, using environment fallback', { mountPoint, error: error.message });
+    
+    // Final fallback using environment variables
     const filespaceId = mountPoint.includes('lucidlink-2') ? 2 : 1;
+    const envFilespace = filespaceId === 2 ? process.env.LUCIDLINK_FILESPACE_2 : process.env.LUCIDLINK_FILESPACE_1;
+    
     return {
       id: filespaceId,
-      name: `fallback-${filespaceId}`,
+      name: envFilespace || `unknown-${filespaceId}`,
       mount_point: mountPoint,
       instance_id: filespaceId === 2 ? 2002 : 2001
     };
